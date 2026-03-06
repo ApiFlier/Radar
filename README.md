@@ -22,8 +22,12 @@ Ensure you have Git and Docker installed on your host machine.
 ```bash
 sudo apt update && sudo apt install -y docker.io docker-compose-v2
 ```
+# 2. Clone the Repo
+```bash
+git clone https://github.com/ApiFlier/RadarAPI.git && cd RadarAPI
+```
 
-# 2. Create your environment file (Replace with your actual FAA credentials)
+# 3. Create your environment file (Replace with your actual FAA credentials)
 ```bash
 cat << 'EOF' > .env
 # FAA Credentials
@@ -40,7 +44,7 @@ REDIS_HOST=flight-redis
 EOF
 ```
 
-# 3. Build and launch the entire microservices stack
+# 4. Build and launch the entire microservices stack
 ```bash
 docker compose up -d --build
 ```
