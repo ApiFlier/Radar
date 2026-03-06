@@ -16,8 +16,6 @@ This project is broken down into four lightweight Docker containers orchestrated
 
 To deploy this entire stack on a new Linux server or Raspberry Pi, just follow these steps.
 
-### 1. Prerequisites
-Ensure you have Git and Docker installed on your host machine.
 # 1. First Time Setup (run once)
 ```bash
 sudo apt update && sudo apt install -y docker.io docker-compose-v2 git && sudo usermod -aG docker $USER && newgrp docker && mkdir -p ~/radar-config && cat << 'EOF' > ~/radar-config/.env
