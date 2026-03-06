@@ -9,14 +9,56 @@
         body { margin: 0; padding: 0; background: #111; font-family: 'Segoe UI', sans-serif; }
         #map { width: 100vw; height: 100vh; }
         .plane-container { background: none; border: none; }
-        .plane-svg { filter: drop-shadow(0px 0px 3px #00ffcc); }
+
         #hud {
             position: fixed; top: 12px; left: 60px; z-index: 1000;
-            background: rgba(0,0,0,0.75); color: #00ffcc; padding: 8px 16px;
-            border-radius: 6px; font-size: 14px; pointer-events: none;
-            border: 1px solid rgba(0,255,204,0.2);
+            background: rgba(0,0,0,0.8); color: #00ffcc; padding: 10px 16px;
+            border-radius: 6px; font-size: 13px; pointer-events: none;
+            border: 1px solid rgba(0,255,204,0.2); min-width: 160px;
         }
-        #hud span { color: #fff; font-weight: bold; }
+        #hud .total { font-size: 16px; margin-bottom: 6px; }
+        #hud .total span { color: #fff; font-weight: bold; }
+        #hud .airlines { font-size: 11px; color: #aaa; line-height: 1.6; }
+        #hud .airlines span { color: #00ffcc; font-weight: bold; min-width: 30px; display: inline-block; text-align: right; margin-right: 4px; }
+
+        #search-box {
+            position: fixed; top: 12px; right: 12px; z-index: 1000;
+            display: flex; gap: 0;
+        }
+        #search-input {
+            background: rgba(0,0,0,0.8); color: #fff; border: 1px solid rgba(0,255,204,0.3);
+            border-radius: 6px 0 0 6px; padding: 8px 12px; font-size: 14px; width: 200px;
+            outline: none; font-family: 'Segoe UI', sans-serif;
+        }
+        #search-input::placeholder { color: #666; }
+        #search-input:focus { border-color: #00ffcc; }
+        #search-btn {
+            background: rgba(0,255,204,0.15); color: #00ffcc; border: 1px solid rgba(0,255,204,0.3);
+            border-left: none; border-radius: 0 6px 6px 0; padding: 8px 12px; cursor: pointer;
+            font-size: 14px;
+        }
+        #search-btn:hover { background: rgba(0,255,204,0.3); }
+        #search-results {
+            position: fixed; top: 48px; right: 12px; z-index: 1000;
+            background: rgba(0,0,0,0.9); border: 1px solid rgba(0,255,204,0.2);
+            border-radius: 6px; max-height: 300px; overflow-y: auto; display: none; width: 224px;
+        }
+        .search-result {
+            padding: 8px 12px; color: #ccc; cursor: pointer; font-size: 13px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .search-result:hover { background: rgba(0,255,204,0.1); color: #fff; }
+        .search-result .sr-call { color: #00ffcc; font-weight: bold; }
+        .search-result .sr-route { color: #888; font-size: 11px; }
+
+        #follow-bar {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 1000; background: rgba(0,0,0,0.85); color: #00ffcc;
+            padding: 8px 20px; border-radius: 20px; font-size: 13px;
+            border: 1px solid rgba(0,255,204,0.3); display: none; cursor: pointer;
+        }
+        #follow-bar:hover { background: rgba(0,255,204,0.15); }
+
         .leaflet-popup-content-wrapper {
             background: rgba(0,0,0,0.85); color: #ccc; border: 1px solid #00ffcc44;
             border-radius: 6px; font-size: 13px;
@@ -25,52 +67,182 @@
         .leaflet-popup-content b { color: #00ffcc; }
         .leaflet-popup-content .route { color: #fff; font-size: 14px; margin: 4px 0; }
         .leaflet-popup-content .meta { color: #888; font-size: 11px; }
+        .leaflet-popup-content .follow-link { color: #00ffcc; cursor: pointer; text-decoration: underline; font-size: 11px; }
     </style>
 </head>
 <body>
-    <div id="hud">Tracking <span id="count">0</span> aircraft</div>
+    <div id="hud">
+        <div class="total">Tracking <span id="count">0</span> aircraft (<span id="visible-count">0</span> visible)</div>
+        <div class="airlines" id="airline-stats"></div>
+    </div>
+    <div id="search-box">
+        <input type="text" id="search-input" placeholder="Callsign, airport, or airline">
+        <button id="search-btn">&#128269;</button>
+    </div>
+    <div id="search-results"></div>
+    <div id="follow-bar" onclick="stopFollow()">Following <span id="follow-name"></span> — click to stop</div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([39.8283, -98.5795], 5);
+        // Center on Verona/Pittsburgh
+        var map = L.map('map').setView([40.49, -79.84], 10);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; CARTO'
         }).addTo(map);
 
-        var planes = {};
+        // All plane DATA lives here (always tracked, even off-screen)
+        var planeData = {};
+        // Only planes with markers on the map
+        var planeMarkers = {};
         var activeTrail = null;
         var activeCallsign = null;
+        var followCallsign = null;
         var KNOTS_TO_DEG_SEC = 0.0000046296;
+        var currentBounds = null;
+        var BOUNDS_PAD = 0.3; // 30% padding so planes don't pop in right at the edge
 
-        function updateCount() {
-            document.getElementById('count').textContent = Object.keys(planes).length;
+        function updateBounds() {
+            currentBounds = map.getBounds().pad(BOUNDS_PAD);
+        }
+        updateBounds();
+
+        function isVisible(lat, lon) {
+            return currentBounds && currentBounds.contains([lat, lon]);
         }
 
+        // ---- ALTITUDE COLOR ----
+        function altColor(alt) {
+            var a = parseFloat(alt) || 0;
+            if (a < 5000) return '#3b82f6';
+            if (a < 15000) return '#06b6d4';
+            if (a < 25000) return '#00ffcc';
+            if (a < 35000) return '#a5f3fc';
+            return '#ffffff';
+        }
+
+        // ---- HUD ----
+        function updateHUD() {
+            var total = Object.keys(planeData).length;
+            var vis = Object.keys(planeMarkers).length;
+            document.getElementById('count').textContent = total;
+            document.getElementById('visible-count').textContent = vis;
+            var counts = {};
+            for (var id in planeData) {
+                var op = planeData[id].operator || '';
+                if (op) counts[op] = (counts[op] || 0) + 1;
+            }
+            var sorted = Object.entries(counts).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 6);
+            document.getElementById('airline-stats').innerHTML = sorted.map(function(e) {
+                return '<span>' + e[1] + '</span> ' + e[0];
+            }).join(' &middot; ');
+        }
+
+        // ---- FOLLOW MODE ----
+        function startFollow(callsign) {
+            followCallsign = callsign;
+            document.getElementById('follow-name').textContent = callsign;
+            document.getElementById('follow-bar').style.display = 'block';
+            var pd = planeData[callsign];
+            if (pd) map.setView([pd.lat, pd.lon], 11);
+            showTrail(callsign);
+        }
+
+        function stopFollow() {
+            followCallsign = null;
+            document.getElementById('follow-bar').style.display = 'none';
+            if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; activeCallsign = null; }
+        }
+
+        // ---- TRAIL ----
         function showTrail(callsign) {
             if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; }
             activeCallsign = callsign;
             fetch('/api/trail/' + callsign)
                 .then(function(res) { return res.json(); })
                 .then(function(points) {
-                    if (points.length > 1) {
+                    if (points.length > 0) {
                         var latlngs = points.map(function(p) {
                             return [parseFloat(p.lat), parseFloat(p.lon)];
                         });
-                        if (planes[callsign]) {
-                            latlngs.push([planes[callsign].lat, planes[callsign].lon]);
-                        }
+                        var pd = planeData[callsign];
+                        if (pd) latlngs.push([pd.lat, pd.lon]);
+                        var color = pd ? altColor(pd.alt) : '#00ffcc';
                         activeTrail = L.polyline(latlngs, {
-                            color: '#00ffcc', weight: 2, opacity: 0.5, dashArray: '6 4'
+                            color: color, weight: 2, opacity: 0.5, dashArray: '6 4'
                         }).addTo(map);
                     }
                 });
         }
 
         map.on('click', function() {
-            if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; activeCallsign = null; }
+            if (!followCallsign) {
+                if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; activeCallsign = null; }
+            }
         });
 
+        // ---- SEARCH ----
+        var searchInput = document.getElementById('search-input');
+        var searchResults = document.getElementById('search-results');
+
+        function doSearch() {
+            var q = searchInput.value.toUpperCase().trim();
+            if (!q) { searchResults.style.display = 'none'; return; }
+            var matches = [];
+            for (var id in planeData) {
+                var p = planeData[id];
+                if (id.toUpperCase().indexOf(q) !== -1 ||
+                    (p.dep && p.dep.toUpperCase().indexOf(q) !== -1) ||
+                    (p.arr && p.arr.toUpperCase().indexOf(q) !== -1) ||
+                    (p.operator && p.operator.toUpperCase().indexOf(q) !== -1)) {
+                    matches.push(p);
+                }
+                if (matches.length >= 20) break;
+            }
+            if (matches.length === 0) {
+                searchResults.innerHTML = '<div class="search-result" style="color:#666">No results</div>';
+            } else {
+                searchResults.innerHTML = matches.map(function(p) {
+                    var route = (p.dep || '') + (p.dep && p.arr ? ' \u2192 ' : '') + (p.arr || '');
+                    return '<div class="search-result" onclick="jumpTo(\'' + p.callsign + '\')">' +
+                           '<div class="sr-call">' + p.callsign + (p.operator ? ' (' + p.operator + ')' : '') + '</div>' +
+                           (route ? '<div class="sr-route">' + route + '</div>' : '') +
+                           '</div>';
+                }).join('');
+            }
+            searchResults.style.display = 'block';
+        }
+
+        function jumpTo(callsign) {
+            searchResults.style.display = 'none';
+            searchInput.value = '';
+            var pd = planeData[callsign];
+            if (pd) {
+                map.setView([pd.lat, pd.lon], 11);
+                // Ensure marker exists after pan
+                setTimeout(function() {
+                    syncVisiblePlanes();
+                    if (planeMarkers[callsign]) planeMarkers[callsign].openPopup();
+                    showTrail(callsign);
+                }, 300);
+            }
+        }
+
+        searchInput.addEventListener('input', doSearch);
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { searchResults.style.display = 'none'; searchInput.blur(); }
+            if (e.key === 'Enter') {
+                var first = searchResults.querySelector('.search-result[onclick]');
+                if (first) first.click();
+            }
+        });
+        document.addEventListener('click', function(e) {
+            if (!document.getElementById('search-box').contains(e.target) && !searchResults.contains(e.target)) {
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // ---- POPUP ----
         function vertArrow(alt, assigned) {
             var a = parseFloat(alt) || 0;
             var t = parseFloat(assigned) || 0;
@@ -89,110 +261,217 @@
         function popupContent(p) {
             var s = '<b>' + p.callsign + '</b>';
             if (p.operator) s += ' <span class="meta">(' + p.operator + ')</span>';
-
             if (p.dep || p.arr) {
                 s += '<div class="route">' + (p.dep || '???') + ' &#9992; ' + (p.arr || '???') + '</div>';
             }
-
             var altStr = Math.round(parseFloat(p.alt || 0)).toLocaleString();
             s += 'Alt: ' + altStr + ' ft' + vertArrow(p.alt, p.assigned_alt);
             if (p.assigned_alt && Math.abs(parseFloat(p.alt) - parseFloat(p.assigned_alt)) > 200) {
                 s += ' <span class="meta">(assigned ' + Math.round(parseFloat(p.assigned_alt)).toLocaleString() + ')</span>';
             }
-            s += '<br>';
-
-            s += 'Speed: ' + Math.round(parseFloat(p.speed || 0)) + ' kts';
+            s += '<br>Speed: ' + Math.round(parseFloat(p.speed || 0)) + ' kts';
             s += ' / Hdg: ' + Math.round(parseFloat(p.heading || 0)) + '&deg;<br>';
-
             if (p.dep_time) s += 'Departed: ' + fmtTime(p.dep_time) + '<br>';
             if (p.eta) s += 'ETA: ' + fmtTime(p.eta) + '<br>';
             if (p.icao_hex) s += '<span class="meta">ICAO: ' + p.icao_hex + '</span><br>';
-            if (p.source) s += '<span class="meta">' + p.source + '</span>';
-
+            if (p.source) s += '<span class="meta">' + p.source + '</span> ';
+            s += '<span class="follow-link" onclick="startFollow(\'' + p.callsign + '\')">follow</span>';
             return s;
         }
 
-        function updateOrCreatePlane(p) {
+        // ---- MARKER MANAGEMENT ----
+        function makePlaneIcon(id, heading, color) {
+            return L.divIcon({
+                className: 'plane-container',
+                html: '<div id="icon-' + id + '" style="transform:rotate(' + heading + 'deg);transition:transform 0.5s ease-out;">' +
+                      '<svg viewBox="0 0 24 24" width="22" height="22" fill="' + color + '" style="filter:drop-shadow(0px 0px 3px ' + color + ')">' +
+                      '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>' +
+                      '</svg></div>',
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            });
+        }
+
+        function addMarker(id) {
+            var p = planeData[id];
+            if (!p || planeMarkers[id]) return;
+            var color = altColor(p.alt);
+            var icon = makePlaneIcon(id, p.heading || 0, color);
+            var marker = L.marker([p.lat, p.lon], {icon: icon})
+                .bindPopup(popupContent(p))
+                .on('click', (function(cid) {
+                    return function() { showTrail(cid); };
+                })(id))
+                .addTo(map);
+            planeMarkers[id] = marker;
+            planeMarkers[id]._lastColor = color;
+        }
+
+        function removeMarker(id) {
+            if (planeMarkers[id]) {
+                map.removeLayer(planeMarkers[id]);
+                delete planeMarkers[id];
+            }
+        }
+
+        // Sync which markers are on the map based on current viewport
+        // At low zoom, thin out planes so only 1 per grid cell is shown
+        function syncVisiblePlanes() {
+            updateBounds();
+            var zoom = map.getZoom();
+
+            // Grid cell size in degrees — shrinks as you zoom in
+            // At zoom 5: ~2deg, zoom 8: ~0.25deg, zoom 10: ~0.06deg, zoom 12+: show all
+            var gridSize = zoom >= 12 ? 0 : 4 / Math.pow(2, zoom - 3);
+            var grid = {};
+
+            // First pass: decide which planes win each grid cell
+            var winners = {};
+            for (var id in planeData) {
+                var p = planeData[id];
+                if (!isVisible(p.lat, p.lon)) continue;
+
+                // Followed plane always wins
+                if (id === followCallsign) { winners[id] = true; continue; }
+                // Active trail plane always wins
+                if (id === activeCallsign) { winners[id] = true; continue; }
+
+                if (gridSize === 0) {
+                    winners[id] = true;
+                } else {
+                    var cellX = Math.floor(p.lon / gridSize);
+                    var cellY = Math.floor(p.lat / gridSize);
+                    var cellKey = cellX + ',' + cellY;
+                    if (!grid[cellKey]) {
+                        grid[cellKey] = id;
+                        winners[id] = true;
+                    }
+                    // Prefer faster planes (more interesting to see)
+                    else if (p.speed > (planeData[grid[cellKey]].speed || 0)) {
+                        winners[grid[cellKey]] = false;
+                        grid[cellKey] = id;
+                        winners[id] = true;
+                    }
+                }
+            }
+
+            // Second pass: add/remove markers
+            for (var id in planeData) {
+                if (winners[id]) {
+                    if (!planeMarkers[id]) addMarker(id);
+                } else {
+                    if (planeMarkers[id]) removeMarker(id);
+                }
+            }
+            updateHUD();
+        }
+
+        // ---- PROCESS INCOMING DATA ----
+        function processPlane(p) {
             var id = p.callsign;
-            var newLat = parseFloat(p.lat);
-            var newLon = parseFloat(p.lon);
+            var lat = parseFloat(p.lat);
+            var lon = parseFloat(p.lon);
             var speed = parseFloat(p.speed) || 0;
             var heading = parseFloat(p.heading) || 0;
             var timestamp = parseFloat(p.last_update) || 0;
 
-            if (!planes[id]) {
-                var icon = L.divIcon({
-                    className: 'plane-container',
-                    html: '<div id="icon-' + id + '" style="transform:rotate(' + heading + 'deg);transition:transform 0.5s ease-out;">' +
-                          '<svg class="plane-svg" viewBox="0 0 24 24" width="24" height="24" fill="#00ffcc">' +
-                          '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>' +
-                          '</svg></div>',
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 12]
-                });
-
-                var marker = L.marker([newLat, newLon], {icon: icon})
-                    .bindPopup(popupContent(p))
-                    .on('click', (function(cid) {
-                        return function() { showTrail(cid); };
-                    })(id))
-                    .addTo(map);
-
-                planes[id] = {
-                    marker: marker, lat: newLat, lon: newLon,
-                    heading: heading, speed: speed, lastUpdate: timestamp,
-                    data: p
+            // Always update the data store
+            if (!planeData[id]) {
+                planeData[id] = {
+                    callsign: id, lat: lat, lon: lon, speed: speed, heading: heading,
+                    lastUpdate: timestamp, alt: p.alt, assigned_alt: p.assigned_alt,
+                    dep: p.dep, arr: p.arr, dep_time: p.dep_time, eta: p.eta,
+                    faa_ts: p.faa_ts, flight_status: p.flight_status,
+                    operator: p.operator, icao_hex: p.icao_hex, source: p.source
                 };
-                updateCount();
             } else {
-                var plane = planes[id];
-                if (timestamp > plane.lastUpdate || timestamp === 0) {
-                    plane.lat = newLat;
-                    plane.lon = newLon;
-                    plane.speed = speed;
-                    plane.heading = heading;
-                    plane.lastUpdate = timestamp;
-                    plane.data = p;
-
-                    var iconDiv = document.getElementById('icon-' + id);
-                    if (iconDiv) { iconDiv.style.transform = 'rotate(' + heading + 'deg)'; }
-
-                    plane.marker.getPopup().setContent(popupContent(p));
+                var pd = planeData[id];
+                if (timestamp > pd.lastUpdate || timestamp === 0) {
+                    pd.lat = lat; pd.lon = lon; pd.speed = speed; pd.heading = heading;
+                    pd.lastUpdate = timestamp; pd.alt = p.alt; pd.assigned_alt = p.assigned_alt;
+                    pd.dep = p.dep || pd.dep; pd.arr = p.arr || pd.arr;
+                    pd.dep_time = p.dep_time || pd.dep_time; pd.eta = p.eta || pd.eta;
+                    pd.faa_ts = p.faa_ts; pd.flight_status = p.flight_status;
+                    pd.operator = p.operator || pd.operator;
+                    pd.icao_hex = p.icao_hex || pd.icao_hex;
+                    pd.source = p.source || pd.source;
                 }
             }
+
+            // Only update the marker if it exists on the map
+            if (planeMarkers[id]) {
+                var color = altColor(p.alt);
+                if (color !== planeMarkers[id]._lastColor) {
+                    planeMarkers[id].setIcon(makePlaneIcon(id, heading, color));
+                    planeMarkers[id]._lastColor = color;
+                } else {
+                    var iconDiv = document.getElementById('icon-' + id);
+                    if (iconDiv) iconDiv.style.transform = 'rotate(' + heading + 'deg)';
+                }
+                planeMarkers[id].getPopup().setContent(popupContent(planeData[id]));
+
+                if (followCallsign === id) {
+                    map.panTo([lat, lon], {animate: true, duration: 1});
+                }
+            } else if (isVisible(lat, lon)) {
+                addMarker(id);
+            }
         }
+
+        // ---- CLEAN STALE PLANES ----
+        function cleanStalePlanes() {
+            var now = Date.now() / 1000;
+            for (var id in planeData) {
+                if (now - planeData[id].lastUpdate > 600) {
+                    removeMarker(id);
+                    delete planeData[id];
+                }
+            }
+            updateHUD();
+        }
+
+        // ---- MAP MOVE HANDLER ----
+        map.on('moveend', syncVisiblePlanes);
+        map.on('zoomend', syncVisiblePlanes);
 
         // 1. Initial bulk load
         fetch('/api/planes')
             .then(function(res) { return res.json(); })
-            .then(function(data) { data.forEach(updateOrCreatePlane); });
+            .then(function(data) {
+                data.forEach(processPlane);
+                syncVisiblePlanes();
+            });
 
         // 2. Live stream
         var source = new EventSource("/api/stream");
         source.onmessage = function(event) {
-            updateOrCreatePlane(JSON.parse(event.data));
+            processPlane(JSON.parse(event.data));
         };
 
-        // 3. Physics engine — extrapolate between FAA updates
+        // 3. Physics engine — 30fps, only moves visible markers
         setInterval(function() {
-            for (var id in planes) {
-                var p = planes[id];
-                if (p.speed > 10) {
-                    var dist = p.speed * KNOTS_TO_DEG_SEC * 0.033;
-                    var rad = p.heading * Math.PI / 180;
-                    p.lat += dist * Math.cos(rad);
-                    p.lon += dist * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
-                    p.marker.setLatLng([p.lat, p.lon]);
+            for (var id in planeMarkers) {
+                var pd = planeData[id];
+                if (pd && pd.speed > 10) {
+                    var dist = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
+                    var rad = pd.heading * Math.PI / 180;
+                    pd.lat += dist * Math.cos(rad);
+                    pd.lon += dist * Math.sin(rad) / Math.cos(pd.lat * Math.PI / 180);
+                    planeMarkers[id].setLatLng([pd.lat, pd.lon]);
+                }
+                if (followCallsign === id) {
+                    map.panTo([pd.lat, pd.lon], {animate: false});
                 }
             }
         }, 33);
 
-        // 4. Refresh active trail
+        // 4. Refresh trail
         setInterval(function() {
-            if (activeCallsign && planes[activeCallsign]) {
-                showTrail(activeCallsign);
-            }
-        }, 30000);
+            if (activeCallsign && planeData[activeCallsign]) showTrail(activeCallsign);
+        }, 15000);
+
+        // 5. Clean stale every 2 min
+        setInterval(cleanStalePlanes, 120000);
     </script>
 </body>
 </html>

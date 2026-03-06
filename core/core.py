@@ -7,6 +7,7 @@ AIRBORNE_SPEED = 40
 TRAIL_INTERVAL = 30
 PLANE_TTL = 86400
 TRAIL_TTL = 300
+DROPPED_TTL = 300  # 5 minutes for planes that left tracking
 
 r = redis.Redis(host=os.getenv('REDIS_HOST', 'localhost'), port=6379, decode_responses=True)
 
@@ -25,6 +26,7 @@ def process_message(data):
 
     now = time.time()
     speed = float(plane.get("speed", 0))
+    status = plane.get("flight_status", "")
 
     # ---- CURRENT POSITION ----
     key = f"plane:{callsign}"
@@ -43,19 +45,24 @@ def process_message(data):
         "dep_time": plane.get("dep_time", ""),
         "eta": plane.get("eta", ""),
         "faa_ts": plane.get("faa_ts", ""),
-        "flight_status": plane.get("flight_status", ""),
+        "flight_status": status,
         "operator": plane.get("operator", ""),
         "icao_hex": plane.get("icao_hex", ""),
         "source": plane.get("source", ""),
         "last_update": now
     })
-    r.expire(key, PLANE_TTL)
+
+    # DROPPED planes expire in 5 min, active planes in 24hr
+    if status == "DROPPED":
+        r.expire(key, DROPPED_TTL)
+    else:
+        r.expire(key, PLANE_TTL)
 
     # Broadcast to frontend
     r.publish("planes_out", json.dumps(plane))
 
     # ---- TRAIL HISTORY ----
-    if speed > AIRBORNE_SPEED:
+    if speed > AIRBORNE_SPEED and status != "DROPPED":
         last_append = trail_timers.get(callsign, 0)
         if now - last_append >= TRAIL_INTERVAL:
             trail_key = f"trail:{callsign}"
@@ -75,7 +82,7 @@ def run():
     pubsub.subscribe("live_planes")
     logger.info("Core worker subscribed to live_planes channel")
     logger.info(f"Trail: every {TRAIL_INTERVAL}s when speed > {AIRBORNE_SPEED}kts, TTL {TRAIL_TTL}s")
-    logger.info(f"Position: TTL {PLANE_TTL}s (24hr)")
+    logger.info(f"Position: TTL {PLANE_TTL}s (24hr), DROPPED TTL {DROPPED_TTL}s (5min)")
 
     for message in pubsub.listen():
         if message["type"] == "message":
