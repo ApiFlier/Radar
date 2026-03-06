@@ -20,8 +20,7 @@ To deploy this entire stack on a new Linux server or Raspberry Pi, just follow t
 Ensure you have Git and Docker installed on your host machine.
 # 1. Install Docker and Docker Compose
 ```bash
-sudo apt update
-sudo apt install -y docker.io docker-compose-v2
+sudo apt update && sudo apt install -y docker.io docker-compose-v2
 ```
 
 # 2. Create your environment file (Replace with your actual FAA credentials)
@@ -30,16 +29,12 @@ cat << 'EOF' > .env
 # FAA Credentials
 FAA_USER=
 FAA_PASS=
-```
 
 # Queue Names (Get these from your FAA SCDS Dashboard)
-```bash
 QUEUE_SFDPS=
 QUEUE_STDDS=
-```
 
 # Connection Info
-```bash
 FAA_URL=tcps://ems1.swim.faa.gov:55443
 REDIS_HOST=flight-redis
 EOF
