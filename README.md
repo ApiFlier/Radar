@@ -18,24 +18,9 @@ To deploy this entire stack on a new Linux server or Raspberry Pi, just follow t
 
 ### 1. Prerequisites
 Ensure you have Git and Docker installed on your host machine.
-# 1. Install Docker and Docker Compose
+# 1. First Time Setup (run once)
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2
-```
-
-# 2. Let your user run Docker without sudo
-```bash
-sudo usermod -aG docker $USER && newgrp docker
-```
-
-# 3. Clone the Repo
-```bash
-git clone https://github.com/ApiFlier/RadarAPI.git && cd RadarAPI
-```
-
-# 4. Create your environment file (Replace with your actual FAA credentials)
-```bash
-cat << 'EOF' > .env
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git && sudo usermod -aG docker $USER && newgrp docker && mkdir -p ~/radar-config && cat << 'EOF' > ~/radar-config/.env
 # FAA Credentials
 FAA_USER=meeksfamily06.outlook.com
 FAA_PASS=AIXRocgWTkmWwKDI-RYH9Q
@@ -50,12 +35,17 @@ REDIS_HOST=flight-redis
 EOF
 ```
 
-# 5. Build and launch the entire microservices stack
+# 2. Deploy / Update
 ```bash
-docker compose up -d --build
+git clone https://github.com/ApiFlier/RadarAPI.git && cd RadarAPI && cp ~/radar-config/.env . && docker compose up -d --build && cp docker-compose.yml .env ~/radar-config/ && cd ~ && rm -rf RadarAPI
 ```
 
-# 6. Verify
+# 3. Day to Day Management
 ```bash
-docker compose ps
+cd ~/radar-config
+docker compose ps          # status
+docker compose logs -f     # watch logs
+docker compose restart     # restart all
+docker compose down        # stop everything
 ```
+
