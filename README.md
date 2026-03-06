@@ -13,29 +13,40 @@ This project is broken down into four lightweight Docker containers orchestrated
 3. **`flight-core`**: A background Python worker that subscribes to the live feed, manages the 24-hour TTL state of every plane, and records historical breadcrumb trails for aircraft traveling over 40 knots.
 4. **`flight-web`**: A Flask server that provides a REST API for bulk loads and a Server-Sent Events (SSE) `/api/stream` endpoint. The frontend uses `Leaflet.js` with a custom physics engine to smoothly animate (dead-reckon) SVG aircraft across the screen between radar pings.
 
-## 🚀 Quick Start Guide
 
 To deploy this entire stack on a new Linux server or Raspberry Pi, just follow these steps.
 
 ### 1. Prerequisites
 Ensure you have Git and Docker installed on your host machine.
+# 1. Install Docker and Docker Compose
 ```bash
 sudo apt update
-sudo apt install git docker.io docker-compose-v2
+sudo apt install -y docker.io docker-compose-v2
+```
 
+# 2. Create your environment file (Replace with your actual FAA credentials)
+```bash
 cat << 'EOF' > .env
 # FAA Credentials
 FAA_USER=your_email@domain.com
 FAA_PASS=your_secret_password
+```
 
 # Queue Names (Get these from your FAA SCDS Dashboard)
+```bash
 QUEUE_SFDPS=your_email@domain.com.FDPS.your-uuid.OUT
 QUEUE_STDDS=your_email@domain.com.STDDS.your-uuid.OUT
+```
 
 # Connection Info
+```bash
 FAA_URL=tcps://ems1.swim.faa.gov:55443
 REDIS_HOST=flight-redis
 EOF
+```
 
+# 3. Build and launch the entire microservices stack
+```bash
 docker compose up -d --build
+```
 
