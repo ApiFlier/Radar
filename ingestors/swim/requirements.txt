@@ -1,0 +1,4 @@
+solace-pubsubplus
+redis
+python-dotenv
+lxml
