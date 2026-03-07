@@ -87,8 +87,8 @@
     <script>
         // Center on Verona/Pittsburgh
         var map = L.map('map').setView([40.49, -79.84], 10);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; CARTO'
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; CARTOcopy; Esri'
         }).addTo(map);
 
         // All plane DATA lives here (always tracked, even off-screen)
@@ -112,8 +112,10 @@
         }
 
         // ---- ALTITUDE COLOR ----
-        function altColor(alt) {
+        function altColor(alt, speed) {
             var a = parseFloat(alt) || 0;
+            var s = parseFloat(speed) || 0;
+            if (s < 40) return '#666666';           // grey - on ground / taxi
             if (a < 5000) return '#3b82f6';
             if (a < 15000) return '#06b6d4';
             if (a < 25000) return '#00ffcc';
@@ -144,7 +146,7 @@
             document.getElementById('follow-name').textContent = callsign;
             document.getElementById('follow-bar').style.display = 'block';
             var pd = planeData[callsign];
-            if (pd) map.setView([pd.lat, pd.lon], 11);
+            if (pd) map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 11));
             showTrail(callsign);
         }
 
@@ -167,7 +169,7 @@
                         });
                         var pd = planeData[callsign];
                         if (pd) latlngs.push([pd.lat, pd.lon]);
-                        var color = pd ? altColor(pd.alt) : '#00ffcc';
+                        var color = pd ? altColor(pd.alt, pd.speed) : '#00ffcc';
                         activeTrail = L.polyline(latlngs, {
                             color: color, weight: 2, opacity: 0.5, dashArray: '6 4'
                         }).addTo(map);
@@ -218,7 +220,7 @@
             searchInput.value = '';
             var pd = planeData[callsign];
             if (pd) {
-                map.setView([pd.lat, pd.lon], 11);
+                map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 11));
                 // Ensure marker exists after pan
                 setTimeout(function() {
                     syncVisiblePlanes();
@@ -295,7 +297,7 @@
         function addMarker(id) {
             var p = planeData[id];
             if (!p || planeMarkers[id]) return;
-            var color = altColor(p.alt);
+            var color = altColor(p.alt, p.speed);
             var icon = makePlaneIcon(id, p.heading || 0, color);
             var marker = L.marker([p.lat, p.lon], {icon: icon})
                 .bindPopup(popupContent(p))
@@ -356,10 +358,12 @@
             }
 
             // Second pass: add/remove markers
+            // Keep existing markers even if they lost the grid cell (reduces jitter)
             for (var id in planeData) {
+                var vis = isVisible(planeData[id].lat, planeData[id].lon);
                 if (winners[id]) {
                     if (!planeMarkers[id]) addMarker(id);
-                } else {
+                } else if (!vis && id !== followCallsign && id !== activeCallsign) {
                     if (planeMarkers[id]) removeMarker(id);
                 }
             }
@@ -400,7 +404,7 @@
 
             // Only update the marker if it exists on the map
             if (planeMarkers[id]) {
-                var color = altColor(p.alt);
+                var color = altColor(p.alt, p.speed);
                 if (color !== planeMarkers[id]._lastColor) {
                     planeMarkers[id].setIcon(makePlaneIcon(id, heading, color));
                     planeMarkers[id]._lastColor = color;
@@ -422,7 +426,11 @@
         function cleanStalePlanes() {
             var now = Date.now() / 1000;
             for (var id in planeData) {
-                if (now - planeData[id].lastUpdate > 600) {
+                var age = now - planeData[id].lastUpdate;
+                // Only remove from frontend after 1 hour of no updates
+                // Redis handles the real 24hr / 5min DROPPED TTL
+                if (age > 3600) {
+                    if (followCallsign === id) stopFollow();
                     removeMarker(id);
                     delete planeData[id];
                 }
@@ -449,10 +457,14 @@
         };
 
         // 3. Physics engine — 30fps, only moves visible markers
+        // Stop extrapolating if no FAA update in 60 seconds (plane probably landed or left coverage)
         setInterval(function() {
+            var now = Date.now() / 1000;
             for (var id in planeMarkers) {
                 var pd = planeData[id];
-                if (pd && pd.speed > 10) {
+                if (!pd) continue;
+                var age = now - pd.lastUpdate;
+                if (pd.speed > 10 && age < 60) {
                     var dist = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
                     var rad = pd.heading * Math.PI / 180;
                     pd.lat += dist * Math.cos(rad);
@@ -465,9 +477,13 @@
             }
         }, 33);
 
-        // 4. Refresh trail
+        // 4. Refresh trail — only for airborne planes
         setInterval(function() {
-            if (activeCallsign && planeData[activeCallsign]) showTrail(activeCallsign);
+            if (activeCallsign && planeData[activeCallsign]) {
+                if (planeData[activeCallsign].speed >= 40) {
+                    showTrail(activeCallsign);
+                }
+            }
         }, 15000);
 
         // 5. Clean stale every 2 min
