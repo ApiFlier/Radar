@@ -7,7 +7,8 @@ AIRBORNE_SPEED = 40
 TRAIL_INTERVAL = 30
 PLANE_TTL = 86400
 TRAIL_TTL = 300
-DROPPED_TTL = 300  # 5 minutes for planes that left tracking
+DROPPED_TTL = 300
+ICAO_TTL = 172800  # 48 hours — keep mapping alive across multiple flights
 
 r = redis.Redis(host=os.getenv('REDIS_HOST', 'localhost'), port=6379, decode_responses=True)
 
@@ -27,6 +28,20 @@ def process_message(data):
     now = time.time()
     speed = float(plane.get("speed", 0))
     status = plane.get("flight_status", "")
+    icao_hex = plane.get("icao_hex", "")
+
+    # ---- ICAO LOOKUP TABLE ----
+    # Build a mapping from ICAO hex to callsign so STDDS can resolve ground tracks
+    if icao_hex and len(icao_hex) == 6:
+        icao_key = f"icao:{icao_hex}"
+        r.hset(icao_key, mapping={
+            "callsign": callsign,
+            "operator": plane.get("operator", ""),
+            "dep": plane.get("dep", ""),
+            "arr": plane.get("arr", ""),
+            "last_seen": now
+        })
+        r.expire(icao_key, ICAO_TTL)
 
     # ---- CURRENT POSITION ----
     key = f"plane:{callsign}"
@@ -47,12 +62,11 @@ def process_message(data):
         "faa_ts": plane.get("faa_ts", ""),
         "flight_status": status,
         "operator": plane.get("operator", ""),
-        "icao_hex": plane.get("icao_hex", ""),
+        "icao_hex": icao_hex,
         "source": plane.get("source", ""),
         "last_update": now
     })
 
-    # DROPPED planes expire in 5 min, active planes in 24hr
     if status == "DROPPED":
         r.expire(key, DROPPED_TTL)
     else:
@@ -82,7 +96,8 @@ def run():
     pubsub.subscribe("live_planes")
     logger.info("Core worker subscribed to live_planes channel")
     logger.info(f"Trail: every {TRAIL_INTERVAL}s when speed > {AIRBORNE_SPEED}kts, TTL {TRAIL_TTL}s")
-    logger.info(f"Position: TTL {PLANE_TTL}s (24hr), DROPPED TTL {DROPPED_TTL}s (5min)")
+    logger.info(f"Position: TTL {PLANE_TTL}s, DROPPED TTL {DROPPED_TTL}s")
+    logger.info(f"ICAO lookup: TTL {ICAO_TTL}s (48hr)")
 
     for message in pubsub.listen():
         if message["type"] == "message":
