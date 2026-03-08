@@ -27,7 +27,7 @@
         }
         #search-input {
             background: rgba(0,0,0,0.8); color: #fff; border: 1px solid rgba(0,255,204,0.3);
-            border-radius: 6px 0 0 6px; padding: 8px 12px; font-size: 14px; width: 200px;
+            border-radius: 6px 0 0 6px; padding: 8px 12px; font-size: 14px; width: 220px;
             outline: none; font-family: 'Segoe UI', sans-serif;
         }
         #search-input::placeholder { color: #666; }
@@ -41,7 +41,7 @@
         #search-results {
             position: fixed; top: 48px; right: 12px; z-index: 1000;
             background: rgba(0,0,0,0.9); border: 1px solid rgba(0,255,204,0.2);
-            border-radius: 6px; max-height: 300px; overflow-y: auto; display: none; width: 224px;
+            border-radius: 6px; max-height: 300px; overflow-y: auto; display: none; width: 260px;
         }
         .search-result {
             padding: 8px 12px; color: #ccc; cursor: pointer; font-size: 13px;
@@ -76,7 +76,7 @@
         <div class="airlines" id="airline-stats"></div>
     </div>
     <div id="search-box">
-        <input type="text" id="search-input" placeholder="Callsign, airport, or airline">
+        <input type="text" id="search-input" placeholder="Callsign, airport, airline, flight ID">
         <button id="search-btn">&#128269;</button>
     </div>
     <div id="search-results"></div>
@@ -85,22 +85,19 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Center on Verona/Pittsburgh
         var map = L.map('map').setView([40.49, -79.84], 10);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '&copy; CARTOcopy; Esri'
+            attribution: '&copy; Esri'
         }).addTo(map);
 
-        // All plane DATA lives here (always tracked, even off-screen)
         var planeData = {};
-        // Only planes with markers on the map
         var planeMarkers = {};
         var activeTrail = null;
-        var activeCallsign = null;
-        var followCallsign = null;
+        var activeFlightId = null;
+        var followFlightId = null;
         var KNOTS_TO_DEG_SEC = 0.0000046296;
         var currentBounds = null;
-        var BOUNDS_PAD = 0.3; // 30% padding so planes don't pop in right at the edge
+        var BOUNDS_PAD = 0.3;
 
         function updateBounds() {
             currentBounds = map.getBounds().pad(BOUNDS_PAD);
@@ -111,11 +108,10 @@
             return currentBounds && currentBounds.contains([lat, lon]);
         }
 
-        // ---- ALTITUDE COLOR ----
         function altColor(alt, speed) {
             var a = parseFloat(alt) || 0;
             var s = parseFloat(speed) || 0;
-            if (s < 40) return '#666666';           // grey - on ground / taxi
+            if (s < 40) return '#666666';
             if (a < 5000) return '#3b82f6';
             if (a < 15000) return '#06b6d4';
             if (a < 25000) return '#00ffcc';
@@ -123,169 +119,220 @@
             return '#ffffff';
         }
 
-        // ---- HUD ----
+        function displayName(p) {
+            return p.callsign || p.flight_id || 'UNKNOWN';
+        }
+
         function updateHUD() {
             var total = Object.keys(planeData).length;
             var vis = Object.keys(planeMarkers).length;
             document.getElementById('count').textContent = total;
             document.getElementById('visible-count').textContent = vis;
+
             var counts = {};
             for (var id in planeData) {
                 var op = planeData[id].operator || '';
                 if (op) counts[op] = (counts[op] || 0) + 1;
             }
+
             var sorted = Object.entries(counts).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 6);
             document.getElementById('airline-stats').innerHTML = sorted.map(function(e) {
                 return '<span>' + e[1] + '</span> ' + e[0];
             }).join(' &middot; ');
         }
 
-        // ---- FOLLOW MODE ----
-        function startFollow(callsign) {
-            followCallsign = callsign;
-            document.getElementById('follow-name').textContent = callsign;
+        function startFollow(flightId) {
+            followFlightId = flightId;
+            var pd = planeData[flightId];
+            document.getElementById('follow-name').textContent = pd ? displayName(pd) : flightId;
             document.getElementById('follow-bar').style.display = 'block';
-            var pd = planeData[callsign];
             if (pd) map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 11));
-            showTrail(callsign);
+            showTrail(flightId);
         }
 
         function stopFollow() {
-            followCallsign = null;
+            followFlightId = null;
             document.getElementById('follow-bar').style.display = 'none';
-            if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; activeCallsign = null; }
+            if (activeTrail) {
+                map.removeLayer(activeTrail);
+                activeTrail = null;
+                activeFlightId = null;
+            }
         }
 
-        // ---- TRAIL ----
-        function showTrail(callsign) {
-            if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; }
-            activeCallsign = callsign;
-            fetch('/api/trail/' + callsign)
+        function showTrail(flightId) {
+            if (activeTrail) {
+                map.removeLayer(activeTrail);
+                activeTrail = null;
+            }
+
+            activeFlightId = flightId;
+
+            fetch('/api/trail/' + encodeURIComponent(flightId))
                 .then(function(res) { return res.json(); })
                 .then(function(points) {
                     if (points.length > 0) {
                         var latlngs = points.map(function(p) {
                             return [parseFloat(p.lat), parseFloat(p.lon)];
                         });
-                        var pd = planeData[callsign];
+
+                        var pd = planeData[flightId];
                         if (pd) latlngs.push([pd.lat, pd.lon]);
+
                         var color = pd ? altColor(pd.alt, pd.speed) : '#00ffcc';
                         activeTrail = L.polyline(latlngs, {
-                            color: color, weight: 2, opacity: 0.5, dashArray: '6 4'
+                            color: color,
+                            weight: 2,
+                            opacity: 0.5,
+                            dashArray: '6 4'
                         }).addTo(map);
                     }
                 });
         }
 
         map.on('click', function() {
-            if (!followCallsign) {
-                if (activeTrail) { map.removeLayer(activeTrail); activeTrail = null; activeCallsign = null; }
+            if (!followFlightId && activeTrail) {
+                map.removeLayer(activeTrail);
+                activeTrail = null;
+                activeFlightId = null;
             }
         });
 
-        // ---- SEARCH ----
         var searchInput = document.getElementById('search-input');
         var searchResults = document.getElementById('search-results');
 
         function doSearch() {
             var q = searchInput.value.toUpperCase().trim();
-            if (!q) { searchResults.style.display = 'none'; return; }
+            if (!q) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
             var matches = [];
             for (var id in planeData) {
                 var p = planeData[id];
-                if (id.toUpperCase().indexOf(q) !== -1 ||
-                    (p.dep && p.dep.toUpperCase().indexOf(q) !== -1) ||
-                    (p.arr && p.arr.toUpperCase().indexOf(q) !== -1) ||
-                    (p.operator && p.operator.toUpperCase().indexOf(q) !== -1)) {
+                var name = (p.callsign || '').toUpperCase();
+                var fid = (p.flight_id || '').toUpperCase();
+                var dep = (p.dep || '').toUpperCase();
+                var arr = (p.arr || '').toUpperCase();
+                var op = (p.operator || '').toUpperCase();
+
+                if (
+                    name.indexOf(q) !== -1 ||
+                    fid.indexOf(q) !== -1 ||
+                    dep.indexOf(q) !== -1 ||
+                    arr.indexOf(q) !== -1 ||
+                    op.indexOf(q) !== -1
+                ) {
                     matches.push(p);
                 }
+
                 if (matches.length >= 20) break;
             }
+
             if (matches.length === 0) {
                 searchResults.innerHTML = '<div class="search-result" style="color:#666">No results</div>';
             } else {
                 searchResults.innerHTML = matches.map(function(p) {
-                    var route = (p.dep || '') + (p.dep && p.arr ? ' \u2192 ' : '') + (p.arr || '');
-                    return '<div class="search-result" onclick="jumpTo(\'' + p.callsign + '\')">' +
-                           '<div class="sr-call">' + p.callsign + (p.operator ? ' (' + p.operator + ')' : '') + '</div>' +
+                    var route = (p.dep || '') + (p.dep && p.arr ? ' → ' : '') + (p.arr || '');
+                    return '<div class="search-result" onclick="jumpTo(\'' + encodeURIComponent(p.flight_id) + '\')">' +
+                           '<div class="sr-call">' + displayName(p) + (p.operator ? ' (' + p.operator + ')' : '') + '</div>' +
                            (route ? '<div class="sr-route">' + route + '</div>' : '') +
+                           '<div class="sr-route">' + p.flight_id + '</div>' +
                            '</div>';
                 }).join('');
             }
+
             searchResults.style.display = 'block';
         }
 
-        function jumpTo(callsign) {
+        function jumpTo(encodedFlightId) {
+            var flightId = decodeURIComponent(encodedFlightId);
             searchResults.style.display = 'none';
             searchInput.value = '';
-            var pd = planeData[callsign];
+
+            var pd = planeData[flightId];
             if (pd) {
                 map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 11));
-                // Ensure marker exists after pan
                 setTimeout(function() {
                     syncVisiblePlanes();
-                    if (planeMarkers[callsign]) planeMarkers[callsign].openPopup();
-                    showTrail(callsign);
+                    if (planeMarkers[flightId]) planeMarkers[flightId].openPopup();
+                    showTrail(flightId);
                 }, 300);
             }
         }
 
         searchInput.addEventListener('input', doSearch);
         searchInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') { searchResults.style.display = 'none'; searchInput.blur(); }
+            if (e.key === 'Escape') {
+                searchResults.style.display = 'none';
+                searchInput.blur();
+            }
             if (e.key === 'Enter') {
                 var first = searchResults.querySelector('.search-result[onclick]');
                 if (first) first.click();
             }
         });
+
         document.addEventListener('click', function(e) {
             if (!document.getElementById('search-box').contains(e.target) && !searchResults.contains(e.target)) {
                 searchResults.style.display = 'none';
             }
         });
 
-        // ---- POPUP ----
         function vertArrow(alt, assigned) {
             var a = parseFloat(alt) || 0;
             var t = parseFloat(assigned) || 0;
             if (!t || Math.abs(a - t) < 200) return '';
-            return a < t ? ' &#9650;' : ' &#9660;';
+            return a < t ? ' ▲' : ' ▼';
         }
 
         function fmtTime(iso) {
             if (!iso) return '';
             try {
                 var d = new Date(iso);
-                return d.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', timeZoneName: 'short'});
-            } catch(e) { return ''; }
+                return d.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZoneName: 'short'
+                });
+            } catch(e) {
+                return '';
+            }
         }
 
         function popupContent(p) {
-            var s = '<b>' + p.callsign + '</b>';
+            var s = '<b>' + displayName(p) + '</b>';
             if (p.operator) s += ' <span class="meta">(' + p.operator + ')</span>';
+
             if (p.dep || p.arr) {
-                s += '<div class="route">' + (p.dep || '???') + ' &#9992; ' + (p.arr || '???') + '</div>';
+                s += '<div class="route">' + (p.dep || '???') + ' ✈ ' + (p.arr || '???') + '</div>';
             }
+
             var altStr = Math.round(parseFloat(p.alt || 0)).toLocaleString();
             s += 'Alt: ' + altStr + ' ft' + vertArrow(p.alt, p.assigned_alt);
-            if (p.assigned_alt && Math.abs(parseFloat(p.alt) - parseFloat(p.assigned_alt)) > 200) {
+
+            if (p.assigned_alt && Math.abs(parseFloat(p.alt || 0) - parseFloat(p.assigned_alt || 0)) > 200) {
                 s += ' <span class="meta">(assigned ' + Math.round(parseFloat(p.assigned_alt)).toLocaleString() + ')</span>';
             }
+
             s += '<br>Speed: ' + Math.round(parseFloat(p.speed || 0)) + ' kts';
-            s += ' / Hdg: ' + Math.round(parseFloat(p.heading || 0)) + '&deg;<br>';
+            s += ' / Hdg: ' + Math.round(parseFloat(p.heading || 0)) + '°<br>';
+
             if (p.dep_time) s += 'Departed: ' + fmtTime(p.dep_time) + '<br>';
             if (p.eta) s += 'ETA: ' + fmtTime(p.eta) + '<br>';
             if (p.icao_hex) s += '<span class="meta">ICAO: ' + p.icao_hex + '</span><br>';
+            if (p.flight_id) s += '<span class="meta">ID: ' + p.flight_id + '</span><br>';
             if (p.source) s += '<span class="meta">' + p.source + '</span> ';
-            s += '<span class="follow-link" onclick="startFollow(\'' + p.callsign + '\')">follow</span>';
+
+            s += '<span class="follow-link" onclick="startFollow(\'' + p.flight_id.replace(/'/g, "\\'") + '\')">follow</span>';
             return s;
         }
 
-        // ---- MARKER MANAGEMENT ----
         function makePlaneIcon(id, heading, color) {
             return L.divIcon({
                 className: 'plane-container',
-                html: '<div id="icon-' + id + '" style="transform:rotate(' + heading + 'deg);transition:transform 0.5s ease-out;">' +
+                html: '<div id="icon-' + cssSafe(id) + '" style="transform:rotate(' + heading + 'deg);transition:transform 0.5s ease-out;">' +
                       '<svg viewBox="0 0 24 24" width="22" height="22" fill="' + color + '" style="filter:drop-shadow(0px 0px 3px ' + color + ')">' +
                       '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>' +
                       '</svg></div>',
@@ -294,17 +341,24 @@
             });
         }
 
+        function cssSafe(value) {
+            return String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
+        }
+
         function addMarker(id) {
             var p = planeData[id];
             if (!p || planeMarkers[id]) return;
+
             var color = altColor(p.alt, p.speed);
             var icon = makePlaneIcon(id, p.heading || 0, color);
+
             var marker = L.marker([p.lat, p.lon], {icon: icon})
                 .bindPopup(popupContent(p))
-                .on('click', (function(cid) {
-                    return function() { showTrail(cid); };
+                .on('click', (function(fid) {
+                    return function() { showTrail(fid); };
                 })(id))
                 .addTo(map);
+
             planeMarkers[id] = marker;
             planeMarkers[id]._lastColor = color;
         }
@@ -316,27 +370,19 @@
             }
         }
 
-        // Sync which markers are on the map based on current viewport
-        // At low zoom, thin out planes so only 1 per grid cell is shown
         function syncVisiblePlanes() {
             updateBounds();
             var zoom = map.getZoom();
-
-            // Grid cell size in degrees — shrinks as you zoom in
-            // At zoom 5: ~2deg, zoom 8: ~0.25deg, zoom 10: ~0.06deg, zoom 12+: show all
             var gridSize = zoom >= 12 ? 0 : 4 / Math.pow(2, zoom - 3);
             var grid = {};
-
-            // First pass: decide which planes win each grid cell
             var winners = {};
+
             for (var id in planeData) {
                 var p = planeData[id];
                 if (!isVisible(p.lat, p.lon)) continue;
 
-                // Followed plane always wins
-                if (id === followCallsign) { winners[id] = true; continue; }
-                // Active trail plane always wins
-                if (id === activeCallsign) { winners[id] = true; continue; }
+                if (id === followFlightId) { winners[id] = true; continue; }
+                if (id === activeFlightId) { winners[id] = true; continue; }
 
                 if (gridSize === 0) {
                     winners[id] = true;
@@ -344,12 +390,11 @@
                     var cellX = Math.floor(p.lon / gridSize);
                     var cellY = Math.floor(p.lat / gridSize);
                     var cellKey = cellX + ',' + cellY;
+
                     if (!grid[cellKey]) {
                         grid[cellKey] = id;
                         winners[id] = true;
-                    }
-                    // Prefer faster planes (more interesting to see)
-                    else if (p.speed > (planeData[grid[cellKey]].speed || 0)) {
+                    } else if ((parseFloat(p.speed) || 0) > (parseFloat(planeData[grid[cellKey]].speed) || 0)) {
                         winners[grid[cellKey]] = false;
                         grid[cellKey] = id;
                         winners[id] = true;
@@ -357,64 +402,88 @@
                 }
             }
 
-            // Second pass: add/remove markers
-            // Keep existing markers even if they lost the grid cell (reduces jitter)
             for (var id in planeData) {
                 var vis = isVisible(planeData[id].lat, planeData[id].lon);
                 if (winners[id]) {
                     if (!planeMarkers[id]) addMarker(id);
-                } else if (!vis && id !== followCallsign && id !== activeCallsign) {
+                } else if (!vis && id !== followFlightId && id !== activeFlightId) {
                     if (planeMarkers[id]) removeMarker(id);
                 }
             }
+
             updateHUD();
         }
 
-        // ---- PROCESS INCOMING DATA ----
         function processPlane(p) {
-            var id = p.callsign;
+            var id = p.flight_id || p.callsign;
+            if (!id) return;
+
             var lat = parseFloat(p.lat);
             var lon = parseFloat(p.lon);
+            if (isNaN(lat) || isNaN(lon)) return;
+
             var speed = parseFloat(p.speed) || 0;
             var heading = parseFloat(p.heading) || 0;
             var timestamp = parseFloat(p.last_update) || 0;
 
-            // Always update the data store
             if (!planeData[id]) {
                 planeData[id] = {
-                    callsign: id, lat: lat, lon: lon, speed: speed, heading: heading,
-                    lastUpdate: timestamp, alt: p.alt, assigned_alt: p.assigned_alt,
-                    dep: p.dep, arr: p.arr, dep_time: p.dep_time, eta: p.eta,
-                    faa_ts: p.faa_ts, flight_status: p.flight_status,
-                    operator: p.operator, icao_hex: p.icao_hex, source: p.source
+                    flight_id: id,
+                    callsign: p.callsign || id,
+                    lat: lat,
+                    lon: lon,
+                    speed: speed,
+                    heading: heading,
+                    lastUpdate: timestamp,
+                    alt: p.alt,
+                    assigned_alt: p.assigned_alt,
+                    dep: p.dep,
+                    arr: p.arr,
+                    dep_time: p.dep_time,
+                    eta: p.eta,
+                    faa_ts: p.faa_ts,
+                    flight_status: p.flight_status,
+                    operator: p.operator,
+                    icao_hex: p.icao_hex,
+                    source: p.source
                 };
             } else {
                 var pd = planeData[id];
-                if (timestamp > pd.lastUpdate || timestamp === 0) {
-                    pd.lat = lat; pd.lon = lon; pd.speed = speed; pd.heading = heading;
-                    pd.lastUpdate = timestamp; pd.alt = p.alt; pd.assigned_alt = p.assigned_alt;
-                    pd.dep = p.dep || pd.dep; pd.arr = p.arr || pd.arr;
-                    pd.dep_time = p.dep_time || pd.dep_time; pd.eta = p.eta || pd.eta;
-                    pd.faa_ts = p.faa_ts; pd.flight_status = p.flight_status;
+                if (timestamp >= pd.lastUpdate || timestamp === 0) {
+                    pd.flight_id = id;
+                    pd.callsign = p.callsign || pd.callsign || id;
+                    pd.lat = lat;
+                    pd.lon = lon;
+                    pd.speed = speed;
+                    pd.heading = heading;
+                    pd.lastUpdate = timestamp;
+                    pd.alt = p.alt;
+                    pd.assigned_alt = p.assigned_alt;
+                    pd.dep = p.dep || pd.dep;
+                    pd.arr = p.arr || pd.arr;
+                    pd.dep_time = p.dep_time || pd.dep_time;
+                    pd.eta = p.eta || pd.eta;
+                    pd.faa_ts = p.faa_ts || pd.faa_ts;
+                    pd.flight_status = p.flight_status || pd.flight_status;
                     pd.operator = p.operator || pd.operator;
                     pd.icao_hex = p.icao_hex || pd.icao_hex;
                     pd.source = p.source || pd.source;
                 }
             }
 
-            // Only update the marker if it exists on the map
             if (planeMarkers[id]) {
-                var color = altColor(p.alt, p.speed);
+                var color = altColor(planeData[id].alt, planeData[id].speed);
                 if (color !== planeMarkers[id]._lastColor) {
                     planeMarkers[id].setIcon(makePlaneIcon(id, heading, color));
                     planeMarkers[id]._lastColor = color;
                 } else {
-                    var iconDiv = document.getElementById('icon-' + id);
+                    var iconDiv = document.getElementById('icon-' + cssSafe(id));
                     if (iconDiv) iconDiv.style.transform = 'rotate(' + heading + 'deg)';
                 }
+
                 planeMarkers[id].getPopup().setContent(popupContent(planeData[id]));
 
-                if (followCallsign === id) {
+                if (followFlightId === id) {
                     map.panTo([lat, lon], {animate: true, duration: 1});
                 }
             } else if (isVisible(lat, lon)) {
@@ -422,15 +491,12 @@
             }
         }
 
-        // ---- CLEAN STALE PLANES ----
         function cleanStalePlanes() {
             var now = Date.now() / 1000;
             for (var id in planeData) {
                 var age = now - planeData[id].lastUpdate;
-                // Only remove from frontend after 1 hour of no updates
-                // Redis handles the real 24hr / 5min DROPPED TTL
                 if (age > 3600) {
-                    if (followCallsign === id) stopFollow();
+                    if (followFlightId === id) stopFollow();
                     removeMarker(id);
                     delete planeData[id];
                 }
@@ -438,11 +504,9 @@
             updateHUD();
         }
 
-        // ---- MAP MOVE HANDLER ----
         map.on('moveend', syncVisiblePlanes);
         map.on('zoomend', syncVisiblePlanes);
 
-        // 1. Initial bulk load
         fetch('/api/planes')
             .then(function(res) { return res.json(); })
             .then(function(data) {
@@ -450,19 +514,17 @@
                 syncVisiblePlanes();
             });
 
-        // 2. Live stream
         var source = new EventSource("/api/stream");
         source.onmessage = function(event) {
             processPlane(JSON.parse(event.data));
         };
 
-        // 3. Physics engine — 30fps, only moves visible markers
-        // Stop extrapolating if no FAA update in 60 seconds (plane probably landed or left coverage)
         setInterval(function() {
             var now = Date.now() / 1000;
             for (var id in planeMarkers) {
                 var pd = planeData[id];
                 if (!pd) continue;
+
                 var age = now - pd.lastUpdate;
                 if (pd.speed > 10 && age < 60) {
                     var dist = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
@@ -471,22 +533,21 @@
                     pd.lon += dist * Math.sin(rad) / Math.cos(pd.lat * Math.PI / 180);
                     planeMarkers[id].setLatLng([pd.lat, pd.lon]);
                 }
-                if (followCallsign === id) {
+
+                if (followFlightId === id) {
                     map.panTo([pd.lat, pd.lon], {animate: false});
                 }
             }
         }, 33);
 
-        // 4. Refresh trail — only for airborne planes
         setInterval(function() {
-            if (activeCallsign && planeData[activeCallsign]) {
-                if (planeData[activeCallsign].speed >= 40) {
-                    showTrail(activeCallsign);
+            if (activeFlightId && planeData[activeFlightId]) {
+                if ((parseFloat(planeData[activeFlightId].speed) || 0) >= 40) {
+                    showTrail(activeFlightId);
                 }
             }
         }, 15000);
 
-        // 5. Clean stale every 2 min
         setInterval(cleanStalePlanes, 120000);
     </script>
 </body>
