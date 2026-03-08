@@ -24,8 +24,9 @@ FAA_USER=meeksfamily06.outlook.com
 FAA_PASS=AIXRocgWTkmWwKDI-RYH9Q
 
 # Queue Names (Get these from your FAA SCDS Dashboard)
-QUEUE_SFDPS=meeksfamily06.outlook.com.FDPS.60b90fc2-9124-4654-b478-d87ddc33f082.OUT
-QUEUE_STDDS=meeksfamily06.outlook.com.STDDS.f1ee90c6-c59a-42f0-8a64-d8ed5255f146.OUT
+QUEUE_SFDPS=meeksfamily06.outlook.com.FDPS.2701e1b1-d648-4039-8cef-abca2151fa58.OUT
+QUEUE_STDDS=meeksfamily06.outlook.com.STDDS.3550fccb-c740-47ad-9b53-4b7ad765e2d3.OUT
+QUEUE_TFMS=meeksfamily06.outlook.com.TFMS.6d4c26be-c0a7-49cf-b902-dd6088e4ec61.OUT
 
 # Connection Info
 FAA_URL=tcps://ems1.swim.faa.gov:55443
