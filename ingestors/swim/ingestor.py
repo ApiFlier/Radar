@@ -92,9 +92,12 @@ class SWIMHandler(MessageHandler):
         super().__init__()
         self.count = 0
         self.vpn = vpn_name
+        self.last_message_time = time.time()
 
     def on_message(self, message):
         self.count += 1
+        self.last_message_time = time.time()
+
         if self.count % 500 == 0:
             logger.info("[%s] processed %s messages", self.vpn, self.count)
 
@@ -221,14 +224,12 @@ class SWIMHandler(MessageHandler):
                 speed = round(math.sqrt(vx ** 2 + vy ** 2), 1)
                 heading = calc_heading(vx, vy)
 
-                # Try to enrich from embedded flight plan first
                 callsign = get_first(record, ".//*[local-name()='flightPlan']/*[local-name()='acid']/text()")
                 operator = ""
                 dep = get_first(record, ".//*[local-name()='enhancedData']/*[local-name()='departureAirport']/text()")
                 arr = get_first(record, ".//*[local-name()='enhancedData']/*[local-name()='destinationAirport']/text()")
                 gufi = get_first(record, ".//*[local-name()='enhancedData']/*[local-name()='sfdpsGufi']/text()")
 
-                # If still thin, try correlation table by ICAO
                 resolved_flight_id = resolve_flight_id_by_icao(icao_hex) if icao_hex else None
 
                 if resolved_flight_id:
@@ -373,7 +374,8 @@ def connect_vpn(vpn_name, queue_name, tcp_host):
     q = Queue.durable_exclusive_queue(queue_name)
     rcv = svc.create_persistent_message_receiver_builder().build(q)
     rcv.start()
-    rcv.receive_async(SWIMHandler(vpn_name))
+    handler = SWIMHandler(vpn_name)
+    rcv.receive_async(handler)
     logger.info("Listening on queue %s", queue_name)
     return svc
 
@@ -398,7 +400,8 @@ def run():
 
     try:
         while True:
-            time.sleep(1)
+            time.sleep(60)
+            logger.info("Heartbeat: ingestor alive")
     except KeyboardInterrupt:
         for svc in services:
             svc.disconnect()

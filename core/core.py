@@ -9,13 +9,12 @@ logger = logging.getLogger("Flight-Core")
 
 AIRBORNE_SPEED = 40
 
-PROFILE_TTL = 7 * 24 * 3600     # 7 days
-STATE_AIR_TTL = 10 * 60         # 10 min
-STATE_GROUND_TTL = 30 * 60      # 30 min
-TRAIL_TTL = 24 * 3600           # 24 hours
-CORR_TTL = 24 * 3600            # 24 hours
-
-TRAIL_INTERVAL = 20             # seconds between breadcrumb appends
+PROFILE_TTL = 7 * 24 * 3600
+STATE_AIR_TTL = 10 * 60
+STATE_GROUND_TTL = 30 * 60
+TRAIL_TTL = 24 * 3600
+CORR_TTL = 24 * 3600
+TRAIL_INTERVAL = 20
 
 r = redis.Redis(
     host=os.getenv("REDIS_HOST", "localhost"),
@@ -24,6 +23,8 @@ r = redis.Redis(
 )
 
 trail_timers = {}
+processed_count = 0
+last_heartbeat = time.time()
 
 
 def norm_callsign(value):
@@ -35,9 +36,6 @@ def norm_hex(value):
 
 
 def pick_flight_id(plane):
-    """
-    Prefer a stable per-flight identifier.
-    """
     flight_id = (plane.get("flight_id") or "").strip()
     if flight_id:
         return flight_id
@@ -82,6 +80,8 @@ def is_airborne(plane):
 
 
 def process_message(data):
+    global processed_count, last_heartbeat
+
     try:
         plane = json.loads(data)
     except (json.JSONDecodeError, TypeError):
@@ -146,33 +146,26 @@ def process_message(data):
     }
 
     pipe = r.pipeline()
-
-    # profile
     pipe.hset(profile_key, mapping=profile_map)
     pipe.expire(profile_key, PROFILE_TTL)
 
-    # state
     pipe.hset(state_key, mapping=state_map)
     pipe.expire(state_key, STATE_AIR_TTL if airborne else STATE_GROUND_TTL)
 
-    # callsign correlation
     pipe.set(f"corr:callsign:{callsign}", flight_id, ex=CORR_TTL)
 
-    # icao correlation
     if icao_hex:
         pipe.set(f"corr:icao:{icao_hex}", flight_id, ex=CORR_TTL)
 
-    # publish to frontend
     outbound = dict(state_map)
     pipe.publish("planes_out", json.dumps(outbound))
 
-    # trail only when airborne
     if airborne and speed >= AIRBORNE_SPEED:
         last_append = trail_timers.get(flight_id, 0)
         if now - last_append >= TRAIL_INTERVAL:
             breadcrumb = json.dumps({
-                "lat": plane.get("lat", ""),
-                "lon": plane.get("lon", ""),
+                "lat": plane.get("lat", "") or "",
+                "lon": plane.get("lon", "") or "",
                 "alt": str(plane.get("alt", 0) or 0),
                 "ts": now
             })
@@ -181,6 +174,14 @@ def process_message(data):
             trail_timers[flight_id] = now
 
     pipe.execute()
+
+    processed_count += 1
+    if processed_count % 500 == 0:
+        logger.info("Processed %s live messages, latest=%s (%s)", processed_count, flight_id, callsign)
+
+    if now - last_heartbeat >= 60:
+        logger.info("Heartbeat: core alive, processed=%s", processed_count)
+        last_heartbeat = now
 
 
 def run():
