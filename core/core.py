@@ -1,18 +1,84 @@
-import os, time, logging, redis, json
+import os
+import time
+import json
+import logging
+import redis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Flight-Core")
 
 AIRBORNE_SPEED = 40
-TRAIL_INTERVAL = 30
-PLANE_TTL = 86400
-TRAIL_TTL = 300
-DROPPED_TTL = 300
-ICAO_TTL = 172800  # 48 hours — keep mapping alive across multiple flights
 
-r = redis.Redis(host=os.getenv('REDIS_HOST', 'localhost'), port=6379, decode_responses=True)
+PROFILE_TTL = 7 * 24 * 3600     # 7 days
+STATE_AIR_TTL = 10 * 60         # 10 min
+STATE_GROUND_TTL = 30 * 60      # 30 min
+TRAIL_TTL = 24 * 3600           # 24 hours
+CORR_TTL = 24 * 3600            # 24 hours
+
+TRAIL_INTERVAL = 20             # seconds between breadcrumb appends
+
+r = redis.Redis(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=6379,
+    decode_responses=True
+)
 
 trail_timers = {}
+
+
+def norm_callsign(value):
+    return (value or "").strip().upper()
+
+
+def norm_hex(value):
+    return (value or "").strip().upper()
+
+
+def pick_flight_id(plane):
+    """
+    Prefer a stable per-flight identifier.
+    """
+    flight_id = (plane.get("flight_id") or "").strip()
+    if flight_id:
+        return flight_id
+
+    gufi = (plane.get("gufi") or "").strip()
+    if gufi:
+        return f"gufi:{gufi}"
+
+    icao_hex = norm_hex(plane.get("icao_hex"))
+    if icao_hex:
+        return f"icao:{icao_hex}"
+
+    callsign = norm_callsign(plane.get("callsign"))
+    if callsign:
+        return f"callsign:{callsign}"
+
+    track_key = (plane.get("track_key") or "").strip()
+    if track_key:
+        return f"track:{track_key}"
+
+    return ""
+
+
+def is_airborne(plane):
+    airborne_raw = str(plane.get("airborne", "")).strip()
+    if airborne_raw in ("1", "true", "True", "TRUE"):
+        return 1
+    if airborne_raw in ("0", "false", "False", "FALSE"):
+        return 0
+
+    speed = float(plane.get("speed", 0) or 0)
+    alt = float(plane.get("alt", 0) or 0)
+    status = (plane.get("flight_status") or "").upper()
+
+    if "DROP" in status or "DROPPED" in status:
+        return 0
+    if alt > 0 and speed >= AIRBORNE_SPEED:
+        return 1
+    if alt > 1000:
+        return 1
+    return 0
 
 
 def process_message(data):
@@ -21,83 +87,110 @@ def process_message(data):
     except (json.JSONDecodeError, TypeError):
         return
 
-    callsign = plane.get("callsign")
+    callsign = norm_callsign(plane.get("callsign"))
     if not callsign:
         return
 
     now = time.time()
-    speed = float(plane.get("speed", 0))
-    status = plane.get("flight_status", "")
-    icao_hex = plane.get("icao_hex", "")
+    flight_id = pick_flight_id(plane)
+    if not flight_id:
+        return
 
-    # ---- ICAO LOOKUP TABLE ----
-    # Build a mapping from ICAO hex to callsign so STDDS can resolve ground tracks
-    if icao_hex and len(icao_hex) == 6:
-        icao_key = f"icao:{icao_hex}"
-        r.hset(icao_key, mapping={
-            "callsign": callsign,
-            "operator": plane.get("operator", ""),
-            "dep": plane.get("dep", ""),
-            "arr": plane.get("arr", ""),
-            "last_seen": now
-        })
-        r.expire(icao_key, ICAO_TTL)
+    icao_hex = norm_hex(plane.get("icao_hex"))
+    speed = float(plane.get("speed", 0) or 0)
+    airborne = is_airborne(plane)
 
-    # ---- CURRENT POSITION ----
-    key = f"plane:{callsign}"
-    plane["last_update"] = now
+    profile_key = f"profile:{flight_id}"
+    state_key = f"state:{flight_id}"
+    trail_key = f"trail:{flight_id}"
 
-    r.hset(key, mapping={
+    profile_map = {
+        "flight_id": flight_id,
         "callsign": callsign,
-        "lat": plane["lat"],
-        "lon": plane["lon"],
-        "speed": speed,
-        "heading": plane.get("heading", 0),
-        "alt": plane.get("alt", "0"),
-        "assigned_alt": plane.get("assigned_alt", ""),
-        "dep": plane.get("dep", ""),
-        "arr": plane.get("arr", ""),
-        "dep_time": plane.get("dep_time", ""),
-        "eta": plane.get("eta", ""),
-        "faa_ts": plane.get("faa_ts", ""),
-        "flight_status": status,
-        "operator": plane.get("operator", ""),
+        "gufi": plane.get("gufi", "") or "",
         "icao_hex": icao_hex,
-        "source": plane.get("source", ""),
-        "last_update": now
-    })
+        "operator": plane.get("operator", "") or "",
+        "dep": plane.get("dep", "") or "",
+        "arr": plane.get("arr", "") or "",
+        "source": plane.get("source", "") or "",
+        "source_facility": plane.get("source_facility", "") or "",
+        "track_key": plane.get("track_key", "") or "",
+        "first_seen": plane.get("first_seen", "") or str(now),
+        "last_seen": str(now),
+    }
 
-    if status == "DROPPED":
-        r.expire(key, DROPPED_TTL)
-    else:
-        r.expire(key, PLANE_TTL)
+    state_map = {
+        "flight_id": flight_id,
+        "callsign": callsign,
+        "gufi": plane.get("gufi", "") or "",
+        "icao_hex": icao_hex,
+        "operator": plane.get("operator", "") or "",
+        "dep": plane.get("dep", "") or "",
+        "arr": plane.get("arr", "") or "",
+        "dep_time": plane.get("dep_time", "") or "",
+        "eta": plane.get("eta", "") or "",
+        "faa_ts": plane.get("faa_ts", "") or "",
+        "flight_status": plane.get("flight_status", "") or "",
+        "source": plane.get("source", "") or "",
+        "source_facility": plane.get("source_facility", "") or "",
+        "track_key": plane.get("track_key", "") or "",
+        "lat": plane.get("lat", "") or "",
+        "lon": plane.get("lon", "") or "",
+        "speed": str(speed),
+        "heading": str(plane.get("heading", 0) or 0),
+        "alt": str(plane.get("alt", 0) or 0),
+        "assigned_alt": str(plane.get("assigned_alt", "") or ""),
+        "vertical_rate": str(plane.get("vertical_rate", "") or ""),
+        "airborne": str(airborne),
+        "last_update": str(now),
+    }
 
-    # Broadcast to frontend
-    r.publish("planes_out", json.dumps(plane))
+    pipe = r.pipeline()
 
-    # ---- TRAIL HISTORY ----
-    if speed > AIRBORNE_SPEED and status != "DROPPED":
-        last_append = trail_timers.get(callsign, 0)
+    # profile
+    pipe.hset(profile_key, mapping=profile_map)
+    pipe.expire(profile_key, PROFILE_TTL)
+
+    # state
+    pipe.hset(state_key, mapping=state_map)
+    pipe.expire(state_key, STATE_AIR_TTL if airborne else STATE_GROUND_TTL)
+
+    # callsign correlation
+    pipe.set(f"corr:callsign:{callsign}", flight_id, ex=CORR_TTL)
+
+    # icao correlation
+    if icao_hex:
+        pipe.set(f"corr:icao:{icao_hex}", flight_id, ex=CORR_TTL)
+
+    # publish to frontend
+    outbound = dict(state_map)
+    pipe.publish("planes_out", json.dumps(outbound))
+
+    # trail only when airborne
+    if airborne and speed >= AIRBORNE_SPEED:
+        last_append = trail_timers.get(flight_id, 0)
         if now - last_append >= TRAIL_INTERVAL:
-            trail_key = f"trail:{callsign}"
             breadcrumb = json.dumps({
-                "lat": plane["lat"],
-                "lon": plane["lon"],
-                "alt": plane.get("alt", "0"),
+                "lat": plane.get("lat", ""),
+                "lon": plane.get("lon", ""),
+                "alt": str(plane.get("alt", 0) or 0),
                 "ts": now
             })
-            r.rpush(trail_key, breadcrumb)
-            r.expire(trail_key, TRAIL_TTL)
-            trail_timers[callsign] = now
+            pipe.rpush(trail_key, breadcrumb)
+            pipe.expire(trail_key, TRAIL_TTL)
+            trail_timers[flight_id] = now
+
+    pipe.execute()
 
 
 def run():
     pubsub = r.pubsub()
     pubsub.subscribe("live_planes")
-    logger.info("Core worker subscribed to live_planes channel")
-    logger.info(f"Trail: every {TRAIL_INTERVAL}s when speed > {AIRBORNE_SPEED}kts, TTL {TRAIL_TTL}s")
-    logger.info(f"Position: TTL {PLANE_TTL}s, DROPPED TTL {DROPPED_TTL}s")
-    logger.info(f"ICAO lookup: TTL {ICAO_TTL}s (48hr)")
+    logger.info("Core worker subscribed to live_planes")
+    logger.info(
+        f"Profile TTL={PROFILE_TTL}s, state airborne TTL={STATE_AIR_TTL}s, "
+        f"ground TTL={STATE_GROUND_TTL}s, trail TTL={TRAIL_TTL}s"
+    )
 
     for message in pubsub.listen():
         if message["type"] == "message":
