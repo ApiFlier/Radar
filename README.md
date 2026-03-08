@@ -26,6 +26,7 @@ FAA_PASS=
 # Queue Names (Get these from your FAA SCDS Dashboard)
 QUEUE_SFDPS=
 QUEUE_STDDS=
+QUEUE_TFMS=
 
 # Connection Info
 FAA_URL=tcps://ems1.swim.faa.gov:55443
