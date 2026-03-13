@@ -4,35 +4,51 @@ services:
     container_name: flight-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     restart: always
 
   swim-ingestor:
-    build: ./ingestors/swim
+    build: ./api
     container_name: swim-ingestor
     depends_on:
       - redis
     environment:
       - REDIS_HOST=redis
-    env_file:
-      - .env
+      - FAA_USER=
+      - FAA_PASS=
+      - QUEUE_SFDPS=
+      - QUEUE_STDDS=
+      - QUEUE_TFMS=
+    command: ["python", "-u", "-m", "Classes.Ingestors.faa.runFAASwim"]
     restart: always
 
-  core:
-    build: ./core
-    container_name: flight-core
+  api:
+    build: ./api
+    container_name: flight-api
     depends_on:
       - redis
     environment:
       - REDIS_HOST=redis
+      - API_DEBUG=true
+      - ENABLE_INGESTORS=true
+    ports:
+      - "8081:8081"
     restart: always
 
   web:
-    build: ./web
+    build:
+      context: .
+      dockerfile: lib/Dockerfile
     container_name: flight-web
     depends_on:
-      - redis
+      - api
     environment:
-      - REDIS_HOST=redis
+      - API_HOST=api
+      - API_PORT=8081
     ports:
       - "8080:8080"
     restart: always
+
+volumes:
+  redis-data:
