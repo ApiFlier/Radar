@@ -1,0 +1,10 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+httpx==0.26.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+redis==5.0.1
+python-dotenv==1.0.0
+zeep==4.2.1
+solace-pubsubplus
+lxml
