@@ -98,8 +98,8 @@
         var KNOTS_TO_DEG_SEC = 0.0000046296;
         var currentBounds = null;
         var BOUNDS_PAD = 0.3;
-        var DEAD_RECKON_MAX_AGE = 25;
-        var REMOVE_STALE_AGE = 180;
+        var DEAD_RECKON_MAX_AGE = 180;
+        var REMOVE_STALE_AGE = 3600;
 
         function updateBounds() {
             currentBounds = map.getBounds().pad(BOUNDS_PAD);

@@ -13,7 +13,8 @@ class CoreProcessor(BaseIngestor):
     
     TRAIL_MAX = 500
     TRAIL_TTL = 14400
-    STATE_TTL = 300
+    STATE_AIR_TTL = 600
+    STATE_GROUND_TTL = 1800
     PROFILE_TTL = 86400
     CORR_TTL = 172800
     TRAIL_INTERVAL = 20
@@ -173,7 +174,7 @@ class CoreProcessor(BaseIngestor):
         pipe.hset(profile_key, mapping=profile)
         pipe.expire(profile_key, self.PROFILE_TTL)
         pipe.hset(state_key, mapping=state)
-        pipe.expire(state_key, self.STATE_TTL)
+        pipe.expire(state_key, self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL)
         
         # Store correlations - CRITICAL for STDDS matching
         if callsign:
@@ -299,7 +300,7 @@ class CoreProcessor(BaseIngestor):
         
         pipe = r.pipeline()
         pipe.hset(state_key, mapping=state)
-        pipe.expire(state_key, self.STATE_TTL)
+        pipe.expire(state_key, self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL)
         
         if state["airborne"] == "1":
             self._append_trail(pipe, flight_id, lat, lon, state.get("alt", ""), now)
@@ -354,7 +355,10 @@ class CoreProcessor(BaseIngestor):
         pipe.hset(f"profile:{flight_id}", mapping=profile)
         pipe.expire(f"profile:{flight_id}", self.PROFILE_TTL)
         pipe.hset(f"state:{flight_id}", mapping=state)
-        pipe.expire(f"state:{flight_id}", self.STATE_TTL)
+        pipe.expire(
+            f"state:{flight_id}",
+            self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL
+        )
         
         if icao_hex and icao_hex != "000000":
             pipe.set(f"corr:icao:{icao_hex}", flight_id, ex=self.CORR_TTL)
