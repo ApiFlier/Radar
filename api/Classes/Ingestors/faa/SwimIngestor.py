@@ -25,11 +25,32 @@ class SwimIngestor(BaseIngestor):
         self.redis = None
         self.stunnel_proc = None
         self.services = []
+        self.receivers = []
+        self.handlers = []
         self.stats = {
             "FDPS": {"count": 0, "last": 0},
             "STDDS": {"count": 0, "last": 0},
             "TFMS": {"count": 0, "last": 0},
         }
+
+    def latest_message_age(self):
+        if not self.handlers:
+            return None
+        latest = max((h.last_message_time for h in self.handlers), default=0)
+        if latest <= 0:
+            return None
+        return time.time() - latest
+
+
+    def reconnect_all(self):
+        print("[SwimIngestor] Reconnecting all FAA sessions")
+        self.disconnect_all()
+        self._stop_stunnel()
+        time.sleep(2)
+        self.start_stunnel()
+        self.connect_all()
+
+
 
     def run(self):
         self.redis = getRedis()
@@ -38,8 +59,19 @@ class SwimIngestor(BaseIngestor):
 
         try:
             while self._running:
-                time.sleep(60)
-                print("[SwimIngestor] Heartbeat: ingestor alive")
+                time.sleep(30)
+
+                age = self.latest_message_age()
+                if age is None:
+                    print("[SwimIngestor] Heartbeat: ingestor alive, no handler activity yet")
+                    continue
+
+                print(f"[SwimIngestor] Heartbeat: ingestor alive, last FAA message {int(age)}s ago")
+
+                if age > 120:
+                    print(f"[SwimIngestor] No FAA messages for {int(age)}s, forcing reconnect")
+                    self.reconnect_all()
+
         finally:
             self.disconnect_all()
             self._stop_stunnel()
@@ -50,6 +82,14 @@ class SwimIngestor(BaseIngestor):
         self._stop_stunnel()
 
     def disconnect_all(self):
+        for rcv in self.receivers:
+            try:
+                rcv.terminate()
+            except Exception:
+                pass
+        self.receivers = []
+        self.handlers = []
+
         for svc in self.services:
             try:
                 svc.disconnect()
@@ -190,6 +230,9 @@ class SwimIngestor(BaseIngestor):
 
         handler = SWIMHandler(vpn_name, self.redis, self.stats)
         rcv.receive_async(handler)
+
+        self.receivers.append(rcv)
+        self.handlers.append(handler)
 
         print(f"[SwimIngestor] Listening on queue {queue_name}")
         return svc
