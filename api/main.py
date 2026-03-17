@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
         
         print("[API] Starting ingestors...")
         getProcessor().start()
+        from Classes.Ingestors import getOpenSkyIngestor
+        getOpenSkyIngestor().start()
         # SwimIngestor disabled - using standalone container
         print("[API] Ingestors started")
     
