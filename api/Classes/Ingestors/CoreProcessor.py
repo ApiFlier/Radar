@@ -31,7 +31,7 @@ class CoreProcessor(BaseIngestor):
         self.trail_timers = {}
         self.processed_count = 0
         self.last_heartbeat = time.time()
-        self.stats = {"sfdps": 0, "stdds_corr": 0, "stdds_new": 0, "stdds_dup": 0, "tfms": 0}
+        self.stats = {"sfdps": 0, "stdds_corr": 0, "stdds_new": 0, "stdds_dup": 0, "tfms": 0, "opensky": 0}
         self._ping_thread = None
     
     def run(self):
@@ -98,6 +98,8 @@ class CoreProcessor(BaseIngestor):
             self.process_stdds(data)
         elif "tfms" in source:
             self.process_tfms(data)
+        elif "opensky" in source:
+            self.process_opensky(data)
         
         self.processed_count += 1
         now = time.time()
@@ -106,7 +108,7 @@ class CoreProcessor(BaseIngestor):
             print(f"[CoreProcessor] Heartbeat: {self.processed_count} total | "
                   f"SFDPS:{self.stats['sfdps']} STDDS-corr:{self.stats['stdds_corr']} "
                   f"STDDS-new:{self.stats['stdds_new']} STDDS-dup:{self.stats['stdds_dup']} "
-                  f"TFMS:{self.stats['tfms']}")
+                  f"TFMS:{self.stats['tfms']} OpenSky:{self.stats['opensky']}")
             self.last_heartbeat = now
     
     def process_sfdps(self, data):
@@ -273,6 +275,81 @@ class CoreProcessor(BaseIngestor):
         r.hset(profile_key, mapping=profile)
         r.expire(profile_key, self.PROFILE_TTL)
     
+    def process_opensky(self, data):
+        """OpenSky provides ADS-B positions - good for ground and VFR."""
+        self.stats["opensky"] += 1
+        
+        lat = data.get("lat")
+        lon = data.get("lon")
+        if not lat or not lon:
+            return
+        
+        lat = float(lat)
+        lon = float(lon)
+        
+        now = time.time()
+        r = self.redis.client
+        
+        icao_hex = (data.get("icao_hex") or "").strip().upper()
+        callsign = (data.get("callsign") or "").strip().upper()
+        
+        if not icao_hex:
+            return
+        
+        # Try to correlate with existing SFDPS flight
+        flight_id = r.get(f"corr:icao:{icao_hex}")
+        
+        if not flight_id and callsign and not self._is_synthetic(callsign):
+            flight_id = r.get(f"corr:callsign:{callsign}")
+        
+        if flight_id:
+            # Update existing flight with OpenSky position
+            self._update_position(flight_id, data, lat, lon, now)
+        else:
+            # Create as OpenSky-only flight
+            flight_id = f"icao:{icao_hex}"
+            
+            profile = {
+                "flight_id": flight_id,
+                "callsign": callsign or icao_hex,
+                "icao_hex": icao_hex,
+                "source": "opensky",
+                "first_seen": str(now),
+                "last_seen": str(now),
+            }
+            
+            speed = float(data.get("speed", 0) or 0)
+            on_ground = data.get("on_ground", False)
+            
+            state = {
+                "flight_id": flight_id,
+                "callsign": callsign or icao_hex,
+                "lat": str(lat),
+                "lon": str(lon),
+                "speed": str(speed),
+                "heading": str(data.get("heading", 0) or 0),
+                "alt": str(data.get("alt", 0) or 0),
+                "vertical_rate": str(data.get("vertical_rate", "") or ""),
+                "last_update": str(now),
+                "source": "opensky",
+                "airborne": "0" if on_ground else ("1" if speed >= self.AIRBORNE_SPEED else "0"),
+                "on_ground": "1" if on_ground else "0",
+            }
+            
+            pipe = r.pipeline()
+            pipe.hset(f"profile:{flight_id}", mapping=profile)
+            pipe.expire(f"profile:{flight_id}", self.PROFILE_TTL)
+            pipe.hset(f"state:{flight_id}", mapping=state)
+            pipe.expire(f"state:{flight_id}", self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL)
+            pipe.set(f"corr:icao:{icao_hex}", flight_id, ex=self.CORR_TTL)
+            
+            if state["airborne"] == "1":
+                self._append_trail(pipe, flight_id, lat, lon, state.get("alt", ""), now)
+            
+            out = {**profile, **state, "last_update": now}
+            pipe.publish("planes_out", json.dumps(out))
+            pipe.execute()
+
     def _update_position(self, flight_id, data, lat, lon, now):
         """Update position and speed on existing flight."""
         r = self.redis.client
