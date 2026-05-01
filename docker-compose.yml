@@ -21,6 +21,23 @@ services:
     command: ["python", "-u", "-m", "Classes.Ingestors.faa.runFAASwim"]
     restart: unless-stopped
 
+  adsblol-reapi:
+    build: ./api
+    container_name: adsblol-reapi
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ADSBLOL_REAPI_URL=${ADSBLOL_REAPI_URL:-https://re-api.adsb.lol/}
+      - ADSBLOL_REAPI_CIRCLES=${ADSBLOL_REAPI_CIRCLES:-40.491389,-80.232778,250}
+      - ADSBLOL_REAPI_INTERVAL_SECONDS=${ADSBLOL_REAPI_INTERVAL_SECONDS:-10}
+      - ADSBLOL_REAPI_TTL_SECONDS=${ADSBLOL_REAPI_TTL_SECONDS:-45}
+      - ADSBLOL_REAPI_REQUEST_SPACING_SECONDS=${ADSBLOL_REAPI_REQUEST_SPACING_SECONDS:-1.2}
+      - ADSBLOL_HEALTH_MAX_AGE_SECONDS=${ADSBLOL_HEALTH_MAX_AGE_SECONDS:-45}
+    command: ["python", "-u", "-m", "Classes.Ingestors.adsblol.runAdsbLolReApi"]
+    restart: always
+
   api:
     build: ./api
     container_name: flight-api
