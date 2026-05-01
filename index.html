@@ -249,6 +249,47 @@
             return s;
         }
 
+
+        var AIRBORNE_SPEED_KTS = 40;
+        var GROUND_DISPLAY_MIN_ZOOM = 12;
+
+        function isAirbornePlane(p) {
+            if (!p) return false;
+            var speed = parseFloat(p.speed) || 0;
+            var airborne = String(p.airborne || '').toLowerCase();
+            var onGround = String(p.onGround || p.on_ground || '').toLowerCase();
+
+            if (onGround === '1' || onGround === 'true') return false;
+            return airborne === '1' || airborne === 'true' || speed >= AIRBORNE_SPEED_KTS;
+        }
+
+        function aircraftDisplayState(p) {
+            if (!p) return 'unknown';
+            if (isAirbornePlane(p)) return 'airborne';
+
+            var speed = parseFloat(p.speed) || 0;
+            if (speed >= 3) return 'ground_moving';
+            return 'parked';
+        }
+
+        function shouldDrawTrail(p) {
+            return isAirbornePlane(p);
+        }
+
+        function shouldDisplayPlane(p) {
+            if (!p) return false;
+
+            var lat = parseFloat(p.lat);
+            var lon = parseFloat(p.lon);
+            if (isNaN(lat) || isNaN(lon)) return false;
+            if (!isVisible(lat, lon)) return false;
+
+            if (isAirbornePlane(p)) return true;
+
+            // Ground/parked aircraft only show in airport-style close zoom.
+            return map.getZoom() >= GROUND_DISPLAY_MIN_ZOOM;
+        }
+
         function addMarker(id) {
             var p = planeData[id];
             if (!p || planeMarkers[id]) return;
@@ -259,7 +300,11 @@
             var marker = L.marker([p.lat, p.lon], {icon: icon})
                 .bindPopup(popupContent(p))
                 .on('click', (function(fid) {
-                    return function() { showTrail(fid); };
+                    return function() {
+                        if (shouldDrawTrail(planeData[fid])) {
+                            showTrail(fid);
+                        }
+                    };
                 })(id))
                 .addTo(map);
 
@@ -305,7 +350,10 @@
                     flightStatus: p.flightStatus || p.flight_status,
                     operator: p.operator,
                     icaoHex: p.icaoHex || p.icao_hex,
-                    source: p.source
+                    source: p.source,
+                    airborne: p.airborne,
+                    onGround: p.onGround || p.on_ground,
+                    displayState: aircraftDisplayState(p)
                 };
             } else {
                 var pd = planeData[id];
@@ -328,13 +376,22 @@
                     pd.operator = p.operator || pd.operator;
                     pd.icaoHex = p.icaoHex || p.icao_hex || pd.icaoHex;
                     pd.source = p.source || pd.source;
+                    pd.airborne = p.airborne !== undefined ? p.airborne : pd.airborne;
+                    pd.onGround = (p.onGround || p.on_ground) !== undefined ? (p.onGround || p.on_ground) : pd.onGround;
+                    pd.displayState = aircraftDisplayState(pd);
                 }
             }
 
             if (planeMarkers[id]) {
+                if (!shouldDisplayPlane(planeData[id]) && id !== followFlightId && id !== activeFlightId) {
+                    removeMarker(id);
+                    return;
+                }
+
                 var color = altColor(planeData[id].alt, planeData[id].speed);
                 var opacity = staleOpacity(planeData[id]);
 
+                planeMarkers[id].setLatLng([lat, lon]);
                 planeMarkers[id].setIcon(makePlaneIcon(id, heading, color, opacity));
                 planeMarkers[id]._lastColor = color;
                 planeMarkers[id].getPopup().setContent(popupContent(planeData[id]));
@@ -342,7 +399,7 @@
                 if (followFlightId === id) {
                     map.panTo([lat, lon], {animate: true, duration: 1});
                 }
-            } else if (isVisible(lat, lon)) {
+            } else if (shouldDisplayPlane(planeData[id])) {
                 addMarker(id);
             }
         }
@@ -351,7 +408,7 @@
             updateBounds();
             for (var id in planeData) {
                 var p = planeData[id];
-                if (isVisible(p.lat, p.lon)) {
+                if (shouldDisplayPlane(p)) {
                     if (!planeMarkers[id]) addMarker(id);
                 } else if (id !== followFlightId && id !== activeFlightId) {
                     removeMarker(id);
@@ -409,7 +466,7 @@
                 if (!pd) continue;
 
                 var age = now - (parseFloat(pd.lastUpdate) || 0);
-                if (pd.speed > 10 && age < DEAD_RECKON_MAX_AGE) {
+                if (shouldDrawTrail(pd) && pd.speed > 10 && age < DEAD_RECKON_MAX_AGE) {
                     var dist = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
                     var rad = pd.heading * Math.PI / 180;
                     pd.lat += dist * Math.cos(rad);
@@ -425,7 +482,7 @@
 
         setInterval(function() {
             if (activeFlightId && planeData[activeFlightId]) {
-                if ((parseFloat(planeData[activeFlightId].speed) || 0) >= 40) {
+                if (shouldDrawTrail(planeData[activeFlightId])) {
                     showTrail(activeFlightId);
                 }
             }
