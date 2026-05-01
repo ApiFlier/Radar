@@ -2,3 +2,7 @@
 # Generated airport source downloads
 data/airports.csv
 data/airport-frequencies.csv
+
+# Python cache files
+__pycache__/
+*.py[cod]
