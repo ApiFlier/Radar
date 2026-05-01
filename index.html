@@ -399,6 +399,76 @@
             });
         }
 
+        function htmlEscape(value) {
+            return String(value === undefined || value === null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function popupValue(value, fallback) {
+            if (value === undefined || value === null || value === '') {
+                return fallback || '—';
+            }
+            return htmlEscape(value);
+        }
+
+        function popupContent(p) {
+            if (!p) return '<div>No aircraft data</div>';
+
+            var name = displayName(p);
+            var route = (p.dep || '???') + ' → ' + (p.arr || '???');
+            var aircraftClass = p.aircraftClass || p.aircraft_class || 'unknown';
+            var iconType = p.iconType || p.icon_type || aircraftClass;
+            var state = aircraftDisplayState(p);
+
+            var badges = [];
+            if (boolField(p.isMilitary)) badges.push('Military');
+            if (boolField(p.isPia)) badges.push('PIA');
+            if (boolField(p.isLadd)) badges.push('LADD');
+            if (boolField(p.isHelicopter)) badges.push('Helicopter');
+
+            var flightId = String(p.flightId || p.flight_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+            var html = '<div style="min-width:240px">';
+            html += '<b>' + htmlEscape(name) + '</b>';
+            html += '<div class="route">' + htmlEscape(route) + '</div>';
+
+            html += '<div class="meta">';
+            html += 'Class: ' + htmlEscape(aircraftClass);
+            html += ' / Icon: ' + htmlEscape(iconType);
+            html += ' / State: ' + htmlEscape(state);
+            html += '</div>';
+
+            if (badges.length) {
+                html += '<div class="meta">Tags: ' + htmlEscape(badges.join(', ')) + '</div>';
+            }
+
+            html += '<hr style="border-color:#333">';
+            html += 'Altitude: ' + popupValue(p.alt) + ' ft';
+            html += '<br>Speed: ' + popupValue(p.speed) + ' kt';
+            html += '<br>Heading: ' + popupValue(p.heading) + '°';
+
+            if (p.assignedAlt) html += '<br>Assigned: ' + popupValue(p.assignedAlt) + ' ft';
+            if (p.registration) html += '<br>Registration: ' + popupValue(p.registration);
+            if (p.aircraftType) html += '<br>Type: ' + popupValue(p.aircraftType);
+            if (p.icaoHex) html += '<br>ICAO: ' + popupValue(p.icaoHex);
+
+            html += '<hr style="border-color:#333">';
+            html += '<div class="meta">Source: ' + popupValue(p.positionSource || p.source) + '</div>';
+            if (p.enrichmentSource) html += '<div class="meta">Enrichment: ' + popupValue(p.enrichmentSource) + '</div>';
+            if (p.faaTs) html += '<div class="meta">FAA TS: ' + popupValue(p.faaTs) + '</div>';
+
+            if (flightId) {
+                html += '<br><span class="follow-link" onclick="startFollow(\'' + flightId + '\')">Follow aircraft</span>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
         function addMarker(id) {
             var p = planeData[id];
             if (!p || planeMarkers[id]) return;
