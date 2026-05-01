@@ -83,12 +83,14 @@ def api_stream():
 @app.route("/api/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @app.route("/api/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def api_proxy(path):
+    if not path:
+        return proxy_to_api("")
     return proxy_to_api(f"api/{path}")
 
 
 @app.route("/api", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def api_proxy_no_slash():
-    return proxy_to_api("api/")
+    return proxy_to_api("")
 
 
 if __name__ == "__main__":
