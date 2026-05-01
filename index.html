@@ -365,12 +365,7 @@
         }
 
         function aircraftBadgeHtml(p) {
-            if (!p) return '';
-
-            if (boolField(p.isMilitary)) return '<span class="aircraft-badge">M</span>';
-            if (boolField(p.isPia)) return '<span class="aircraft-badge">P</span>';
-            if (boolField(p.isLadd)) return '<span class="aircraft-badge">L</span>';
-
+            // Keep the map clean. Aircraft privacy/category tags are shown in the popup instead.
             return '';
         }
 
