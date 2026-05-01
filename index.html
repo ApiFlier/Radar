@@ -21,15 +21,17 @@
             transition: transform 0.5s ease-out, opacity 0.5s ease-out;
         }
 
-        .aircraft-icon i {
-            line-height: 1;
+        .aircraft-icon svg {
+            display: block;
+            width: 26px;
+            height: 26px;
             filter: drop-shadow(0 0 3px currentColor);
         }
 
-        .aircraft-icon-commercial i { font-size: 22px; }
-        .aircraft-icon-private i { font-size: 18px; }
-        .aircraft-icon-military i { font-size: 22px; }
-        .aircraft-icon-helicopter i { font-size: 22px; }
+        .aircraft-icon-commercial svg { width: 30px; height: 30px; }
+        .aircraft-icon-private svg { width: 23px; height: 23px; }
+        .aircraft-icon-military svg { width: 28px; height: 28px; }
+        .aircraft-icon-helicopter svg { width: 28px; height: 28px; }
 
         .aircraft-icon-parked {
             opacity: 0.75;
@@ -267,11 +269,13 @@
         }
 
         function staleOpacity(p) {
-            var age = planeAgeSeconds ? planeAgeSeconds(p) : 0;
-            if (isAirbornePlane && isAirbornePlane(p)) {
-                return age <= VISIBLE_AIR_MAX_AGE ? 1.0 : 0.0;
+            var age = getPlaneAgeSeconds(p);
+
+            if (isAirbornePlane(p)) {
+                return age <= getVisibleAirMaxAge() ? 1.0 : 0.0;
             }
-            return age <= VISIBLE_GROUND_MAX_AGE ? 0.85 : 0.0;
+
+            return age <= getVisibleGroundMaxAge() ? 0.85 : 0.0;
         }
 
         function isAirbornePlane(p) {
@@ -321,14 +325,47 @@
             return 'private';
         }
 
-        function aircraftIconClass(p) {
+        function aircraftIconSvg(p) {
             var iconType = aircraftIconType(p);
 
-            if (iconType === 'military') return 'fa-solid fas fa-jet-fighter fa-fighter-jet';
-            if (iconType === 'helicopter') return 'fa-solid fas fa-helicopter';
-            if (iconType === 'commercial') return 'fa-solid fas fa-plane';
+            if (iconType === 'military') {
+                // Fighter jet / delta-wing style
+                return '<svg viewBox="0 0 32 32" aria-hidden="true">' +
+                    '<path d="M16 2 L20 14 L30 19 L21 21 L19 29 L16 24 L13 29 L11 21 L2 19 L12 14 Z" fill="currentColor"/>' +
+                    '<path d="M16 5 L16 23" stroke="rgba(0,0,0,0.35)" stroke-width="1.2" stroke-linecap="round"/>' +
+                    '</svg>';
+            }
 
-            return 'fa-solid fas fa-paper-plane';
+            if (iconType === 'helicopter') {
+                // Helicopter with rotor, tail boom, skid
+                return '<svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+                    '<path d="M5 8 H27"/>' +
+                    '<path d="M16 8 V13"/>' +
+                    '<path d="M10 14 H20 C23 14 25 16 25 18 C25 20 23 22 20 22 H11 C8 22 6 20 6 18 C6 16 8 14 10 14 Z" fill="currentColor" stroke="currentColor"/>' +
+                    '<path d="M25 18 L30 15"/>' +
+                    '<path d="M30 13 V17"/>' +
+                    '<path d="M10 24 H22"/>' +
+                    '<path d="M12 22 L10 24"/>' +
+                    '<path d="M20 22 L22 24"/>' +
+                    '</svg>';
+            }
+
+            if (iconType === 'commercial') {
+                // Larger airliner top-down silhouette
+                return '<svg viewBox="0 0 32 32" aria-hidden="true">' +
+                    '<path d="M16 2 C17.7 2 19 3.5 19 5.5 V13 L30 20 V24 L19 21 V26 L23 29 V31 L16 29 L9 31 V29 L13 26 V21 L2 24 V20 L13 13 V5.5 C13 3.5 14.3 2 16 2 Z" fill="currentColor"/>' +
+                    '</svg>';
+            }
+
+            // Smaller private / Cessna-like light aircraft
+            return '<svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M16 4 V27"/>' +
+                '<path d="M5 15 H27"/>' +
+                '<path d="M11 7 L16 4 L21 7"/>' +
+                '<path d="M12 25 L16 28 L20 25"/>' +
+                '<path d="M8 18 L5 15 L8 12"/>' +
+                '<path d="M24 18 L27 15 L24 12"/>' +
+                '</svg>';
         }
 
         function aircraftBadgeHtml(p) {
@@ -346,7 +383,7 @@
             var iconType = aircraftIconType(p);
             var state = aircraftDisplayState(p);
             var safeOpacity = opacity === undefined ? 1 : opacity;
-            var iconClass = aircraftIconClass(p);
+            var iconSvg = aircraftIconSvg(p);
             var badgeHtml = aircraftBadgeHtml(p);
 
             return L.divIcon({
@@ -354,11 +391,11 @@
                 html: '<div id="icon-' + cssSafe(id) + '" ' +
                       'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + '" ' +
                       'style="transform:rotate(' + heading + 'deg); opacity:' + safeOpacity + '; color:' + color + ';">' +
-                      '<i class="' + iconClass + '"></i>' +
+                      iconSvg +
                       badgeHtml +
                       '</div>',
-                iconSize: [28, 28],
-                iconAnchor: [14, 14]
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
             });
         }
 
@@ -389,6 +426,98 @@
                 map.removeLayer(planeMarkers[id]);
                 delete planeMarkers[id];
             }
+        }
+
+        function getVisibleAirMaxAge() {
+            return typeof VISIBLE_AIR_MAX_AGE !== 'undefined' ? VISIBLE_AIR_MAX_AGE : 120;
+        }
+
+        function getVisibleGroundMaxAge() {
+            return typeof VISIBLE_GROUND_MAX_AGE !== 'undefined' ? VISIBLE_GROUND_MAX_AGE : 900;
+        }
+
+        function getGroundDisplayMinZoom() {
+            return typeof GROUND_DISPLAY_MIN_ZOOM !== 'undefined' ? GROUND_DISPLAY_MIN_ZOOM : 10;
+        }
+
+        function getGroundAirportRadiusNm() {
+            return typeof GROUND_AIRPORT_RADIUS_NM !== 'undefined' ? GROUND_AIRPORT_RADIUS_NM : 5;
+        }
+
+        function planeAgeSeconds(p) {
+            return getPlaneAgeSeconds(p);
+        }
+
+        function getPlaneAgeSeconds(p) {
+            var lastUpdate = parseFloat(p && (p.lastUpdate || p.last_update)) || 0;
+            if (!lastUpdate) return 999999;
+
+            return (Date.now() / 1000) - lastUpdate;
+        }
+
+        function distanceNm(lat1, lon1, lat2, lon2) {
+            var rNm = 3440.065;
+            var p = Math.PI / 180;
+            var dLat = (lat2 - lat1) * p;
+            var dLon = (lon2 - lon1) * p;
+
+            var a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * p) * Math.cos(lat2 * p) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+            return rNm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function nearestAirportWithin(lat, lon, maxNm) {
+            if (!airportData || !airportData.length) return null;
+
+            var best = null;
+            var bestDist = maxNm;
+
+            for (var i = 0; i < airportData.length; i++) {
+                var a = airportData[i];
+                if (!a) continue;
+
+                var aLat = parseFloat(a.lat || a.latitude || a.latitude_deg);
+                var aLon = parseFloat(a.lon || a.longitude || a.longitude_deg);
+
+                if (isNaN(aLat) || isNaN(aLon)) continue;
+
+                var d = distanceNm(lat, lon, aLat, aLon);
+                if (d <= bestDist) {
+                    best = a;
+                    bestDist = d;
+                }
+            }
+
+            return best;
+        }
+
+        function shouldDisplayPlane(p) {
+            if (!p) return false;
+
+            var lat = parseFloat(p.lat);
+            var lon = parseFloat(p.lon);
+
+            if (isNaN(lat) || isNaN(lon)) return false;
+
+            if (typeof isVisible === 'function' && !isVisible(lat, lon)) return false;
+            if (typeof staleOpacity === 'function' && staleOpacity(p) <= 0) return false;
+
+            var age = getPlaneAgeSeconds(p);
+
+            if (isAirbornePlane(p)) {
+                return age <= getVisibleAirMaxAge();
+            }
+
+            if (age > getVisibleGroundMaxAge()) return false;
+
+            if (typeof map !== 'undefined' && map && typeof map.getZoom === 'function') {
+                if (map.getZoom() < getGroundDisplayMinZoom()) return false;
+            }
+
+            return nearestAirportWithin(lat, lon, getGroundAirportRadiusNm()) !== null;
         }
 
         function updateAircraftTags(target, source) {
