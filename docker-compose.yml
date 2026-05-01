@@ -32,8 +32,8 @@ services:
       - REDIS_HOST=redis
       - API_DEBUG=true
       - ENABLE_INGESTORS=true
-      - OPENSKY_CLIENT_ID=meeksfamily06-api-client
-      - OPENSKY_CLIENT_SECRET=FEe5tFNz09CynKIa4Yw7G3NEDrvToneV
+      - OPENSKY_CLIENT_ID=${OPENSKY_CLIENT_ID}
+      - OPENSKY_CLIENT_SECRET=${OPENSKY_CLIENT_SECRET}
     ports:
       - "8081:8081"
     restart: always
