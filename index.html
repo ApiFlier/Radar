@@ -438,8 +438,129 @@
             updateHUD();
         }
 
-        map.on('moveend', syncVisiblePlanes);
-        map.on('zoomend', syncVisiblePlanes);
+
+        var airportData = [];
+        var airportMarkers = {};
+        var airportLayer = L.layerGroup().addTo(map);
+
+        function airportMinZoom(a) {
+            if (a.type === 'large_airport') return 5;
+            if (a.type === 'medium_airport') return 7;
+            if (a.scheduled_service === 'yes') return 8;
+            if (a.type === 'small_airport') return 11;
+            return 13;
+        }
+
+        function airportColor(a) {
+            if (a.type === 'large_airport') return '#ffcc00';
+            if (a.type === 'medium_airport') return '#ffaa00';
+            if (a.scheduled_service === 'yes') return '#00ffcc';
+            return '#ffffff';
+        }
+
+        function airportPopup(a) {
+            var codeLine = [
+                a.iata ? 'IATA ' + a.iata : '',
+                a.icao ? 'ICAO ' + a.icao : '',
+                a.local ? 'Local ' + a.local : '',
+                a.gps ? 'GPS ' + a.gps : ''
+            ].filter(Boolean).join(' / ');
+
+            var html = '<div style="min-width:240px">';
+            html += '<b>' + (a.code || a.ident) + ' - ' + (a.name || '') + '</b>';
+            html += '<br>' + codeLine;
+            html += '<br>' + (a.municipality || '') + ' ' + (a.region || '');
+            if (a.elevation_ft) html += '<br>Elevation: ' + a.elevation_ft + ' ft';
+            html += '<br>Type: ' + (a.type || '').replace('_', ' ');
+
+            if (a.frequencies && a.frequencies.length) {
+                html += '<hr style="border-color:#333">';
+                html += '<b>Frequencies</b>';
+                a.frequencies.slice(0, 8).forEach(function(f) {
+                    html += '<br>' + (f.type || '') + ': ' + f.mhz + ' MHz';
+                    if (f.description) html += ' - ' + f.description;
+                });
+            }
+
+            if (a.home_link) {
+                html += '<hr style="border-color:#333">';
+                html += '<a href="' + a.home_link + '" target="_blank">Airport website</a>';
+            }
+
+            html += '<hr style="border-color:#333">';
+            html += '<small>Airport/frequency data is for display only. Verify against official FAA sources before operational use.</small>';
+            html += '</div>';
+            return html;
+        }
+
+        function shouldShowAirport(a) {
+            if (!a || isNaN(a.lat) || isNaN(a.lon)) return false;
+            if (map.getZoom() < airportMinZoom(a)) return false;
+            return map.getBounds().pad(0.2).contains([a.lat, a.lon]);
+        }
+
+        function addAirportMarker(a) {
+            var id = a.ident || a.code;
+            if (!id || airportMarkers[id]) return;
+
+            var marker = L.circleMarker([a.lat, a.lon], {
+                radius: a.type === 'large_airport' ? 6 : 4,
+                color: airportColor(a),
+                weight: 2,
+                fillColor: airportColor(a),
+                fillOpacity: 0.65,
+                opacity: 0.95
+            }).bindPopup(airportPopup(a));
+
+            marker.addTo(airportLayer);
+            airportMarkers[id] = marker;
+        }
+
+        function removeAirportMarker(id) {
+            if (airportMarkers[id]) {
+                airportLayer.removeLayer(airportMarkers[id]);
+                delete airportMarkers[id];
+            }
+        }
+
+        function syncAirportMarkers() {
+            if (!airportData.length) return;
+
+            var visible = {};
+            airportData.forEach(function(a) {
+                var id = a.ident || a.code;
+                if (!id) return;
+
+                if (shouldShowAirport(a)) {
+                    visible[id] = true;
+                    addAirportMarker(a);
+                }
+            });
+
+            for (var id in airportMarkers) {
+                if (!visible[id]) removeAirportMarker(id);
+            }
+        }
+
+        fetch('/static/airports.json')
+            .then(function(res) { return res.json(); })
+            .then(function(json) {
+                airportData = json.airports || [];
+                syncAirportMarkers();
+            })
+            .catch(function(err) {
+                console.log('Airport layer failed to load', err);
+            });
+
+
+        map.on('moveend', function() {
+            syncVisiblePlanes();
+            syncAirportMarkers();
+        });
+        map.on('zoomend', function() {
+            syncVisiblePlanes();
+            syncAirportMarkers();
+        });
 
         // Load initial planes
         fetch('/api/?action=Planes')

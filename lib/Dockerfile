@@ -6,8 +6,9 @@ COPY lib/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY lib/app.py /app/app.py
-RUN mkdir -p /app/templates
+RUN mkdir -p /app/templates /app/static
 COPY index.html /app/templates/index.html
+COPY data/airports.json /app/static/airports.json
 
 EXPOSE 8080
 CMD ["python", "-u", "app.py"]
