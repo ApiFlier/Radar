@@ -85,10 +85,8 @@ fi
 info "Credentials found."
 
 echo ""
-echo "--- Step 2: Assign open port ---"
+echo "--- Step 2: Assign open web port ---"
 
-# Always assign a fresh open port if WEB_PORT is missing.
-# If WEB_PORT already exists, keep it so rerunning setup does not move the site.
 if grep -q "^WEB_PORT=.\+" "$ENV_FILE"; then
     WEB_PORT="$(grep '^WEB_PORT=' "$ENV_FILE" | cut -d= -f2-)"
     info "Using existing WEB_PORT=$WEB_PORT"
