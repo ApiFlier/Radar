@@ -70,6 +70,11 @@ def proxy_to_api(path):
         }, 502
 
 
+
+@app.route("/api/health")
+def api_health():
+    return proxy_to_api("health")
+
 @app.route("/api/stream")
 def api_stream():
     return proxy_to_api("api/stream")
