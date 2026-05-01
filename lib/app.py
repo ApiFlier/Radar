@@ -71,6 +71,35 @@ def proxy_to_api(path):
 
 
 
+
+
+@app.route("/api/planes")
+def api_planes_compat():
+    # Frontend compatibility route.
+    # Browser expects /api/planes as a plain list.
+    # Backend action router serves Planes from /?action=Planes.
+    resp = requests.get(
+        f"{API_BASE}/",
+        params={"action": "Planes"},
+        timeout=30,
+    )
+
+    try:
+        payload = resp.json()
+        planes = (
+            payload
+            .get("response", {})
+            .get("data", {})
+            .get("planes", [])
+        )
+        return planes, resp.status_code
+    except Exception:
+        return Response(
+            resp.content,
+            status=resp.status_code,
+            content_type=resp.headers.get("content-type"),
+        )
+
 @app.route("/api/health")
 def api_health():
     return proxy_to_api("health")
