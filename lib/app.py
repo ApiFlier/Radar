@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, Response, request, render_template
+from flask import Flask, Response, request, render_template, jsonify
 
 app = Flask(__name__)
 
@@ -73,16 +73,22 @@ def proxy_to_api(path):
 
 
 
-@app.route("/api/planes")
-def api_planes_compat():
-    # Frontend compatibility route.
-    # Browser expects /api/planes as a plain list.
-    # Backend action router serves Planes from /?action=Planes.
+def get_planes_from_action_api():
+    params = dict(request.args)
+    params["action"] = "Planes"
+
     resp = requests.get(
         f"{API_BASE}/",
-        params={"action": "Planes"},
+        params=params,
         timeout=30,
     )
+
+    if resp.status_code != 200:
+        return Response(
+            resp.content,
+            status=resp.status_code,
+            content_type=resp.headers.get("content-type"),
+        )
 
     try:
         payload = resp.json()
@@ -92,13 +98,14 @@ def api_planes_compat():
             .get("data", {})
             .get("planes", [])
         )
-        return planes, resp.status_code
+        return jsonify(planes)
     except Exception:
         return Response(
             resp.content,
             status=resp.status_code,
             content_type=resp.headers.get("content-type"),
         )
+
 
 @app.route("/api/health")
 def api_health():
@@ -112,6 +119,9 @@ def api_stream():
 @app.route("/api/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @app.route("/api/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def api_proxy(path):
+    if path == "planes":
+        return get_planes_from_action_api()
+
     if not path:
         return proxy_to_api("")
     return proxy_to_api(f"api/{path}")
