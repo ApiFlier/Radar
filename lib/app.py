@@ -1,8 +1,8 @@
 import os
-import httpx
-from flask import Flask, render_template, request, Response, jsonify
+import requests
+from flask import Flask, Response, request, render_template
 
-app = Flask(__name__, template_folder="templates")
+app = Flask(__name__)
 
 API_HOST = os.getenv("API_HOST", "api")
 API_PORT = os.getenv("API_PORT", "8081")
@@ -16,60 +16,75 @@ def index():
 
 @app.route("/health")
 def health():
+    return {
+        "status": "ok",
+        "service": "flight-web",
+        "api_base": API_BASE,
+    }
+
+
+def proxy_to_api(path):
+    url = f"{API_BASE}/{path}"
+
     try:
-        resp = httpx.get(f"{API_BASE}/health", timeout=10)
-        return Response(
-            resp.content,
-            status=resp.status_code,
-            content_type=resp.headers.get("content-type", "application/json")
+        resp = requests.request(
+            method=request.method,
+            url=url,
+            params=request.args,
+            data=request.get_data(),
+            headers={
+                key: value
+                for key, value in request.headers
+                if key.lower() not in ("host", "content-length")
+            },
+            stream=True,
+            timeout=None if path == "api/stream" else 30,
         )
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 502
+
+        excluded_headers = {
+            "content-encoding",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+        }
+
+        headers = [
+            (name, value)
+            for name, value in resp.raw.headers.items()
+            if name.lower() not in excluded_headers
+        ]
+
+        return Response(
+            resp.iter_content(chunk_size=8192),
+            status=resp.status_code,
+            headers=headers,
+            content_type=resp.headers.get("content-type"),
+        )
+
+    except requests.RequestException as exc:
+        return {
+            "status": "error",
+            "message": "Unable to reach API service",
+            "api_base": API_BASE,
+            "error": str(exc),
+        }, 502
 
 
 @app.route("/api/stream")
 def api_stream():
-    def generate():
-        with httpx.stream("GET", f"{API_BASE}/api/stream", timeout=None) as resp:
-            for line in resp.iter_lines():
-                if line is None:
-                    continue
-                yield line + "\n"
-
-    return Response(
-        generate(),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return proxy_to_api("api/stream")
 
 
-@app.route("/api/", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-def api_proxy():
-    url = f"{API_BASE}/?{request.query_string.decode()}"
+@app.route("/api/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@app.route("/api/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def api_proxy(path):
+    return proxy_to_api(f"api/{path}")
 
-    try:
-        if request.method == "GET":
-            resp = httpx.get(url, timeout=30)
-        else:
-            resp = httpx.request(
-                request.method,
-                url,
-                json=request.get_json(silent=True),
-                timeout=30
-            )
 
-        return Response(
-            resp.content,
-            status=resp.status_code,
-            content_type=resp.headers.get("content-type", "application/json")
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 502
+@app.route("/api", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def api_proxy_no_slash():
+    return proxy_to_api("api/")
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=8080)
