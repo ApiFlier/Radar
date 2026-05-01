@@ -45,7 +45,7 @@ services:
       - API_HOST=api
       - API_PORT=8081
     ports:
-      - "${WEB_PORT}:8080"
+      - "${WEB_PORT:-8080}:8080"
     restart: unless-stopped
 
 volumes:
