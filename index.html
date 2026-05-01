@@ -222,7 +222,11 @@
         }
 
         function staleOpacity(p) {
-            return isStale(p) ? 0.35 : 1.0;
+            var age = planeAgeSeconds ? planeAgeSeconds(p) : 0;
+            if (isAirbornePlane && isAirbornePlane(p)) {
+                return age <= VISIBLE_AIR_MAX_AGE ? 1.0 : 0.0;
+            }
+            return age <= VISIBLE_GROUND_MAX_AGE ? 0.85 : 0.0;
         }
 
         function makePlaneIcon(id, heading, color, opacity) {
@@ -346,6 +350,7 @@
             var lon = parseFloat(p.lon);
             if (isNaN(lat) || isNaN(lon)) return false;
             if (!isVisible(lat, lon)) return false;
+            if (typeof staleOpacity === 'function' && staleOpacity(p) <= 0) return false;
 
             var age = planeAgeSeconds(p);
 
