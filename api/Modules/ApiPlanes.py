@@ -104,6 +104,7 @@ class ApiPlanes(ApiBase):
 
         for plane in planesByKey.values():
             if self.filterPlane(plane):
+                plane.update(self.classifyAircraft(plane))
                 planes.append(plane)
 
         planes.sort(key=lambda p: float(p.get("lastUpdate", 0)), reverse=True)
@@ -304,6 +305,87 @@ class ApiPlanes(ApiBase):
                 return False
 
         return True
+
+    def classifyAircraft(self, plane: dict) -> dict:
+        callsign = (plane.get("callsign") or "").strip().upper()
+        operator = (plane.get("operator") or "").strip().upper()
+        registration = (plane.get("registration") or "").strip().upper()
+        aircraft_type = (plane.get("aircraftType") or plane.get("aircraft_type") or "").strip().upper()
+        db_flags = self.safeInt(plane.get("dbFlags", plane.get("db_flags", 0)), 0)
+
+        is_military = bool(db_flags & 1)
+        is_pia = bool(db_flags & 4)
+        is_ladd = bool(db_flags & 8)
+        is_helicopter = self.isHelicopterType(aircraft_type)
+
+        commercial_prefixes = {
+            "AAL", "ACA", "AFR", "ASA", "ASH", "ATN", "AWI", "BAW", "DAL",
+            "EDV", "ENY", "FFT", "FDX", "GJS", "JBU", "JIA", "KLM", "NKS",
+            "QXE", "RPA", "SKW", "SWA", "UAL", "UPS", "VOI", "WJA", "AAY",
+            "SCX", "UCA", "ROU", "DLH", "AUA", "JZA", "ENY", "PDT", "UAL"
+        }
+
+        prefix = operator[:3] if len(operator) >= 3 else callsign[:3]
+
+        if is_military:
+            aircraft_class = "military"
+            aircraft_role = "military"
+            icon_type = "military"
+        elif is_helicopter:
+            aircraft_class = "helicopter"
+            aircraft_role = "helicopter"
+            icon_type = "helicopter"
+        elif prefix in commercial_prefixes:
+            aircraft_class = "commercial"
+            aircraft_role = "airline"
+            icon_type = "commercial"
+        elif registration.startswith("N") or callsign.startswith("N"):
+            aircraft_class = "private"
+            aircraft_role = "private"
+            icon_type = "private"
+        elif callsign:
+            aircraft_class = "private"
+            aircraft_role = "general"
+            icon_type = "private"
+        else:
+            aircraft_class = "unknown"
+            aircraft_role = "unknown"
+            icon_type = "private"
+
+        return {
+            "aircraftClass": aircraft_class,
+            "aircraftRole": aircraft_role,
+            "iconType": icon_type,
+            "isMilitary": is_military,
+            "isPia": is_pia,
+            "isLadd": is_ladd,
+            "isHelicopter": is_helicopter,
+        }
+
+    def isHelicopterType(self, aircraft_type: str) -> bool:
+        if not aircraft_type:
+            return False
+
+        helicopter_prefixes = (
+            "H",
+            "R22", "R44", "R66",
+            "B06", "B47",
+            "AS3", "AS5",
+            "EC1", "EC2", "EC3", "EC4", "EC5",
+            "BK1",
+            "S61", "S64", "S76", "S92",
+            "A109", "A119", "A139", "A169", "A189",
+        )
+
+        return aircraft_type.startswith(helicopter_prefixes)
+
+    def safeInt(self, value, default=0) -> int:
+        try:
+            if value in (None, ""):
+                return default
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
 
     def safeFloat(self, value, default=0.0) -> float:
         try:
