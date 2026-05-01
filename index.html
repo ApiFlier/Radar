@@ -90,6 +90,24 @@
             attribution: '&copy; Esri'
         }).addTo(map);
 
+        // Hybrid map overlays: satellite imagery plus labels/roads.
+        map.createPane('labels');
+        map.getPane('labels').style.zIndex = 350;
+        map.getPane('labels').style.pointerEvents = 'none';
+
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            pane: 'labels',
+            maxZoom: 19,
+            attribution: 'Labels © Esri'
+        }).addTo(map);
+
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+            pane: 'labels',
+            maxZoom: 19,
+            attribution: 'Roads © Esri'
+        }).addTo(map);
+
+
         var planeData = {};
         var planeMarkers = {};
         var activeTrail = null;
@@ -252,6 +270,48 @@
 
         var AIRBORNE_SPEED_KTS = 40;
         var GROUND_DISPLAY_MIN_ZOOM = 12;
+        var GROUND_AIRPORT_RADIUS_NM = 2.5;
+        var VISIBLE_AIR_MAX_AGE = 180;
+        var VISIBLE_GROUND_MAX_AGE = 900;
+
+
+        function planeAgeSeconds(p) {
+            var ts = parseFloat(p.lastUpdate || p.last_update || 0);
+            if (!ts) return 999999;
+            return (Date.now() / 1000) - ts;
+        }
+
+        function distanceNm(lat1, lon1, lat2, lon2) {
+            var rNm = 3440.065;
+            var toRad = Math.PI / 180;
+            var dLat = (lat2 - lat1) * toRad;
+            var dLon = (lon2 - lon1) * toRad;
+            var a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            return rNm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function nearestAirportWithin(lat, lon, maxNm) {
+            if (!airportData || !airportData.length) return null;
+
+            var best = null;
+            var bestDist = maxNm;
+
+            for (var i = 0; i < airportData.length; i++) {
+                var a = airportData[i];
+                if (!a || isNaN(a.lat) || isNaN(a.lon)) continue;
+
+                var d = distanceNm(lat, lon, parseFloat(a.lat), parseFloat(a.lon));
+                if (d <= bestDist) {
+                    best = a;
+                    bestDist = d;
+                }
+            }
+
+            return best;
+        }
 
         function isAirbornePlane(p) {
             if (!p) return false;
@@ -284,10 +344,17 @@
             if (isNaN(lat) || isNaN(lon)) return false;
             if (!isVisible(lat, lon)) return false;
 
-            if (isAirbornePlane(p)) return true;
+            var age = planeAgeSeconds(p);
 
-            // Ground/parked aircraft only show in airport-style close zoom.
-            return map.getZoom() >= GROUND_DISPLAY_MIN_ZOOM;
+            if (isAirbornePlane(p)) {
+                return age <= VISIBLE_AIR_MAX_AGE;
+            }
+
+            // Ground/parked aircraft only show when zoomed in and actually near an airport.
+            if (age > VISIBLE_GROUND_MAX_AGE) return false;
+            if (map.getZoom() < GROUND_DISPLAY_MIN_ZOOM) return false;
+
+            return nearestAirportWithin(lat, lon, GROUND_AIRPORT_RADIUS_NM) !== null;
         }
 
         function addMarker(id) {
