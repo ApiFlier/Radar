@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
 
   swim-ingestor:
+    image: radar-backend
     build: ./api
     container_name: swim-ingestor
     depends_on:
@@ -22,6 +23,7 @@ services:
     restart: unless-stopped
 
   adsblol-reapi:
+    image: radar-backend
     build: ./api
     container_name: adsblol-reapi
     depends_on:
@@ -39,6 +41,7 @@ services:
     restart: always
 
   api:
+    image: radar-backend
     build: ./api
     container_name: flight-api
     depends_on:
