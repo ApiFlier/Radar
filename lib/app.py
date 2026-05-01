@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, Response, request, render_template, jsonify
+from flask import Flask, Response, request, render_template
 
 app = Flask(__name__)
 
@@ -70,64 +70,10 @@ def proxy_to_api(path):
         }, 502
 
 
-def extract_planes(payload):
-    if isinstance(payload, list):
-        return payload
-
-    if not isinstance(payload, dict):
-        return []
-
-    return (
-        payload
-        .get("response", {})
-        .get("data", {})
-        .get("planes", [])
-    )
-
-
-@app.route("/api/planes")
-def api_planes_compat():
-    params = dict(request.args)
-    params["action"] = "Planes"
-
-    attempts = [
-        f"{API_BASE}/api/",
-        f"{API_BASE}/",
-    ]
-
-    last_status = 502
-    last_body = b""
-
-    for url in attempts:
-        try:
-            resp = requests.get(url, params=params, timeout=30)
-            last_status = resp.status_code
-            last_body = resp.content
-
-            if resp.status_code != 200:
-                continue
-
-            payload = resp.json()
-            planes = extract_planes(payload)
-
-            if isinstance(planes, list):
-                return jsonify(planes)
-
-        except Exception as exc:
-            last_body = str(exc).encode("utf-8")
-            continue
-
-    return Response(
-        last_body,
-        status=last_status,
-        content_type="application/json",
-    )
-
 
 @app.route("/api/health")
 def api_health():
     return proxy_to_api("health")
-
 
 @app.route("/api/stream")
 def api_stream():
@@ -137,9 +83,6 @@ def api_stream():
 @app.route("/api/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 @app.route("/api/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 def api_proxy(path):
-    if path == "planes":
-        return api_planes_compat()
-
     if not path:
         return proxy_to_api("")
     return proxy_to_api(f"api/{path}")
