@@ -590,9 +590,22 @@
 
             if (isNaN(lat) || isNaN(lon)) return false;
 
-            // TEMPORARY: ground sweep aircraft are already airport-targeted by the backend.
-            // Let them through so we can confirm the map draws them, then we can tune clutter later.
-            if (isGroundSweepPlane(p)) return true;
+            var isGroundSweep = isGroundSweepPlane(p);
+
+            // Ground sweep aircraft are useful only when zoomed in near the airport.
+            // They are already airport-targeted by the backend, but we still keep
+            // frontend bounds, zoom, and freshness checks to avoid clutter.
+            if (isGroundSweep) {
+                if (typeof map !== 'undefined' && map && typeof map.getZoom === 'function') {
+                    if (map.getZoom() < getGroundDisplayMinZoom()) return false;
+                }
+
+                if (typeof isVisible === 'function' && !isVisible(lat, lon)) return false;
+
+                if (getPlaneAgeSeconds(p) > getVisibleGroundMaxAge()) return false;
+
+                return true;
+            }
 
             if (typeof isVisible === 'function' && !isVisible(lat, lon)) return false;
 
