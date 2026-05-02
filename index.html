@@ -637,8 +637,22 @@
             target.isHelicopter = source.isHelicopter !== undefined ? source.isHelicopter : (source.is_helicopter !== undefined ? source.is_helicopter : target.isHelicopter);
         }
 
+        function aircraftStorageId(p) {
+            if (!p) return '';
+
+            if (isGroundSweepPlane(p)) {
+                var hex = p.icaoHex || p.icao_hex || p.hex || '';
+                if (hex) return 'ground:' + String(hex).toUpperCase();
+
+                var cs = p.callsign || p.flight || '';
+                if (cs) return 'ground:' + String(cs).trim();
+            }
+
+            return p.flightId || p.flight_id || p.id || p.callsign || p.icaoHex || p.icao_hex || '';
+        }
+
         function processPlane(p) {
-            var id = p.flightId || p.flight_id || p.callsign;
+            var id = aircraftStorageId(p);
             if (!id) return;
 
             var lat = parseFloat(p.lat);
@@ -648,6 +662,13 @@
             var speed = parseFloat(p.speed) || 0;
             var heading = parseFloat(p.heading) || 0;
             var timestamp = parseFloat(p.lastUpdate || p.last_update) || 0;
+
+            // Some ADSB.lol ground-sweep records arrive without a durable timestamp
+            // after API normalization. Treat the API fetch time as fresh so they
+            // are not immediately removed by cleanStalePlanes().
+            if (!timestamp && isGroundSweepPlane(p)) {
+                timestamp = Date.now() / 1000;
+            }
 
             if (!planeData[id]) {
                 planeData[id] = {
@@ -742,7 +763,8 @@
             var now = Date.now() / 1000;
             for (var id in planeData) {
                 var age = now - (parseFloat(planeData[id].lastUpdate) || 0);
-                if (age > REMOVE_STALE_AGE) {
+                var maxAge = isGroundSweepPlane(planeData[id]) ? getVisibleGroundMaxAge() : REMOVE_STALE_AGE;
+                if (age > maxAge) {
                     if (followFlightId === id) stopFollow();
                     removeMarker(id);
                     delete planeData[id];
