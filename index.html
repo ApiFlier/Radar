@@ -825,6 +825,10 @@
             .then(function(json) {
                 airportData = json.airports || [];
                 syncAirportMarkers();
+
+                // Ground aircraft visibility depends on airportData.
+                // Re-run aircraft visibility after airports load.
+                syncVisiblePlanes();
             })
             .catch(function(err) {
                 console.log('Airport layer failed to load', err);
