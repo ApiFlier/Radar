@@ -1,13 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================
+# Radar quick setup
+# ============================================================
+#
+# Recommended install:
+#
+#   git clone <private repo>
+#   cd Radar
+#   cp deploy.env.example deploy.env
+#   nano deploy.env
+#   chmod +x setup.sh
+#   ./setup.sh
+#
+# Required values go in deploy.env before running setup.sh.
+# Setup does not prompt for credentials. It reads deploy.env,
+# creates a runtime copy under /opt/radar by default, generates
+# the runtime .env, starts containers, then asks whether to
+# delete the local source checkout.
+#
+# Credential / access links:
+#
+#   FAA API Portal:
+#     https://portal.apic4e.faa.gov/
+#
+#   FAA SWIM / NAS Enterprise Messaging:
+#     https://www.faa.gov/air_traffic/technology/swim
+#
+#   OpenSky Network:
+#     https://opensky-network.org/
+#
+#   ADSB.lol feeder / re-api docs:
+#     https://www.adsb.lol/docs/
+#
+# ============================================================
+
 APP_NAME="Radar"
 DEFAULT_INSTALL_DIR="/opt/radar"
+DEFAULT_WEB_PORT="8080"
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${CONFIG_FILE:-}"
 INSTALL_DIR="${INSTALL_DIR:-}"
-DELETE_SOURCE="${DELETE_SOURCE:-ask}"
 
 echo "========================================"
 echo " ${APP_NAME} setup"
@@ -25,16 +60,18 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 # Deployment config source.
-# Preferred: deploy.env
-# Fallback: existing .env, useful for this current server and older installs.
 if [ -z "$CONFIG_FILE" ]; then
-  if [ -f "$SRC_DIR/deploy.env" ]; then
-    CONFIG_FILE="$SRC_DIR/deploy.env"
-  elif [ -f "$SRC_DIR/.env" ]; then
-    CONFIG_FILE="$SRC_DIR/.env"
-  else
-    CONFIG_FILE="$SRC_DIR/deploy.env"
-  fi
+  CONFIG_FILE="$SRC_DIR/deploy.env"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "ERROR: Deployment config not found: $CONFIG_FILE"
+  echo ""
+  echo "Create it first:"
+  echo "  cp deploy.env.example deploy.env"
+  echo "  nano deploy.env"
+  echo "  ./setup.sh"
+  exit 1
 fi
 
 if [ -z "$INSTALL_DIR" ]; then
@@ -51,8 +88,7 @@ echo ""
 
 if [ "$SRC_DIR" = "$INSTALL_DIR" ]; then
   echo "ERROR: Runtime directory must be separate from the source checkout."
-  echo "Use something like:"
-  echo "  INSTALL_DIR=/opt/radar ./setup.sh"
+  echo "Use INSTALL_DIR=/opt/radar or another separate runtime directory."
   exit 1
 fi
 
@@ -104,20 +140,26 @@ copy_project() {
 
 ENV_FILE=""
 
-get_env_value() {
-  local key="$1"
-  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
+get_file_value() {
+  local file="$1"
+  local key="$2"
+  grep -E "^${key}=" "$file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
 }
 
-upsert_env() {
-  local key="$1"
-  local value="$2"
+get_env_value() {
+  get_file_value "$ENV_FILE" "$1"
+}
 
-  KEY="$key" VALUE="$value" ENV_FILE="$ENV_FILE" python3 - <<'PY'
+upsert_file() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  KEY="$key" VALUE="$value" FILE="$file" python3 - <<'PY'
 from pathlib import Path
 import os
 
-path = Path(os.environ["ENV_FILE"])
+path = Path(os.environ["FILE"])
 key = os.environ["KEY"]
 value = os.environ["VALUE"]
 
@@ -141,6 +183,19 @@ path.write_text("\n".join(out).rstrip() + "\n")
 PY
 }
 
+upsert_env() {
+  upsert_file "$ENV_FILE" "$1" "$2"
+}
+
+upsert_config_if_possible() {
+  local key="$1"
+  local value="$2"
+
+  if [ -w "$CONFIG_FILE" ]; then
+    upsert_file "$CONFIG_FILE" "$key" "$value"
+  fi
+}
+
 ensure_default() {
   local key="$1"
   local value="$2"
@@ -149,7 +204,7 @@ ensure_default() {
 
   if [ -z "$current" ]; then
     upsert_env "$key" "$value"
-    echo "Added default: $key"
+    echo "Added default: $key=$value"
   fi
 }
 
@@ -169,17 +224,9 @@ normalize_value() {
 import_config_file() {
   local file="$1"
 
-  if [ ! -f "$file" ]; then
-    echo "ERROR: Deployment config not found: $file"
-    echo ""
-    echo "Create deploy.env from deploy.env.example, then run setup again."
-    exit 1
-  fi
-
   echo "Importing deployment config..."
 
   while IFS= read -r line || [ -n "$line" ]; do
-    # Trim leading whitespace for comment/blank detection.
     trimmed="${line#"${line%%[![:space:]]*}"}"
 
     [ -z "$trimmed" ] && continue
@@ -190,9 +237,8 @@ import_config_file() {
     value="${trimmed#*=}"
 
     if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-      # Runtime-only setup keys should not be written to Docker .env.
       case "$key" in
-        INSTALL_DIR|DELETE_SOURCE)
+        INSTALL_DIR)
           ;;
         *)
           upsert_env "$key" "$value"
@@ -208,9 +254,84 @@ require_env() {
   value="$(get_env_value "$key")"
 
   if [ -z "$value" ]; then
-    echo "ERROR: Missing required value: $key"
+    echo "ERROR: Missing required value in deploy.env: $key"
     missing_required=1
   fi
+}
+
+port_is_current_radar_web() {
+  local port="$1"
+
+  docker ps --format '{{.Names}} {{.Ports}}' \
+    | grep -E '^radar-web ' \
+    | grep -q ":${port}->8080/tcp"
+}
+
+port_available() {
+  local bind="$1"
+  local port="$2"
+
+  python3 - "$bind" "$port" <<'PY'
+import socket
+import sys
+
+bind = sys.argv[1]
+port = int(sys.argv[2])
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+try:
+    s.bind((bind, port))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+
+sys.exit(0)
+PY
+}
+
+choose_web_port() {
+  local bind
+  local requested
+  local port
+
+  bind="$(get_env_value WEB_BIND)"
+  requested="$(get_env_value WEB_PORT)"
+
+  bind="${bind:-0.0.0.0}"
+  requested="${requested:-$DEFAULT_WEB_PORT}"
+
+  port="$requested"
+
+  while true; do
+    if port_available "$bind" "$port"; then
+      if [ "$port" != "$requested" ]; then
+        echo "WEB_PORT $requested is busy. Using available port $port."
+      else
+        echo "WEB_PORT $port is available."
+      fi
+
+      upsert_env "WEB_PORT" "$port"
+      upsert_config_if_possible "WEB_PORT" "$port"
+      break
+    fi
+
+    if port_is_current_radar_web "$port"; then
+      echo "WEB_PORT $port is currently used by existing radar-web and will be reused."
+      upsert_env "WEB_PORT" "$port"
+      break
+    fi
+
+    echo "WEB_PORT $port is busy."
+    port=$((port + 1))
+
+    if [ "$port" -gt 65535 ]; then
+      echo "ERROR: Could not find an available web port."
+      exit 1
+    fi
+  done
 }
 
 prepare_env() {
@@ -224,20 +345,16 @@ prepare_env() {
   echo ""
   echo "Adding defaults..."
 
-  # Runtime defaults
-  ensure_default "WEB_PORT" "8080"
+  ensure_default "WEB_PORT" "$DEFAULT_WEB_PORT"
   ensure_default "WEB_BIND" "0.0.0.0"
 
-  # Internal Docker service name
   ensure_default "REDIS_HOST" "redis"
   ensure_default "REDIS_PORT" "6379"
   normalize_value "REDIS_HOST" "flight-redis" "redis"
   normalize_value "REDIS_HOST" "radar-redis" "redis"
 
-  # FAA/SWIM
   ensure_default "FAA_URL" "tcps://ems1.swim.faa.gov:55443"
 
-  # ADSB.lol primary airborne feed
   ensure_default "ADSBLOL_REAPI_URL" "https://re-api.adsb.lol/"
   ensure_default "ADSBLOL_REAPI_BASE" "https://re-api.adsb.lol"
   ensure_default "ADSBLOL_REAPI_CIRCLES" "40.491389,-80.232778,250"
@@ -246,7 +363,6 @@ prepare_env() {
   ensure_default "ADSBLOL_REAPI_REQUEST_SPACING_SECONDS" "1.2"
   ensure_default "ADSBLOL_HEALTH_MAX_AGE_SECONDS" "45"
 
-  # ADSB.lol airport ground sweep
   ensure_default "GROUND_SWEEP_CLUSTER_INTERVAL_SECONDS" "300"
   ensure_default "GROUND_SWEEP_REQUEST_SPACING_SECONDS" "5"
   ensure_default "GROUND_SWEEP_TTL_SECONDS" "900"
@@ -268,6 +384,10 @@ prepare_env() {
     echo "Fix $CONFIG_FILE and run setup again."
     exit 1
   fi
+
+  echo ""
+  echo "Checking web port..."
+  choose_web_port
 }
 
 start_containers() {
@@ -310,36 +430,23 @@ maybe_delete_source() {
     return
   fi
 
-  case "$DELETE_SOURCE" in
-    1|yes|YES|true|TRUE)
-      cd /
-      rm -rf --one-file-system "$SRC_DIR"
-      echo "Deleted source checkout: $SRC_DIR"
-      ;;
-    0|no|NO|false|FALSE)
-      echo "Kept source checkout: $SRC_DIR"
-      ;;
-    ask|ASK)
-      if [ -t 0 ]; then
-        echo "Original source checkout:"
-        echo "  $SRC_DIR"
-        echo ""
-        read -r -p "Delete the original source checkout now? Type DELETE to confirm: " confirm
-        if [ "$confirm" = "DELETE" ]; then
-          cd /
-          rm -rf --one-file-system "$SRC_DIR"
-          echo "Deleted $SRC_DIR"
-        else
-          echo "Kept source checkout."
-        fi
-      else
-        echo "Kept source checkout: $SRC_DIR"
-      fi
-      ;;
-    *)
-      echo "Unknown DELETE_SOURCE value '$DELETE_SOURCE'; kept source checkout."
-      ;;
-  esac
+  if [ ! -t 0 ]; then
+    echo "Kept source checkout: $SRC_DIR"
+    return
+  fi
+
+  echo "Original source checkout:"
+  echo "  $SRC_DIR"
+  echo ""
+  read -r -p "Delete the original source checkout now? Type DELETE to confirm: " confirm
+
+  if [ "$confirm" = "DELETE" ]; then
+    cd /
+    rm -rf --one-file-system "$SRC_DIR"
+    echo "Deleted source checkout: $SRC_DIR"
+  else
+    echo "Kept source checkout."
+  fi
 }
 
 make_runtime_dir
