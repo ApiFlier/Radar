@@ -572,24 +572,23 @@
 
             if (isNaN(lat) || isNaN(lon)) return false;
 
-            if (typeof isVisible === 'function' && !isVisible(lat, lon)) return false;
-            if (typeof staleOpacity === 'function' && staleOpacity(p) <= 0) return false;
+            // TEMPORARY: ground sweep aircraft are already airport-targeted by the backend.
+            // Let them through so we can confirm the map draws them, then we can tune clutter later.
+            if (isGroundSweepPlane(p)) return true;
 
-            var age = getPlaneAgeSeconds(p);
+            if (typeof isVisible === 'function' && !isVisible(lat, lon)) return false;
 
             if (isAirbornePlane(p)) {
-                return age <= getVisibleAirMaxAge();
+                if (typeof staleOpacity === 'function' && staleOpacity(p) <= 0) return false;
+                return getPlaneAgeSeconds(p) <= getVisibleAirMaxAge();
             }
-
-            if (age > getVisibleGroundMaxAge()) return false;
 
             if (typeof map !== 'undefined' && map && typeof map.getZoom === 'function') {
                 if (map.getZoom() < getGroundDisplayMinZoom()) return false;
             }
 
-            // Ground sweep aircraft are already airport-targeted by the backend.
-            // Do not require the frontend nearest-airport check to pass perfectly.
-            if (isGroundSweepPlane(p)) return true;
+            if (typeof staleOpacity === 'function' && staleOpacity(p) <= 0) return false;
+            if (getPlaneAgeSeconds(p) > getVisibleGroundMaxAge()) return false;
 
             return nearestAirportWithin(lat, lon, getGroundAirportRadiusNm()) !== null;
         }
@@ -600,6 +599,19 @@
             target.aircraftClass = source.aircraftClass || source.aircraft_class || target.aircraftClass || 'unknown';
             target.aircraftRole = source.aircraftRole || source.aircraft_role || target.aircraftRole || 'unknown';
             target.iconType = source.iconType || source.icon_type || target.iconType || target.aircraftClass || 'private';
+
+            // Preserve source fields so ground-sweep aircraft can be identified after storage in planeData.
+            target.source = source.source || target.source || '';
+            target.positionSource = source.positionSource || source.position_source || target.positionSource || '';
+            target.sourceFacility = source.sourceFacility || source.source_facility || target.sourceFacility || '';
+            target.groundCluster = source.groundCluster || source.ground_cluster || target.groundCluster || '';
+
+            // Preserve ground/airborne state fields.
+            target.alt_baro = source.alt_baro !== undefined ? source.alt_baro : target.alt_baro;
+            target.altBaro = source.altBaro !== undefined ? source.altBaro : target.altBaro;
+            target.airborne = source.airborne !== undefined ? source.airborne : target.airborne;
+            target.onGround = source.onGround !== undefined ? source.onGround : (source.on_ground !== undefined ? source.on_ground : target.onGround);
+            target.lastUpdate = source.lastUpdate || source.last_update || target.lastUpdate;
 
             target.isMilitary = source.isMilitary !== undefined ? source.isMilitary : (source.is_military !== undefined ? source.is_military : target.isMilitary);
             target.isPia = source.isPia !== undefined ? source.isPia : (source.is_pia !== undefined ? source.is_pia : target.isPia);
@@ -858,7 +870,7 @@
         });
 
         // Load initial planes
-        fetch('/api/?action=Planes')
+        fetch('/api/?action=Planes&_=' + Date.now())
             .then(function(res) { return res.json(); })
             .then(function(json) {
                 var planes = json.response && json.response.data ? json.response.data.planes || [] : [];
