@@ -40,22 +40,15 @@ Redis and API are internal-only. Only the web service is exposed to the host.
 
 Run once on a fresh Ubuntu server:
 
-    sudo apt update && sudo apt upgrade -y
-    sudo apt install -y git curl iproute2
-    curl -fsSL https://get.docker.com | sh
-    sudo usermod -aG docker $USER
+    sudo apt update && sudo apt upgrade -y; sudo apt install -y git curl iproute2; curl -fsSL https://get.docker.com | sh; sudo usermod -aG docker $USER
 
 Log out and back in, then verify:
 
-    docker --version
-    docker compose version
-
+    docker --version; docker compose version
+    
 ### Part 2 - Clone and run
 
-    git clone https://github.com/ApiFlier/Radar.git ./radar
-    cd ./radar
-    chmod +x setup.sh
-    ./setup.sh
+    git clone https://github.com/ApiFlier/Radar.git ./radar; cd ./radar; chmod +x setup.sh; ./setup.sh
 
 The setup script will:
 
