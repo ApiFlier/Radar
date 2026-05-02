@@ -8,14 +8,16 @@ Radar ingests live aircraft data, stores aircraft state in Redis, and serves a w
 
 ## Deploy
 
-### Part 1 — Install Docker (skip if already installed)
+### Part 1 — Install Docker
+
+Skip this if Docker is already installed.
 
 ```bash
-sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl apache2-utils
+sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl
 curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
 ```
 
-**Log out and back in** after this so the docker group takes effect, then verify:
+Log out and back in after this so the Docker group takes effect, then verify:
 
 ```bash
 docker --version && docker compose version
@@ -25,16 +27,16 @@ docker --version && docker compose version
 
 ### Part 2 — Clone and run
 
-If you have already set up your deploy.env
+If `deploy.env` is already included in your private repo:
 
 ```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar  && chmod +x setup.sh && ./setup.sh
+git clone https://github.com/ApiFlier/Radar radar && cd radar && chmod +x setup.sh && ./setup.sh
 ```
 
-If you have not set up your deploy.env yet
+If you still need to create `deploy.env`:
 
 ```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar && cp -n deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
+git clone https://github.com/ApiFlier/Radar radar && cd radar && [ -f deploy.env ] || cp deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
 ```
 
 The only file you need to edit before setup is:
@@ -43,7 +45,9 @@ The only file you need to edit before setup is:
 deploy.env
 ```
 
-`setup.sh` reads `deploy.env`, copies the app into a runtime directory, generates the runtime `.env`, checks the required values, chooses an available web port if needed, builds and starts the containers, then asks whether to delete the original source checkout.
+`setup.sh` reads `deploy.env`, generates a local `.env`, checks the required values, chooses an available web port if needed, builds the Docker images locally, starts the containers, verifies the API, and then asks whether to delete the local repo files.
+
+If you delete the repo files, the containers keep running. To use `docker compose` again later, reclone the repo or keep the folder.
 
 ---
 
@@ -125,35 +129,49 @@ QUEUE_STDDS=
 QUEUE_TFMS=
 ```
 
-Common optional values:
+Optional values:
 
 ```env
-INSTALL_DIR=/opt/radar
-WEB_BIND=0.0.0.0
-WEB_PORT=8080
 OPENSKY_CLIENT_ID=
 OPENSKY_CLIENT_SECRET=
 ```
 
-If `WEB_PORT` is busy, `setup.sh` will choose the next available port and write it back to the generated runtime `.env`. If `deploy.env` is writable, setup will also update `WEB_PORT` there.
+Everything else is handled by `setup.sh`, including:
+
+```text
+WEB_BIND
+WEB_PORT
+REDIS_HOST
+REDIS_PORT
+FAA_URL
+ADSBLOL_REAPI settings
+GROUND_SWEEP settings
+```
+
+If `WEB_PORT` is busy, `setup.sh` will choose the next available port and write it to the generated `.env`.
 
 ---
 
-## Runtime layout
+## Runtime model
 
-By default, setup installs the runtime app here:
-
-```text
-/opt/radar
-```
-
-The runtime environment file is:
+Radar follows the same deployment model as the other private projects:
 
 ```text
-/opt/radar/.env
+repo folder = setup/build/compose management
+Docker containers/images = actual running app
 ```
 
-The source checkout can be deleted after setup if you confirm the final prompt.
+After setup, the app keeps running even if the repo folder is deleted.
+
+The generated runtime environment file is:
+
+```text
+.env
+```
+
+It is created inside the cloned repo folder during setup.
+
+Docker stores the container environment when containers are created, so the running containers can survive reboot without the repo folder. If you need to recreate the containers later, reclone the repo and recreate `deploy.env`.
 
 ---
 
@@ -200,10 +218,10 @@ Only `radar-web` is exposed to the host.
 | API | Not exposed | `8081` | No |
 | Redis | Not exposed | `6379` | No |
 
-Check the chosen web port:
+Check the chosen web port while the repo folder exists:
 
 ```bash
-grep '^WEB_PORT=' /opt/radar/.env
+grep '^WEB_PORT=' .env
 ```
 
 Open the app:
@@ -222,10 +240,10 @@ http://192.168.1.206:8080
 
 ## Day-to-day management
 
-Run these from the runtime folder:
+If you kept the repo folder, run these from that folder:
 
 ```bash
-cd /opt/radar
+cd radar
 ```
 
 View containers:
@@ -270,12 +288,42 @@ docker compose up -d --build
 
 ---
 
+## Management after deleting the repo folder
+
+If you delete the repo folder, the containers keep running.
+
+Without the repo folder, manage containers by name:
+
+```bash
+docker ps
+docker logs radar-api
+docker logs radar-web
+docker logs radar-swim-ingestor
+docker logs radar-adsblol-reapi
+docker logs radar-adsblol-ground
+```
+
+Stop containers:
+
+```bash
+docker stop radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground
+```
+
+Start containers:
+
+```bash
+docker start radar-redis radar-api radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground radar-web
+```
+
+To regain `docker compose` management, reclone the repo.
+
+---
+
 ## Useful checks
 
 Validate Docker Compose without starting containers:
 
 ```bash
-cd /opt/radar
 docker compose config --quiet && echo "Compose OK"
 ```
 
@@ -293,10 +341,12 @@ docker compose config | grep -A16 "api:"
 docker compose config | grep -A16 "web:"
 ```
 
-Check aircraft source counts:
+Check aircraft source counts while the repo folder exists:
 
 ```bash
-curl -sS "http://127.0.0.1:$(grep '^WEB_PORT=' /opt/radar/.env | cut -d= -f2)/api/?action=Planes" -o /tmp/radar_planes.json
+WEB_PORT=$(grep '^WEB_PORT=' .env | cut -d= -f2)
+
+curl -sS "http://127.0.0.1:${WEB_PORT}/api/?action=Planes" -o /tmp/radar_planes.json
 
 python3 - <<'PY'
 import json
@@ -320,34 +370,13 @@ PY
 
 ## Project structure
 
-Source checkout:
-
 ```text
 Radar/
 ├── README.md
 ├── setup.sh
 ├── deploy.env.example
 ├── deploy.env
-├── docker-compose.yml
-├── index.html
-├── api/
-├── core/
-├── data/
-├── ingestors/
-├── lib/
-├── samples/
-├── tools/
-└── web/
-```
-
-Runtime install:
-
-```text
-/opt/radar/
 ├── .env
-├── README.md
-├── setup.sh
-├── deploy.env.example
 ├── docker-compose.yml
 ├── index.html
 ├── api/
@@ -364,24 +393,30 @@ Runtime install:
 
 ## Cleanup
 
-Stop the stack:
+Stop the stack while the repo folder exists:
 
 ```bash
-cd /opt/radar
 docker compose down
 ```
 
-Stop the stack and remove the Redis volume:
+Stop the stack and remove Redis data:
 
 ```bash
-cd /opt/radar
 docker compose down -v
 ```
 
-Remove the runtime install:
+Remove local repo files after setup:
 
 ```bash
-sudo rm -rf /opt/radar
+rm -rf /path/to/radar
+```
+
+The containers keep running unless you stop or remove them.
+
+Remove containers by name:
+
+```bash
+docker rm -f radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground
 ```
 
 ---
