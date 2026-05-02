@@ -397,8 +397,9 @@ start_containers() {
   docker compose config --quiet
 
   echo ""
-  echo "Building and starting Radar containers..."
-  docker compose up -d --build
+  echo "Pulling and starting Radar containers..."
+  docker compose pull
+  docker compose up -d
 
   echo ""
   echo "Container status:"
