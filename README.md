@@ -25,13 +25,13 @@ docker --version && docker compose version
 
 ### Part 2 — Clone and run
 
-**If you have already set up your deploy.env
+If you have already set up your deploy.env
 
 ```bash
 git clone https://github.com/ApiFlier/Radar radar && cd radar  && chmod +x setup.sh && ./setup.sh
 ```
 
-**If you have not set up your deploy.env yet
+If you have not set up your deploy.env yet
 
 ```bash
 git clone https://github.com/ApiFlier/Radar radar && cd radar && cp -n deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
