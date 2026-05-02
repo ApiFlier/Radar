@@ -7,7 +7,10 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
+    image: radar-backend
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     container_name: radar-api
     command: uvicorn main:app --host 0.0.0.0 --port 8081
     env_file:
@@ -20,7 +23,10 @@ services:
     restart: unless-stopped
 
   swim-ingestor:
-    image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
+    image: radar-backend
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     container_name: radar-swim-ingestor
     command: python -u -m Classes.Ingestors.faa.runFAASwim
     env_file:
@@ -33,7 +39,10 @@ services:
     restart: unless-stopped
 
   adsblol-reapi:
-    image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
+    image: radar-backend
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     container_name: radar-adsblol-reapi
     command: python -u -m Classes.Ingestors.adsblol.runAdsbLolReApi
     env_file:
@@ -46,7 +55,10 @@ services:
     restart: unless-stopped
 
   adsblol-ground:
-    image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
+    image: radar-backend
+    build:
+      context: ./api
+      dockerfile: Dockerfile
     container_name: radar-adsblol-ground
     command: python -u -m Classes.AdsbLolGroundSweep
     env_file:
@@ -59,7 +71,10 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${RADAR_WEB_IMAGE:-ghcr.io/apiflier/radar-web:latest}
+    image: radar-web
+    build:
+      context: .
+      dockerfile: lib/Dockerfile
     container_name: radar-web
     command: python -u app.py
     env_file:

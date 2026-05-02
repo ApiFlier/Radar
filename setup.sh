@@ -283,12 +283,8 @@ start_containers() {
     docker compose config --quiet
 
     echo ""
-    info "Pulling container images..."
-    docker compose pull
-
-    echo ""
-    info "Starting containers..."
-    docker compose up -d
+    info "Building and starting containers..."
+    docker compose up -d --build
 
     echo ""
     info "Container status:"
