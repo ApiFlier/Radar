@@ -498,7 +498,7 @@
         }
 
         function getGroundDisplayMinZoom() {
-            return typeof GROUND_DISPLAY_MIN_ZOOM !== 'undefined' ? GROUND_DISPLAY_MIN_ZOOM : 10;
+            return typeof GROUND_DISPLAY_MIN_ZOOM !== 'undefined' ? GROUND_DISPLAY_MIN_ZOOM : 8;
         }
 
         function getGroundAirportRadiusNm() {
@@ -555,6 +555,15 @@
             return best;
         }
 
+        function isGroundSweepPlane(p) {
+            if (!p) return false;
+
+            var source = String(p.source || '').toLowerCase();
+            var positionSource = String(p.positionSource || p.position_source || '').toLowerCase();
+
+            return source === 'adsblol-ground-sweep' || positionSource === 'adsblol-ground-sweep';
+        }
+
         function shouldDisplayPlane(p) {
             if (!p) return false;
 
@@ -577,6 +586,10 @@
             if (typeof map !== 'undefined' && map && typeof map.getZoom === 'function') {
                 if (map.getZoom() < getGroundDisplayMinZoom()) return false;
             }
+
+            // Ground sweep aircraft are already airport-targeted by the backend.
+            // Do not require the frontend nearest-airport check to pass perfectly.
+            if (isGroundSweepPlane(p)) return true;
 
             return nearestAirportWithin(lat, lon, getGroundAirportRadiusNm()) !== null;
         }
