@@ -6,16 +6,35 @@ Radar ingests live aircraft data, stores aircraft state in Redis, and serves a w
 
 ---
 
-## Quick install if you have already set up your deploy.env
+## Deploy
+
+### Part 1 — Install Docker (skip if already installed)
 
 ```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar  && ./setup.sh
+sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl apache2-utils
+curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
 ```
 
-## Quick install if you have not set up your deploy.env yet
+**Log out and back in** after this so the docker group takes effect, then verify:
 
 ```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar && cp -n deploy.env.example deploy.env && nano deploy.env && ./setup.sh
+docker --version && docker compose version
+```
+
+---
+
+### Part 2 — Clone and run
+
+**If you have already set up your deploy.env
+
+```bash
+git clone https://github.com/ApiFlier/Radar radar && cd radar  && chmod +x setup.sh && ./setup.sh
+```
+
+**If you have not set up your deploy.env yet
+
+```bash
+git clone https://github.com/ApiFlier/Radar radar && cd radar && cp -n deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
 ```
 
 The only file you need to edit before setup is:
