@@ -1,161 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ============================================================
-# Radar quick setup
-# ============================================================
+# =============================================================================
+# Radar - Fresh Deployment Setup Script
 #
-# Recommended install:
-#
-#   git clone <private repo>
-#   cd Radar
-#   cp deploy.env.example deploy.env
-#   nano deploy.env
-#   chmod +x setup.sh
-#   ./setup.sh
+# Quick install:
+#   git clone <private repo> Radar && cd Radar && cp -n deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
 #
 # Required values go in deploy.env before running setup.sh.
-# Setup does not prompt for credentials. It reads deploy.env,
-# creates a runtime copy under /opt/radar by default, generates
-# the runtime .env, starts containers, then asks whether to
-# delete the local source checkout.
-#
-# Credential / access links:
-#
-#   FAA API Portal:
-#     https://portal.apic4e.faa.gov/
-#
-#   FAA SWIM / NAS Enterprise Messaging:
-#     https://www.faa.gov/air_traffic/technology/swim
-#
-#   OpenSky Network:
-#     https://opensky-network.org/
-#
-#   ADSB.lol feeder / re-api docs:
-#     https://www.adsb.lol/docs/
-#
-# ============================================================
+# Setup does not prompt for credentials.
+# =============================================================================
 
-APP_NAME="Radar"
-DEFAULT_INSTALL_DIR="/opt/radar"
-DEFAULT_WEB_PORT="8080"
+RADAR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_FILE="$RADAR_DIR/docker-compose.yml"
+DEPLOY_FILE="$RADAR_DIR/deploy.env"
+ENV_FILE="$RADAR_DIR/.env"
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${CONFIG_FILE:-}"
-INSTALL_DIR="${INSTALL_DIR:-}"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-echo "========================================"
-echo " ${APP_NAME} setup"
-echo "========================================"
+info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+echo ""
+echo "================================================"
+echo "   Radar - Setup Script"
+echo "================================================"
+echo ""
+echo "Repo: $RADAR_DIR"
 echo ""
 
+if [ ! -f "$COMPOSE_FILE" ]; then
+    error "docker-compose.yml not found in $RADAR_DIR. Did you clone correctly?"
+fi
+
+if [ ! -f "$DEPLOY_FILE" ]; then
+    error "deploy.env not found. Run: cp deploy.env.example deploy.env && nano deploy.env"
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker is not installed or not in PATH."
-  exit 1
+    error "Docker is not installed. Install it first: https://docs.docker.com/engine/install/"
 fi
 
 if ! docker compose version >/dev/null 2>&1; then
-  echo "ERROR: docker compose is not available."
-  exit 1
+    error "Docker Compose v2 is not available."
 fi
-
-# Deployment config source.
-if [ -z "$CONFIG_FILE" ]; then
-  CONFIG_FILE="$SRC_DIR/deploy.env"
-fi
-
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "ERROR: Deployment config not found: $CONFIG_FILE"
-  echo ""
-  echo "Create it first:"
-  echo "  cp deploy.env.example deploy.env"
-  echo "  nano deploy.env"
-  echo "  ./setup.sh"
-  exit 1
-fi
-
-if [ -z "$INSTALL_DIR" ]; then
-  INSTALL_DIR="$(grep -E '^INSTALL_DIR=' "$CONFIG_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
-  INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-fi
-
-INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
-
-echo "Source directory:   $SRC_DIR"
-echo "Runtime directory:  $INSTALL_DIR"
-echo "Deployment config:  $CONFIG_FILE"
-echo ""
-
-if [ "$SRC_DIR" = "$INSTALL_DIR" ]; then
-  echo "ERROR: Runtime directory must be separate from the source checkout."
-  echo "Use INSTALL_DIR=/opt/radar or another separate runtime directory."
-  exit 1
-fi
-
-make_runtime_dir() {
-  if mkdir -p "$INSTALL_DIR" 2>/dev/null; then
-    return
-  fi
-
-  if command -v sudo >/dev/null 2>&1; then
-    echo "Creating $INSTALL_DIR with sudo..."
-    sudo mkdir -p "$INSTALL_DIR"
-    sudo chown "$(id -u):$(id -g)" "$INSTALL_DIR"
-  else
-    echo "ERROR: Could not create $INSTALL_DIR and sudo is not available."
-    exit 1
-  fi
-}
-
-copy_project() {
-  echo "Copying project files into runtime directory..."
-
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete \
-      --exclude '.git/' \
-      --exclude '.env' \
-      --exclude 'deploy.env' \
-      --exclude '__pycache__/' \
-      --exclude '*.pyc' \
-      --exclude '.pytest_cache/' \
-      --exclude 'node_modules/' \
-      --exclude 'data/airports.csv' \
-      --exclude 'data/airport-frequencies.csv' \
-      "$SRC_DIR/" "$INSTALL_DIR/"
-  else
-    echo "rsync not found; using tar fallback."
-    tar \
-      --exclude='.git' \
-      --exclude='.env' \
-      --exclude='deploy.env' \
-      --exclude='__pycache__' \
-      --exclude='*.pyc' \
-      --exclude='.pytest_cache' \
-      --exclude='node_modules' \
-      --exclude='data/airports.csv' \
-      --exclude='data/airport-frequencies.csv' \
-      -C "$SRC_DIR" -cf - . | tar -C "$INSTALL_DIR" -xf -
-  fi
-}
-
-ENV_FILE=""
 
 get_file_value() {
-  local file="$1"
-  local key="$2"
-  grep -E "^${key}=" "$file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
-}
-
-get_env_value() {
-  get_file_value "$ENV_FILE" "$1"
+    local file="$1"
+    local key="$2"
+    grep -E "^${key}=" "$file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
 }
 
 upsert_file() {
-  local file="$1"
-  local key="$2"
-  local value="$3"
+    local file="$1"
+    local key="$2"
+    local value="$3"
 
-  KEY="$key" VALUE="$value" FILE="$file" python3 - <<'PY'
+    KEY="$key" VALUE="$value" FILE="$file" python3 - <<'PY'
 from pathlib import Path
 import os
 
@@ -183,95 +88,85 @@ path.write_text("\n".join(out).rstrip() + "\n")
 PY
 }
 
-upsert_env() {
-  upsert_file "$ENV_FILE" "$1" "$2"
+get_env_value() {
+    get_file_value "$ENV_FILE" "$1"
 }
 
-upsert_config_if_possible() {
-  local key="$1"
-  local value="$2"
-
-  if [ -w "$CONFIG_FILE" ]; then
-    upsert_file "$CONFIG_FILE" "$key" "$value"
-  fi
+upsert_env() {
+    upsert_file "$ENV_FILE" "$1" "$2"
 }
 
 ensure_default() {
-  local key="$1"
-  local value="$2"
-  local current
-  current="$(get_env_value "$key")"
+    local key="$1"
+    local value="$2"
+    local current
+    current="$(get_env_value "$key")"
 
-  if [ -z "$current" ]; then
-    upsert_env "$key" "$value"
-    echo "Added default: $key=$value"
-  fi
+    if [ -z "$current" ]; then
+        upsert_env "$key" "$value"
+        info "Added default: $key=$value"
+    fi
 }
 
 normalize_value() {
-  local key="$1"
-  local old="$2"
-  local new="$3"
-  local current
-  current="$(get_env_value "$key")"
+    local key="$1"
+    local old="$2"
+    local new="$3"
+    local current
+    current="$(get_env_value "$key")"
 
-  if [ "$current" = "$old" ]; then
-    upsert_env "$key" "$new"
-    echo "Updated stale value: $key=$new"
-  fi
+    if [ "$current" = "$old" ]; then
+        upsert_env "$key" "$new"
+        info "Updated stale value: $key=$new"
+    fi
 }
 
-import_config_file() {
-  local file="$1"
+import_deploy_env() {
+    info "Creating runtime .env from deploy.env..."
 
-  echo "Importing deployment config..."
+    : > "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
 
-  while IFS= read -r line || [ -n "$line" ]; do
-    trimmed="${line#"${line%%[![:space:]]*}"}"
+    while IFS= read -r line || [ -n "$line" ]; do
+        trimmed="${line#"${line%%[![:space:]]*}"}"
 
-    [ -z "$trimmed" ] && continue
-    [[ "$trimmed" == \#* ]] && continue
-    [[ "$trimmed" != *=* ]] && continue
+        [ -z "$trimmed" ] && continue
+        [[ "$trimmed" == \#* ]] && continue
+        [[ "$trimmed" != *=* ]] && continue
 
-    key="${trimmed%%=*}"
-    value="${trimmed#*=}"
+        key="${trimmed%%=*}"
+        value="${trimmed#*=}"
 
-    if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-      case "$key" in
-        INSTALL_DIR)
-          ;;
-        *)
-          upsert_env "$key" "$value"
-          ;;
-      esac
-    fi
-  done < "$file"
+        if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            upsert_env "$key" "$value"
+        fi
+    done < "$DEPLOY_FILE"
 }
 
 require_env() {
-  local key="$1"
-  local value
-  value="$(get_env_value "$key")"
+    local key="$1"
+    local value
+    value="$(get_env_value "$key")"
 
-  if [ -z "$value" ]; then
-    echo "ERROR: Missing required value in deploy.env: $key"
-    missing_required=1
-  fi
+    if [ -z "$value" ]; then
+        echo -e "${RED}[ERROR]${NC} Missing required value in deploy.env: $key"
+        MISSING_REQUIRED=1
+    fi
 }
 
 port_is_current_radar_web() {
-  local port="$1"
+    local port="$1"
 
-  docker ps --format '{{.Names}} {{.Ports}}' \
-    | grep -E '^radar-web ' \
-    | grep -q ":${port}->8080/tcp"
+    docker ps --format '{{.Names}} {{.Ports}}' \
+        | grep -E '^radar-web ' \
+        | grep -q ":${port}->8080/tcp"
 }
 
 port_available() {
-  local bind="$1"
-  local port="$2"
+    local bind="$1"
+    local port="$2"
 
-  python3 - "$bind" "$port" <<'PY'
+    python3 - "$bind" "$port" <<'PY'
 import socket
 import sys
 
@@ -293,166 +188,206 @@ PY
 }
 
 choose_web_port() {
-  local bind
-  local requested
-  local port
+    local bind
+    local requested
+    local port
 
-  bind="$(get_env_value WEB_BIND)"
-  requested="$(get_env_value WEB_PORT)"
+    bind="$(get_env_value WEB_BIND)"
+    requested="$(get_env_value WEB_PORT)"
 
-  bind="${bind:-0.0.0.0}"
-  requested="${requested:-$DEFAULT_WEB_PORT}"
+    bind="${bind:-0.0.0.0}"
+    requested="${requested:-8080}"
+    port="$requested"
 
-  port="$requested"
+    while true; do
+        if port_available "$bind" "$port"; then
+            if [ "$port" != "$requested" ]; then
+                warn "WEB_PORT $requested is busy. Using available port $port."
+            else
+                info "WEB_PORT $port is available."
+            fi
 
-  while true; do
-    if port_available "$bind" "$port"; then
-      if [ "$port" != "$requested" ]; then
-        echo "WEB_PORT $requested is busy. Using available port $port."
-      else
-        echo "WEB_PORT $port is available."
-      fi
+            upsert_env "WEB_PORT" "$port"
+            break
+        fi
 
-      upsert_env "WEB_PORT" "$port"
-      upsert_config_if_possible "WEB_PORT" "$port"
-      break
-    fi
+        if port_is_current_radar_web "$port"; then
+            info "WEB_PORT $port is already used by existing radar-web and will be reused."
+            upsert_env "WEB_PORT" "$port"
+            break
+        fi
 
-    if port_is_current_radar_web "$port"; then
-      echo "WEB_PORT $port is currently used by existing radar-web and will be reused."
-      upsert_env "WEB_PORT" "$port"
-      break
-    fi
+        warn "WEB_PORT $port is busy."
+        port=$((port + 1))
 
-    echo "WEB_PORT $port is busy."
-    port=$((port + 1))
-
-    if [ "$port" -gt 65535 ]; then
-      echo "ERROR: Could not find an available web port."
-      exit 1
-    fi
-  done
+        if [ "$port" -gt 65535 ]; then
+            error "Could not find an available web port."
+        fi
+    done
 }
 
 prepare_env() {
-  ENV_FILE="$INSTALL_DIR/.env"
+    import_deploy_env
 
-  touch "$ENV_FILE"
-  chmod 600 "$ENV_FILE" 2>/dev/null || true
-
-  import_config_file "$CONFIG_FILE"
-
-  echo ""
-  echo "Adding defaults..."
-
-  ensure_default "WEB_PORT" "$DEFAULT_WEB_PORT"
-  ensure_default "WEB_BIND" "0.0.0.0"
-
-  ensure_default "REDIS_HOST" "redis"
-  ensure_default "REDIS_PORT" "6379"
-  normalize_value "REDIS_HOST" "flight-redis" "redis"
-  normalize_value "REDIS_HOST" "radar-redis" "redis"
-
-  ensure_default "FAA_URL" "tcps://ems1.swim.faa.gov:55443"
-
-  ensure_default "ADSBLOL_REAPI_URL" "https://re-api.adsb.lol/"
-  ensure_default "ADSBLOL_REAPI_BASE" "https://re-api.adsb.lol"
-  ensure_default "ADSBLOL_REAPI_CIRCLES" "40.491389,-80.232778,250"
-  ensure_default "ADSBLOL_REAPI_INTERVAL_SECONDS" "10"
-  ensure_default "ADSBLOL_REAPI_TTL_SECONDS" "45"
-  ensure_default "ADSBLOL_REAPI_REQUEST_SPACING_SECONDS" "1.2"
-  ensure_default "ADSBLOL_HEALTH_MAX_AGE_SECONDS" "45"
-
-  ensure_default "GROUND_SWEEP_CLUSTER_INTERVAL_SECONDS" "300"
-  ensure_default "GROUND_SWEEP_REQUEST_SPACING_SECONDS" "5"
-  ensure_default "GROUND_SWEEP_TTL_SECONDS" "900"
-  ensure_default "GROUND_SWEEP_MAX_SEEN_POS_SECONDS" "120"
-  ensure_default "GROUND_SWEEP_RADIUS_NM" "250"
-
-  echo ""
-  echo "Checking required values..."
-
-  missing_required=0
-  require_env "FAA_USER"
-  require_env "FAA_PASS"
-  require_env "QUEUE_SFDPS"
-  require_env "QUEUE_STDDS"
-  require_env "QUEUE_TFMS"
-
-  if [ "$missing_required" = "1" ]; then
     echo ""
-    echo "Fix $CONFIG_FILE and run setup again."
-    exit 1
-  fi
+    info "Adding defaults..."
 
-  echo ""
-  echo "Checking web port..."
-  choose_web_port
+    ensure_default "WEB_BIND" "0.0.0.0"
+    ensure_default "WEB_PORT" "8080"
+
+    ensure_default "REDIS_HOST" "redis"
+    ensure_default "REDIS_PORT" "6379"
+    normalize_value "REDIS_HOST" "flight-redis" "redis"
+    normalize_value "REDIS_HOST" "radar-redis" "redis"
+
+    ensure_default "FAA_URL" "tcps://ems1.swim.faa.gov:55443"
+
+    ensure_default "ADSBLOL_REAPI_URL" "https://re-api.adsb.lol/"
+    ensure_default "ADSBLOL_REAPI_BASE" "https://re-api.adsb.lol"
+    ensure_default "ADSBLOL_REAPI_CIRCLES" "40.491389,-80.232778,250"
+    ensure_default "ADSBLOL_REAPI_INTERVAL_SECONDS" "10"
+    ensure_default "ADSBLOL_REAPI_TTL_SECONDS" "45"
+    ensure_default "ADSBLOL_REAPI_REQUEST_SPACING_SECONDS" "1.2"
+    ensure_default "ADSBLOL_HEALTH_MAX_AGE_SECONDS" "45"
+
+    ensure_default "GROUND_SWEEP_CLUSTER_INTERVAL_SECONDS" "300"
+    ensure_default "GROUND_SWEEP_REQUEST_SPACING_SECONDS" "5"
+    ensure_default "GROUND_SWEEP_TTL_SECONDS" "900"
+    ensure_default "GROUND_SWEEP_MAX_SEEN_POS_SECONDS" "120"
+    ensure_default "GROUND_SWEEP_RADIUS_NM" "250"
+
+    echo ""
+    info "Checking required values..."
+
+    MISSING_REQUIRED=0
+    require_env "FAA_USER"
+    require_env "FAA_PASS"
+    require_env "QUEUE_SFDPS"
+    require_env "QUEUE_STDDS"
+    require_env "QUEUE_TFMS"
+
+    if [ "$MISSING_REQUIRED" = "1" ]; then
+        echo ""
+        error "Fix deploy.env and run setup again."
+    fi
+
+    echo ""
+    info "Checking web port..."
+    choose_web_port
 }
 
 start_containers() {
-  echo ""
-  echo "Validating Docker Compose..."
-  cd "$INSTALL_DIR"
-  docker compose config --quiet
+    echo ""
+    info "Validating Docker Compose..."
+    cd "$RADAR_DIR"
+    docker compose config --quiet
 
-  echo ""
-  echo "Pulling and starting Radar containers..."
-  docker compose pull
-  docker compose up -d
+    echo ""
+    info "Pulling container images..."
+    docker compose pull
 
-  echo ""
-  echo "Container status:"
-  docker compose ps
+    echo ""
+    info "Starting containers..."
+    docker compose up -d
+
+    echo ""
+    info "Container status:"
+    docker compose ps
+}
+
+verify_api() {
+    echo ""
+    info "Waiting 20 seconds for services to warm up..."
+    sleep 20
+
+    local port
+    port="$(get_env_value WEB_PORT)"
+
+    echo ""
+    info "Checking API aircraft response..."
+
+    if curl -sS "http://127.0.0.1:${port}/api/?action=Planes&_=$(date +%s)" -o /tmp/radar_setup_planes.json; then
+        python3 - <<'PY' || true
+import json
+from pathlib import Path
+from collections import Counter
+
+try:
+    data = json.loads(Path("/tmp/radar_setup_planes.json").read_text())
+except Exception as exc:
+    print("Could not parse API response:", exc)
+    raise SystemExit
+
+planes = data.get("response", {}).get("data", {}).get("planes", [])
+
+print("total:", len(planes))
+print("sources:", Counter(p.get("source") or "unknown" for p in planes).most_common(10))
+print("ground sweep:", sum(
+    1 for p in planes
+    if p.get("source") == "adsblol-ground-sweep"
+    or p.get("positionSource") == "adsblol-ground-sweep"
+))
+PY
+    else
+        warn "API did not respond yet. Check: docker compose logs web api"
+    fi
 }
 
 show_summary() {
-  echo ""
-  echo "========================================"
-  echo " Setup complete"
-  echo "========================================"
-  echo ""
-  echo "Runtime directory:"
-  echo "  $INSTALL_DIR"
-  echo ""
-  echo "Runtime env:"
-  echo "  $INSTALL_DIR/.env"
-  echo ""
-  echo "Web UI:"
-  echo "  http://<server-ip>:$(get_env_value WEB_PORT)"
-  echo ""
-  echo "ADSB.lol note:"
-  echo "  re-api access requires this server/public IP to have feeder access."
-  echo ""
+    local port
+    port="$(get_env_value WEB_PORT)"
+
+    echo ""
+    echo "================================================"
+    echo -e "${GREEN}   Radar setup complete!${NC}"
+    echo "================================================"
+    echo ""
+    echo "  Web UI:     http://localhost:${port}"
+    echo "  Local/LAN:  http://SERVER_IP:${port}"
+    echo ""
+    echo "  Containers:"
+    echo "    radar-web"
+    echo "    radar-api"
+    echo "    radar-redis"
+    echo "    radar-swim-ingestor"
+    echo "    radar-adsblol-reapi"
+    echo "    radar-adsblol-ground"
+    echo ""
+    echo "  ADSB.lol note:"
+    echo "    re-api access requires this server/public IP to have feeder access."
+    echo ""
+    echo "  Useful commands while this repo exists:"
+    echo "    docker compose ps"
+    echo "    docker compose logs -f"
+    echo "    docker compose restart"
+    echo "    docker compose down"
+    echo ""
+    echo "  If you delete this repo, containers/images keep running."
+    echo "  Without the repo, manage them by container name:"
+    echo "    docker ps"
+    echo "    docker logs radar-api"
+    echo "    docker logs radar-web"
+    echo "    docker stop radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground"
+    echo "    docker start radar-redis radar-api radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground radar-web"
+    echo ""
 }
 
-maybe_delete_source() {
-  if [ "$SRC_DIR" = "$INSTALL_DIR" ]; then
-    return
-  fi
+cleanup_prompt() {
+    echo ""
+    read -p "Would you like to delete the local repo files? The radar will continue running. (y/N): " CLEANUP
 
-  if [ ! -t 0 ]; then
-    echo "Kept source checkout: $SRC_DIR"
-    return
-  fi
-
-  echo "Original source checkout:"
-  echo "  $SRC_DIR"
-  echo ""
-  read -r -p "Delete the original source checkout now? Type DELETE to confirm: " confirm
-
-  if [ "$confirm" = "DELETE" ]; then
-    cd /
-    rm -rf --one-file-system "$SRC_DIR"
-    echo "Deleted source checkout: $SRC_DIR"
-  else
-    echo "Kept source checkout."
-  fi
+    if [[ "$CLEANUP" =~ ^[Yy]$ ]]; then
+        cd /
+        rm -rf "$RADAR_DIR"
+        echo ""
+        info "Local repo files removed. Containers are still running."
+    else
+        info "Local repo files kept at $RADAR_DIR"
+    fi
 }
 
-make_runtime_dir
-copy_project
 prepare_env
 start_containers
+verify_api
 show_summary
-maybe_delete_source
+cleanup_prompt
