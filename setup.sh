@@ -5,7 +5,9 @@ APP_NAME="Radar"
 DEFAULT_INSTALL_DIR="/opt/radar"
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${CONFIG_FILE:-}"
 INSTALL_DIR="${INSTALL_DIR:-}"
+DELETE_SOURCE="${DELETE_SOURCE:-ask}"
 
 echo "========================================"
 echo " ${APP_NAME} setup"
@@ -22,24 +24,34 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -z "$INSTALL_DIR" ]; then
-  if [ -t 0 ]; then
-    read -r -p "Runtime install directory [${DEFAULT_INSTALL_DIR}]: " INSTALL_DIR
-    INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+# Deployment config source.
+# Preferred: deploy.env
+# Fallback: existing .env, useful for this current server and older installs.
+if [ -z "$CONFIG_FILE" ]; then
+  if [ -f "$SRC_DIR/deploy.env" ]; then
+    CONFIG_FILE="$SRC_DIR/deploy.env"
+  elif [ -f "$SRC_DIR/.env" ]; then
+    CONFIG_FILE="$SRC_DIR/.env"
   else
-    INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+    CONFIG_FILE="$SRC_DIR/deploy.env"
   fi
+fi
+
+if [ -z "$INSTALL_DIR" ]; then
+  INSTALL_DIR="$(grep -E '^INSTALL_DIR=' "$CONFIG_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+  INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 fi
 
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
 
-echo "Source directory:  $SRC_DIR"
-echo "Runtime directory: $INSTALL_DIR"
+echo "Source directory:   $SRC_DIR"
+echo "Runtime directory:  $INSTALL_DIR"
+echo "Deployment config:  $CONFIG_FILE"
 echo ""
 
 if [ "$SRC_DIR" = "$INSTALL_DIR" ]; then
   echo "ERROR: Runtime directory must be separate from the source checkout."
-  echo "Choose a different INSTALL_DIR, for example:"
+  echo "Use something like:"
   echo "  INSTALL_DIR=/opt/radar ./setup.sh"
   exit 1
 fi
@@ -66,6 +78,7 @@ copy_project() {
     rsync -a --delete \
       --exclude '.git/' \
       --exclude '.env' \
+      --exclude 'deploy.env' \
       --exclude '__pycache__/' \
       --exclude '*.pyc' \
       --exclude '.pytest_cache/' \
@@ -78,6 +91,7 @@ copy_project() {
     tar \
       --exclude='.git' \
       --exclude='.env' \
+      --exclude='deploy.env' \
       --exclude='__pycache__' \
       --exclude='*.pyc' \
       --exclude='.pytest_cache' \
@@ -87,6 +101,8 @@ copy_project() {
       -C "$SRC_DIR" -cf - . | tar -C "$INSTALL_DIR" -xf -
   fi
 }
+
+ENV_FILE=""
 
 get_env_value() {
   local key="$1"
@@ -128,7 +144,6 @@ PY
 ensure_default() {
   local key="$1"
   local value="$2"
-
   local current
   current="$(get_env_value "$key")"
 
@@ -142,7 +157,6 @@ normalize_value() {
   local key="$1"
   local old="$2"
   local new="$3"
-
   local current
   current="$(get_env_value "$key")"
 
@@ -152,95 +166,63 @@ normalize_value() {
   fi
 }
 
-prompt_required() {
-  local key="$1"
-  local prompt="$2"
-  local secret="${3:-0}"
+import_config_file() {
+  local file="$1"
 
-  local current
-  current="$(get_env_value "$key")"
-
-  if [ -n "$current" ]; then
-    return
-  fi
-
-  if [ ! -t 0 ]; then
-    echo "ERROR: Missing required value: $key"
-    echo "Set it in $ENV_FILE or run setup interactively."
+  if [ ! -f "$file" ]; then
+    echo "ERROR: Deployment config not found: $file"
+    echo ""
+    echo "Create deploy.env from deploy.env.example, then run setup again."
     exit 1
   fi
 
-  local value=""
-  while [ -z "$value" ]; do
-    if [ "$secret" = "1" ]; then
-      read -r -s -p "$prompt: " value
-      echo
-    else
-      read -r -p "$prompt: " value
-    fi
+  echo "Importing deployment config..."
 
-    if [ -z "$value" ]; then
-      echo "$key is required."
-    fi
-  done
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Trim leading whitespace for comment/blank detection.
+    trimmed="${line#"${line%%[![:space:]]*}"}"
 
-  upsert_env "$key" "$value"
+    [ -z "$trimmed" ] && continue
+    [[ "$trimmed" == \#* ]] && continue
+    [[ "$trimmed" != *=* ]] && continue
+
+    key="${trimmed%%=*}"
+    value="${trimmed#*=}"
+
+    if [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      # Runtime-only setup keys should not be written to Docker .env.
+      case "$key" in
+        INSTALL_DIR|DELETE_SOURCE)
+          ;;
+        *)
+          upsert_env "$key" "$value"
+          ;;
+      esac
+    fi
+  done < "$file"
 }
 
-prompt_optional() {
+require_env() {
   local key="$1"
-  local prompt="$2"
-  local secret="${3:-0}"
+  local value
+  value="$(get_env_value "$key")"
 
-  local current
-  current="$(get_env_value "$key")"
-
-  if [ -n "$current" ] || [ ! -t 0 ]; then
-    return
-  fi
-
-  local value=""
-  if [ "$secret" = "1" ]; then
-    read -r -s -p "$prompt, optional, press Enter to skip: " value
-    echo
-  else
-    read -r -p "$prompt, optional, press Enter to skip: " value
-  fi
-
-  if [ -n "$value" ]; then
-    upsert_env "$key" "$value"
+  if [ -z "$value" ]; then
+    echo "ERROR: Missing required value: $key"
+    missing_required=1
   fi
 }
 
 prepare_env() {
   ENV_FILE="$INSTALL_DIR/.env"
 
-  if [ ! -f "$ENV_FILE" ]; then
-    if [ -f "$SRC_DIR/.env" ] && [ -t 0 ]; then
-      read -r -p "Use existing source .env as a starting point? [Y/n]: " use_existing
-      use_existing="${use_existing:-Y}"
-
-      if [[ "$use_existing" =~ ^[Yy]$ ]]; then
-        cp "$SRC_DIR/.env" "$ENV_FILE"
-        echo "Copied existing .env into runtime directory."
-      fi
-    fi
-  fi
-
-  if [ ! -f "$ENV_FILE" ]; then
-    if [ -f "$INSTALL_DIR/.env.example" ]; then
-      cp "$INSTALL_DIR/.env.example" "$ENV_FILE"
-      echo "Created .env from .env.example."
-    else
-      touch "$ENV_FILE"
-      echo "Created empty .env."
-    fi
-  fi
-
+  touch "$ENV_FILE"
   chmod 600 "$ENV_FILE" 2>/dev/null || true
 
+  import_config_file "$CONFIG_FILE"
+
   echo ""
-  echo "Preparing runtime .env..."
+  echo "Adding defaults..."
 
   # Runtime defaults
   ensure_default "WEB_PORT" "8080"
@@ -264,7 +246,7 @@ prepare_env() {
   ensure_default "ADSBLOL_REAPI_REQUEST_SPACING_SECONDS" "1.2"
   ensure_default "ADSBLOL_HEALTH_MAX_AGE_SECONDS" "45"
 
-  # ADSB.lol ground sweep
+  # ADSB.lol airport ground sweep
   ensure_default "GROUND_SWEEP_CLUSTER_INTERVAL_SECONDS" "300"
   ensure_default "GROUND_SWEEP_REQUEST_SPACING_SECONDS" "5"
   ensure_default "GROUND_SWEEP_TTL_SECONDS" "900"
@@ -272,17 +254,20 @@ prepare_env() {
   ensure_default "GROUND_SWEEP_RADIUS_NM" "250"
 
   echo ""
-  echo "Required FAA/SWIM values:"
-  prompt_required "FAA_USER" "FAA username / email"
-  prompt_required "FAA_PASS" "FAA password" "1"
-  prompt_required "QUEUE_SFDPS" "FAA SFDPS queue"
-  prompt_required "QUEUE_STDDS" "FAA STDDS queue"
-  prompt_required "QUEUE_TFMS" "FAA TFMS queue"
+  echo "Checking required values..."
 
-  echo ""
-  echo "Optional OpenSky values:"
-  prompt_optional "OPENSKY_CLIENT_ID" "OpenSky client ID"
-  prompt_optional "OPENSKY_CLIENT_SECRET" "OpenSky client secret" "1"
+  missing_required=0
+  require_env "FAA_USER"
+  require_env "FAA_PASS"
+  require_env "QUEUE_SFDPS"
+  require_env "QUEUE_STDDS"
+  require_env "QUEUE_TFMS"
+
+  if [ "$missing_required" = "1" ]; then
+    echo ""
+    echo "Fix $CONFIG_FILE and run setup again."
+    exit 1
+  fi
 }
 
 start_containers() {
@@ -315,8 +300,8 @@ show_summary() {
   echo "Web UI:"
   echo "  http://<server-ip>:$(get_env_value WEB_PORT)"
   echo ""
-  echo "Reminder:"
-  echo "  ADSB.lol re-api access requires the server/public IP to be feeding ADSB.lol."
+  echo "ADSB.lol note:"
+  echo "  re-api access requires this server/public IP to have feeder access."
   echo ""
 }
 
@@ -325,22 +310,36 @@ maybe_delete_source() {
     return
   fi
 
-  if [ ! -t 0 ]; then
-    return
-  fi
-
-  echo "Original source checkout:"
-  echo "  $SRC_DIR"
-  echo ""
-  read -r -p "Delete the original source checkout now? Type DELETE to confirm: " confirm
-
-  if [ "$confirm" = "DELETE" ]; then
-    cd /
-    rm -rf --one-file-system "$SRC_DIR"
-    echo "Deleted $SRC_DIR"
-  else
-    echo "Kept source checkout."
-  fi
+  case "$DELETE_SOURCE" in
+    1|yes|YES|true|TRUE)
+      cd /
+      rm -rf --one-file-system "$SRC_DIR"
+      echo "Deleted source checkout: $SRC_DIR"
+      ;;
+    0|no|NO|false|FALSE)
+      echo "Kept source checkout: $SRC_DIR"
+      ;;
+    ask|ASK)
+      if [ -t 0 ]; then
+        echo "Original source checkout:"
+        echo "  $SRC_DIR"
+        echo ""
+        read -r -p "Delete the original source checkout now? Type DELETE to confirm: " confirm
+        if [ "$confirm" = "DELETE" ]; then
+          cd /
+          rm -rf --one-file-system "$SRC_DIR"
+          echo "Deleted $SRC_DIR"
+        else
+          echo "Kept source checkout."
+        fi
+      else
+        echo "Kept source checkout: $SRC_DIR"
+      fi
+      ;;
+    *)
+      echo "Unknown DELETE_SOURCE value '$DELETE_SOURCE'; kept source checkout."
+      ;;
+  esac
 }
 
 make_runtime_dir
