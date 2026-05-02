@@ -6,7 +6,13 @@ Radar ingests live aircraft data, stores aircraft state in Redis, and serves a w
 
 ---
 
-## Quick install
+## Quick install if you have already set up your deploy.env
+
+```bash
+git clone https://github.com/ApiFlier/Radar radar && cd radar && nano deploy.env && ./setup.sh
+```
+
+## Quick install if you have not set up your deploy.env yet
 
 ```bash
 git clone https://github.com/ApiFlier/Radar radar && cd radar && cp -n deploy.env.example deploy.env && nano deploy.env && ./setup.sh
