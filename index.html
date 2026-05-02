@@ -41,6 +41,22 @@
             opacity: 0.9;
         }
 
+        .aircraft-icon-ground-sweep {
+            background: rgba(0, 0, 0, 0.72);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            border-radius: 50%;
+            box-shadow: 0 0 7px rgba(255, 255, 255, 0.55);
+        }
+
+        .aircraft-icon-ground-sweep.aircraft-icon-parked {
+            opacity: 0.9;
+        }
+
+        .aircraft-icon-ground-sweep.aircraft-icon-ground_moving {
+            opacity: 1.0;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
+        }
+
         .aircraft-badge {
             position: absolute;
             right: -5px;
@@ -377,16 +393,18 @@
             var iconSvg = aircraftIconSvg(p);
             var badgeHtml = aircraftBadgeHtml(p);
 
+            var groundClass = isGroundSweepPlane(p) ? ' aircraft-icon-ground-sweep' : '';
+
             return L.divIcon({
                 className: 'plane-container',
                 html: '<div id="icon-' + cssSafe(id) + '" ' +
-                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + '" ' +
+                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + groundClass + '" ' +
                       'style="transform:rotate(' + heading + 'deg); opacity:' + safeOpacity + '; color:' + color + ';">' +
                       iconSvg +
                       badgeHtml +
                       '</div>',
-                iconSize: [32, 32],
-                iconAnchor: [16, 16]
+                iconSize: [34, 34],
+                iconAnchor: [17, 17]
             });
         }
 
