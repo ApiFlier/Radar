@@ -22,7 +22,7 @@ services:
   swim-ingestor:
     image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
     container_name: radar-swim-ingestor
-    command: python -u -m Classes.SwimIngestor
+    command: python -u -m Classes.Ingestors.faa.runFAASwim
     env_file:
       - .env
     environment:
@@ -35,7 +35,7 @@ services:
   adsblol-reapi:
     image: ${RADAR_BACKEND_IMAGE:-ghcr.io/apiflier/radar-backend:latest}
     container_name: radar-adsblol-reapi
-    command: python -u -m Classes.AdsbLolReApi
+    command: python -u -m Classes.Ingestors.adsblol.runAdsbLolReApi
     env_file:
       - .env
     environment:
