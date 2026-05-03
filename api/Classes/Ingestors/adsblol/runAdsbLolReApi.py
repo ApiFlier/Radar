@@ -165,9 +165,27 @@ def fetch_circle(circle):
 
 
 def store_aircraft(r, normalized):
-    key = f"adsblol:state:icao:{normalized['icao_hex']}"
+    hex_id = normalized['icao_hex']
+    key = f"adsblol:state:icao:{hex_id}"
     r.hset(key, mapping=normalized)
     r.expire(key, ADSBLOL_REAPI_TTL_SECONDS)
+
+    # Write stable identity fields to the correlated FAA profile so they survive
+    # the short ADSB.lol TTL. Without this, aircraft_type is lost when the adsblol
+    # state key expires and helicopters re-classify as private on the next API call.
+    flight_id = r.get(f"corr:icao:{hex_id}")
+    if flight_id:
+        profile_key = f"profile:{flight_id}"
+        aircraft_type = normalized.get("aircraft_type", "")
+        registration = normalized.get("registration", "")
+        db_flags = normalized.get("db_flags", "")
+
+        if aircraft_type:
+            r.hsetnx(profile_key, "aircraft_type", aircraft_type)
+        if registration:
+            r.hsetnx(profile_key, "registration", registration)
+        if db_flags:
+            r.hset(profile_key, "db_flags", db_flags)
 
 
 def update_heartbeat(r, mapping):

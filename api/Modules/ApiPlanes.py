@@ -93,7 +93,21 @@ class ApiPlanes(ApiBase):
 
                 if icao and icao in icaoIndex:
                     existingKey = icaoIndex[icao]
-                    planesByKey[existingKey] = self.mergeAdsbPrimary(planesByKey[existingKey], adsbPlane)
+                    merged = self.mergeAdsbPrimary(planesByKey[existingKey], adsbPlane)
+                    planesByKey[existingKey] = merged
+
+                    # Persist stable identity fields to the FAA profile so they survive
+                    # the ADSB.lol TTL (catches cases where ingestor ran before FAA correlation existed).
+                    aircraft_type = (merged.get("aircraftType") or "").strip()
+                    registration = (merged.get("registration") or "").strip()
+                    db_flags = (str(merged.get("dbFlags") or "")).strip()
+                    rc = redis.client
+                    if aircraft_type:
+                        rc.hsetnx(f"profile:{existingKey}", "aircraft_type", aircraft_type)
+                    if registration:
+                        rc.hsetnx(f"profile:{existingKey}", "registration", registration)
+                    if db_flags:
+                        rc.hset(f"profile:{existingKey}", "db_flags", db_flags)
                 else:
                     newKey = adsbPlane.get("flightId") or f"adsblol:{icao}"
                     planesByKey[newKey] = adsbPlane
@@ -146,8 +160,8 @@ class ApiPlanes(ApiBase):
             "flightStatus": plane.get("flight_status", ""),
             "icaoHex": plane.get("icao_hex", ""),
             "source": plane.get("source", ""),
-            "positionSource": plane.get("source", ""),
-            "enrichmentSource": plane.get("source", ""),
+            "positionSource": state.get("source", plane.get("source", "")),
+            "enrichmentSource": profile.get("source", ""),
             "sourceFacility": plane.get("source_facility", ""),
             "trackKey": plane.get("track_key", ""),
             "gufi": plane.get("gufi", ""),

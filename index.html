@@ -57,6 +57,17 @@
             box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
         }
 
+        @keyframes emergency-pulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(255,50,50,0.9), 0 0 16px rgba(255,0,0,0.4); }
+            50% { box-shadow: 0 0 22px rgba(255,0,0,1), 0 0 40px rgba(255,0,0,0.7); }
+        }
+        .aircraft-icon-emergency {
+            background: rgba(120,0,0,0.6);
+            border: 1.5px solid rgba(255,60,60,0.9);
+            border-radius: 50%;
+            animation: emergency-pulse 0.8s ease-in-out infinite;
+        }
+
         .aircraft-badge {
             position: absolute;
             right: -5px;
@@ -72,6 +83,22 @@
             line-height: 12px;
             text-align: center;
         }
+
+        .aircraft-label {
+            position: absolute;
+            top: 34px;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            font-size: 9px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.9);
+            text-shadow: 0 0 3px rgba(0,0,0,1), 0 1px 2px rgba(0,0,0,1);
+            pointer-events: none;
+            letter-spacing: 0.3px;
+        }
+
+        .labels-hidden .aircraft-label { display: none; }
 
         #hud {
             position: fixed; top: 12px; left: 60px; z-index: 1000;
@@ -212,16 +239,19 @@
             document.getElementById('count').textContent = total;
             document.getElementById('visible-count').textContent = vis;
 
-            var counts = {};
+            var classCounts = { commercial: 0, military: 0, helicopter: 0, private: 0, unknown: 0 };
             for (var id in planeData) {
-                var op = planeData[id].operator || '';
-                if (op) counts[op] = (counts[op] || 0) + 1;
+                var cls = displayAircraftClass(planeData[id]);
+                classCounts[cls] = (classCounts[cls] || 0) + 1;
             }
 
-            var sorted = Object.entries(counts).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 6);
-            document.getElementById('airline-stats').innerHTML = sorted.map(function(e) {
-                return '<span>' + e[1] + '</span> ' + e[0];
-            }).join(' &middot; ');
+            var parts = [];
+            if (classCounts.commercial) parts.push('<span>' + classCounts.commercial + '</span> Commercial');
+            if (classCounts.military)   parts.push('<span>' + classCounts.military   + '</span> Military');
+            if (classCounts.helicopter) parts.push('<span>' + classCounts.helicopter + '</span> Helicopter');
+            if (classCounts.private)    parts.push('<span>' + classCounts.private    + '</span> Private');
+            if (classCounts.unknown)    parts.push('<span>' + classCounts.unknown    + '</span> Unknown');
+            document.getElementById('airline-stats').innerHTML = parts.join(' &middot; ');
         }
 
         function startFollow(flightId) {
@@ -345,24 +375,20 @@
             var iconType = aircraftIconType(p);
 
             if (iconType === 'military') {
-                // Fighter jet, pointed nose, swept wings
+                // Fighter jet top-down: sharp nose, swept delta wings, split twin tail fins.
                 return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
-                    '<path fill="currentColor" d="M32 3 L39 29 L60 39 L42 43 L37 61 L32 51 L27 61 L22 43 L4 39 L25 29 Z"/>' +
-                    '<path d="M32 8 L32 49" stroke="rgba(0,0,0,0.35)" stroke-width="2.5" stroke-linecap="round"/>' +
+                    '<path fill="currentColor" d="M32 2 L38 26 L60 38 L44 44 L38 60 L34 52 L30 52 L26 60 L20 44 L4 38 L26 26 Z"/>' +
+                    '<path d="M32 6 L32 50" stroke="rgba(0,0,0,0.3)" stroke-width="2" stroke-linecap="round"/>' +
                     '</svg>';
             }
 
             if (iconType === 'helicopter') {
-                // Helicopter, side profile with rotor and tail
-                return '<svg viewBox="0 0 64 64" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">' +
-                    '<path d="M10 12 H54"/>' +
-                    '<path d="M32 12 V24"/>' +
-                    '<path d="M18 28 H38 C46 28 52 33 52 39 C52 45 46 50 38 50 H20 C12 50 7 45 7 39 C7 33 12 28 18 28 Z" fill="currentColor" stroke="currentColor"/>' +
-                    '<path d="M52 39 L62 31"/>' +
-                    '<path d="M62 25 V37"/>' +
-                    '<path d="M20 56 H45"/>' +
-                    '<path d="M23 50 L20 56"/>' +
-                    '<path d="M42 50 L45 56"/>' +
+                // Helicopter top-down: main rotor blade drawn first (visible tips extend past body),
+                // fuselage/cockpit bubble drawn over it, tail rotor at the bottom.
+                return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
+                    '<line x1="4" y1="26" x2="60" y2="26" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>' +
+                    '<path fill="currentColor" d="M32 10 C38 10 43 16 43 26 C43 37 39 49 34 54 L34 60 L30 60 L30 54 C25 49 21 37 21 26 C21 16 26 10 32 10 Z"/>' +
+                    '<line x1="22" y1="60" x2="42" y2="60" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>' +
                     '</svg>';
             }
 
@@ -373,10 +399,11 @@
                     '</svg>';
             }
 
-            // Private / small single-engine aircraft, top-down but not cross-shaped.
+            // Private / small single-engine aircraft, top-down. Prop dot at nose distinguishes from jet.
             return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
                 '<path fill="currentColor" d="M32 5 C35 5 37 8 37 12 V29 L56 39 V46 L37 42 V53 L45 58 V62 L32 59 L19 62 V58 L27 53 V42 L8 46 V39 L27 29 V12 C27 8 29 5 32 5 Z"/>' +
                 '<path fill="rgba(0,0,0,0.22)" d="M29 10 H35 V29 H29 Z"/>' +
+                '<circle cx="32" cy="7" r="3" fill="rgba(0,0,0,0.35)"/>' +
                 '</svg>';
         }
 
@@ -394,15 +421,23 @@
             var badgeHtml = aircraftBadgeHtml(p);
 
             var groundClass = isGroundSweepPlane(p) ? ' aircraft-icon-ground-sweep' : '';
+            var emergencyClass = isEmergencySquawk(p) ? ' aircraft-icon-emergency' : '';
+
+            var labelText = '';
+            if (iconType === 'commercial' || iconType === 'military') {
+                labelText = String(p.callsign || '').trim();
+            }
+            var labelHtml = labelText ? '<div class="aircraft-label">' + htmlEscape(labelText) + '</div>' : '';
 
             return L.divIcon({
                 className: 'plane-container',
                 html: '<div id="icon-' + cssSafe(id) + '" ' +
-                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + groundClass + '" ' +
+                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + groundClass + emergencyClass + '" ' +
                       'style="transform:rotate(' + heading + 'deg); opacity:' + safeOpacity + '; color:' + color + ';">' +
                       iconSvg +
                       badgeHtml +
-                      '</div>',
+                      '</div>' +
+                      labelHtml,
                 iconSize: [34, 34],
                 iconAnchor: [17, 17]
             });
@@ -477,14 +512,29 @@
             QFA: "Qantas",
             UAE: "Emirates",
             QTR: "Qatar Airways",
-            ETD: "Etihad Airways"
+            ETD: "Etihad Airways",
+            ASH: "Mesa Airlines",
+            QXE: "Horizon Air",
+            SCX: "Sun Country Airlines",
+            JZA: "Jazz Air",
+            AUA: "Austrian Airlines",
+            IBE: "Iberia",
+            SAS: "Scandinavian Airlines",
+            NAX: "Norwegian Air Shuttle",
+            WZZ: "Wizz Air",
+            EZY: "easyJet",
+            RYR: "Ryanair",
+            BEL: "Brussels Airlines",
+            TAP: "TAP Air Portugal",
+            AZU: "Azul Brazilian Airlines",
+            GLO: "Gol Linhas Aéreas"
         };
 
         var AIRPORT_NAME_FIXES = {
             KBOS: "Boston Logan Intl",
             KPIT: "Pittsburgh Intl",
             KDCA: "Ronald Reagan Washington National",
-            KBWI: "Baltimore/Washington International Thurgood Marshall",
+            KBWI: "Baltimore/Washington Intl",
             KDFW: "Dallas Fort Worth Intl",
             KMCO: "Orlando Intl",
             CYUL: "Montréal-Trudeau Intl",
@@ -495,7 +545,63 @@
             KUNV: "State College / University Park",
             KBKL: "Burke Lakefront",
             K4G4: "Youngstown Elser Metro",
-            "4G4": "Youngstown Elser Metro"
+            "4G4": "Youngstown Elser Metro",
+            KATL: "Hartsfield-Jackson Atlanta Intl",
+            KJFK: "John F. Kennedy Intl",
+            KLGA: "LaGuardia",
+            KEWR: "Newark Liberty Intl",
+            KDTW: "Detroit Metro Wayne County",
+            KDEN: "Denver Intl",
+            KBNA: "Nashville Intl",
+            KSTL: "St. Louis Lambert Intl",
+            KLAS: "Harry Reid Intl",
+            KPHX: "Phoenix Sky Harbor Intl",
+            KSEA: "Seattle-Tacoma Intl",
+            KMSP: "Minneapolis-St. Paul Intl",
+            KCVG: "Cincinnati/Northern Kentucky Intl",
+            KMIA: "Miami Intl",
+            KTPA: "Tampa Intl",
+            KRSW: "Southwest Florida Intl",
+            KRDU: "Raleigh-Durham Intl",
+            KGRR: "Gerald R. Ford Intl",
+            KSDF: "Louisville Intl",
+            KDAL: "Dallas Love Field",
+            KHOU: "William P. Hobby",
+            KIAH: "George Bush Intercontinental",
+            KCLE: "Cleveland Hopkins Intl",
+            KCMH: "John Glenn Columbus Intl",
+            KBUF: "Buffalo Niagara Intl",
+            KIAD: "Washington Dulles Intl",
+            KLAX: "Los Angeles Intl",
+            KSFO: "San Francisco Intl",
+            KERI: "Erie Intl Tom Ridge Field",
+            KIAG: "Niagara Falls Intl",
+            KAGC: "Allegheny County",
+            KAVP: "Wilkes-Barre/Scranton Intl",
+            KABE: "Lehigh Valley Intl",
+            KYNG: "Youngstown-Warren Regional",
+            KCAK: "Akron-Canton",
+            KFKL: "Venango Regional",
+            KCKB: "North Central West Virginia",
+            KPDX: "Portland Intl",
+            KMKE: "Milwaukee Mitchell Intl",
+            KRIC: "Richmond Intl",
+            KCLT: "Charlotte Douglas Intl",
+            KSRQ: "Sarasota/Bradenton Intl",
+            KPBI: "Palm Beach Intl",
+            KJAX: "Jacksonville Intl",
+            CYYZ: "Toronto Pearson Intl",
+            CYVR: "Vancouver Intl",
+            CYOW: "Ottawa Macdonald-Cartier Intl",
+            CYYC: "Calgary Intl",
+            CYEG: "Edmonton Intl",
+            LEMD: "Madrid Barajas Intl",
+            LFPG: "Paris Charles de Gaulle",
+            EGLL: "London Heathrow",
+            EDDF: "Frankfurt Intl",
+            EHAM: "Amsterdam Schiphol",
+            LIRF: "Rome Fiumicino",
+            LEBL: "Barcelona El Prat"
         };
 
         function cleanAirportName(name) {
@@ -536,7 +642,61 @@
             CYVR: "BC",
             CYOW: "ON",
             CYYC: "AB",
-            CYEG: "AB"
+            CYEG: "AB",
+            KATL: "GA",
+            KJFK: "NY",
+            KLGA: "NY",
+            KEWR: "NJ",
+            KDTW: "MI",
+            KDEN: "CO",
+            KORD: "IL",
+            KMDW: "IL",
+            KBNA: "TN",
+            KSTL: "MO",
+            KLAS: "NV",
+            KPHX: "AZ",
+            KSEA: "WA",
+            KMSP: "MN",
+            KCVG: "KY",
+            KMIA: "FL",
+            KTPA: "FL",
+            KRSW: "FL",
+            KRDU: "NC",
+            KGRR: "MI",
+            KSDF: "KY",
+            KDAL: "TX",
+            KHOU: "TX",
+            KIAH: "TX",
+            KCLE: "OH",
+            KCMH: "OH",
+            KBUF: "NY",
+            KIAD: "VA",
+            KLAX: "CA",
+            KSFO: "CA",
+            KPHL: "PA",
+            KERI: "PA",
+            KIAG: "NY",
+            KAGC: "PA",
+            KAVP: "PA",
+            KABE: "PA",
+            KYNG: "OH",
+            KCAK: "OH",
+            KFKL: "PA",
+            KCKB: "WV",
+            KPDX: "OR",
+            KMKE: "WI",
+            KRIC: "VA",
+            KCLT: "NC",
+            KSRQ: "FL",
+            KPBI: "FL",
+            KJAX: "FL",
+            LEMD: "ES",
+            LFPG: "FR",
+            EGLL: "GB",
+            EDDF: "DE",
+            EHAM: "NL",
+            LIRF: "IT",
+            LEBL: "ES"
         };
 
         function airportState(a, code) {
@@ -551,6 +711,43 @@
             }
 
             return a.state || a.state_code || '';
+        }
+
+        var SOURCE_LABELS = {
+            'adsb-lol-reapi':       'ADSB.lol',
+            'adsblol-ground-sweep': 'ADSB.lol ground',
+            'swim-sfdps':           'FAA/SWIM',
+            'swim-stdds':           'FAA/SWIM',
+            'swim-tfms':            'FAA/SWIM',
+            'opensky':              'OpenSky',
+            'faa-sfdps':            'FAA/SWIM',
+            'faa':                  'FAA/SWIM',
+            'adsb-lol':             'ADSB.lol',
+        };
+
+        function friendlySource(raw) {
+            if (!raw) return '';
+            var key = String(raw).toLowerCase().trim();
+            if (SOURCE_LABELS[key]) return SOURCE_LABELS[key];
+            if (key.startsWith('faa-') || key.startsWith('swim-')) return 'FAA/SWIM';
+            if (key.startsWith('opensky')) return 'OpenSky';
+            if (key.startsWith('adsb-lol') || key.startsWith('adsblol')) return 'ADSB.lol';
+            return String(raw);
+        }
+
+        function stateLabel(state) {
+            if (state === 'airborne')      return 'Airborne';
+            if (state === 'ground_moving') return 'Taxiing';
+            if (state === 'parked')        return 'Parked';
+            return '';
+        }
+
+        function isEmergencySquawk(p) {
+            if (!p) return false;
+            var sq = String(p.squawk || '').trim();
+            var emerg = String(p.emergency || '').trim().toLowerCase();
+            return sq === '7500' || sq === '7600' || sq === '7700' ||
+                   (emerg && emerg !== 'none' && emerg !== '0' && emerg !== '');
         }
 
         function buildAirportLookup() {
@@ -699,46 +896,67 @@
             var iconType = displayIconType(p);
             var state = aircraftDisplayState(p);
 
-            var badges = [];
-            if (boolField(p.isMilitary)) badges.push('Military');
-            if (boolField(p.isPia)) badges.push('PIA');
-            if (boolField(p.isLadd)) badges.push('LADD');
-            if (boolField(p.isHelicopter)) badges.push('Helicopter');
+            var tags = [];
+            if (boolField(p.isMilitary)) tags.push('Military');
+            if (boolField(p.isPia)) tags.push('PIA');
+            if (boolField(p.isLadd)) tags.push('LADD');
+            if (boolField(p.isHelicopter)) tags.push('Helicopter');
 
             var flightId = String(p.flightId || p.flight_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            var stateLbl = stateLabel(state);
 
             var html = '<div style="min-width:240px">';
             html += '<b>' + htmlEscape(name) + '</b>';
+            if (stateLbl) html += ' <span class="meta">' + htmlEscape(stateLbl) + '</span>';
             html += '<div class="route">' + htmlEscape(route) + '</div>';
             if (airline) {
                 html += '<div class="meta">Airline: ' + htmlEscape(airline.airline) + '</div>';
                 html += '<div class="meta">Flight: ' + htmlEscape(airline.display) + '</div>';
             }
-
-            html += '<div class="meta">';
-            html += 'Class: ' + htmlEscape(aircraftClass);
-            html += ' / Icon: ' + htmlEscape(iconType);
-            html += ' / State: ' + htmlEscape(state);
-            html += '</div>';
-
-            if (badges.length) {
-                html += '<div class="meta">Tags: ' + htmlEscape(badges.join(', ')) + '</div>';
+            if (tags.length) {
+                html += '<div class="meta">Tags: ' + htmlEscape(tags.join(', ')) + '</div>';
             }
 
             html += '<hr style="border-color:#333">';
-            html += 'Altitude: ' + popupValue(p.alt) + ' ft';
-            html += '<br>Speed: ' + popupValue(p.speed) + ' kt';
-            html += '<br>Heading: ' + popupValue(p.heading) + '°';
+            var fmtAlt = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n).toLocaleString(); };
+            var fmtSpd = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n); };
+            var fmtHdg = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n); };
+            html += 'Alt: ' + fmtAlt(p.alt) + ' ft';
+            html += ' &nbsp; Spd: ' + fmtSpd(p.speed) + ' kt';
+            html += ' &nbsp; Hdg: ' + fmtHdg(p.heading) + '°<br>';
+            var vr = parseFloat(p.verticalRate);
+            if (!isNaN(vr) && Math.abs(vr) >= 100) {
+                var vrColor = vr > 0 ? '#7cf' : '#f97';
+                html += '<span style="color:' + vrColor + '">' + (vr > 0 ? '↑' : '↓') + ' ' + Math.abs(Math.round(vr)).toLocaleString() + ' fpm</span><br>';
+            }
 
-            if (p.assignedAlt) html += '<br>Assigned: ' + popupValue(p.assignedAlt) + ' ft';
-            if (p.registration) html += '<br>Registration: ' + popupValue(p.registration);
-            if (p.aircraftType) html += '<br>Type: ' + popupValue(p.aircraftType);
-            if (p.icaoHex) html += '<br>ICAO: ' + popupValue(p.icaoHex);
+            var aAlt = parseFloat(p.assignedAlt);
+            if (!isNaN(aAlt) && aAlt > 0 && Math.abs((parseFloat(p.alt) || 0) - aAlt) > 300) {
+                html += 'Assigned: ' + fmtAlt(p.assignedAlt) + ' ft<br>';
+            }
+            if (p.registration) html += 'Reg: ' + popupValue(p.registration) + '<br>';
+            if (p.aircraftType) html += 'Type: ' + popupValue(p.aircraftType) + '<br>';
+            if (p.icaoHex) html += '<span class="meta">ICAO: <a href="https://globe.adsbexchange.com/?icao=' + htmlEscape(p.icaoHex.toLowerCase()) + '" target="_blank" rel="noopener" style="color:#8af">' + popupValue(p.icaoHex) + '</a></span><br>';
+            if (p.squawk) {
+                var sq = String(p.squawk).trim();
+                var sqHtml = 'Squawk: ' + popupValue(sq);
+                if (sq === '7500') sqHtml += ' <span style="color:#f55;font-weight:bold">HIJACK</span>';
+                else if (sq === '7600') sqHtml += ' <span style="color:#fa5;font-weight:bold">RADIO FAIL</span>';
+                else if (sq === '7700') sqHtml += ' <span style="color:#f55;font-weight:bold">EMERGENCY</span>';
+                else if (p.emergency && p.emergency !== 'none' && p.emergency !== '0') sqHtml += ' <span style="color:#fa5;font-weight:bold">' + htmlEscape(p.emergency) + '</span>';
+                html += '<span class="meta">' + sqHtml + '</span><br>';
+            }
 
             html += '<hr style="border-color:#333">';
-            html += '<div class="meta">Position source: ' + popupValue(p.positionSource || p.source) + '</div>';
-            if (p.enrichmentSource) html += '<div class="meta">Enrichment: ' + popupValue(p.enrichmentSource) + '</div>';
-            if (p.faaTs) html += '<div class="meta">FAA TS: ' + popupValue(p.faaTs) + '</div>';
+            var posLabel = friendlySource(p.positionSource || p.source);
+            var routeLabel = friendlySource(p.enrichmentSource);
+            if (posLabel) html += '<div class="meta">Position: ' + htmlEscape(posLabel) + '</div>';
+            if (routeLabel && routeLabel !== posLabel) html += '<div class="meta">Route: ' + htmlEscape(routeLabel) + '</div>';
+
+            var csRaw = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
+            if (csRaw && airline) {
+                html += '<div class="meta"><a href="https://flightaware.com/live/flight/' + htmlEscape(csRaw) + '" target="_blank" rel="noopener" style="color:#8af">FA: ' + htmlEscape(csRaw) + '</a></div>';
+            }
 
             if (flightId) {
                 html += '<br><span class="follow-link" onclick="startFollow(\'' + flightId + '\')">Follow aircraft</span>';
@@ -1192,7 +1410,18 @@
         map.on('zoomend', function() {
             syncVisiblePlanes();
             syncAirportMarkers();
+            updateLabelVisibility();
         });
+
+        function updateLabelVisibility() {
+            var mapEl = document.getElementById('map');
+            if (map.getZoom() >= 9) {
+                mapEl.classList.remove('labels-hidden');
+            } else {
+                mapEl.classList.add('labels-hidden');
+            }
+        }
+        updateLabelVisibility();
 
         // Load initial planes
         fetch('/api/?action=Planes&_=' + Date.now())
