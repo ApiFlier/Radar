@@ -188,7 +188,7 @@ class ApiPlanes(ApiBase):
             return None
 
         normalized = {
-            "flightId": plane.get("flight_id", key.replace("adsblol:state:", "adsblol:")),
+            "flightId": plane.get("flightId", plane.get("flight_id", key.replace("adsblol:state:", "adsblol:"))),
             "callsign": plane.get("callsign", ""),
             "operator": plane.get("operator", ""),
             "registration": plane.get("registration", ""),
@@ -203,7 +203,8 @@ class ApiPlanes(ApiBase):
             "source": plane.get("source", "adsb-lol-reapi"),
             "positionSource": plane.get("source", "adsb-lol-reapi"),
             "enrichmentSource": "",
-            "sourceFacility": plane.get("source_facility", ""),
+            "sourceFacility": plane.get("sourceFacility", plane.get("source_facility", "")),
+            "groundCluster": plane.get("groundCluster", plane.get("ground_cluster", "")),
             "trackKey": plane.get("track_key", ""),
             "gufi": "",
             "lat": self.safeFloat(plane.get("lat", 0)),
@@ -214,7 +215,7 @@ class ApiPlanes(ApiBase):
             "assignedAlt": "",
             "verticalRate": plane.get("vertical_rate", ""),
             "airborne": plane.get("airborne", "0"),
-            "lastUpdate": self.safeFloat(plane.get("last_update", 0)),
+            "lastUpdate": self.safeFloat(plane.get("lastUpdate", plane.get("last_update", 0))),
             "squawk": plane.get("squawk", ""),
             "emergency": plane.get("emergency", ""),
             "category": plane.get("category", ""),

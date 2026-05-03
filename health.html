@@ -116,18 +116,18 @@
             padding: 8px 0 7px;
             border-radius: 6px;
             text-decoration: none;
-            color: #383838;
+            color: #686868;
             font-size: 8.5px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.4px;
         }
         .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-        .nav-item:hover { color: #888; background: rgba(255,255,255,0.04); }
+        .nav-item:hover { color: #b0b0b0; background: rgba(255,255,255,0.06); }
         .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
         .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
-        .nav-item.soon { color: #232323; }
-        .nav-item.soon:hover { color: #333; background: none; }
+        .nav-item.soon { color: #464646; }
+        .nav-item.soon:hover { color: #636363; background: rgba(255,255,255,0.02); }
         .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
 
         /* ── Main ── */
@@ -214,6 +214,23 @@
             border-radius: 8px;
             overflow: hidden;
         }
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 16px 8px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            gap: 10px;
+        }
+        .section-head h2 {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
         .section h2 {
             font-size: 11px;
             font-weight: 600;
@@ -224,6 +241,42 @@
             background: rgba(0,0,0,0.35);
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
+        .search-wrap { flex: 1; max-width: 200px; }
+        .search-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            color: #ccc;
+            font-size: 11px;
+            padding: 4px 9px;
+            outline: none;
+            font-family: inherit;
+        }
+        .search-input:focus { border-color: rgba(0,255,204,0.35); }
+        .search-input::placeholder { color: #3a3a3a; }
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: rgba(255,255,255,0.04) !important; }
+        .detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .detail-panel {
+            padding: 12px 16px;
+            background: rgba(0,255,204,0.03);
+            font-size: 12px;
+            color: #888;
+            line-height: 1.6;
+        }
+        .detail-panel .dp-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .detail-row.hidden { display: none; }
 
         /* ── Tables ── */
         table { width: 100%; border-collapse: collapse; }
@@ -296,7 +349,7 @@
             <span>Stats</span>
         </a>
         <div class="nav-sep"></div>
-        <a class="nav-item soon" href="/airports" title="Airports">
+        <a class="nav-item" href="/airports" title="Airports">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="2" x2="9" y2="13"/><line x1="5.5" y1="4.5" x2="12.5" y2="4.5"/><line x1="6" y1="7.5" x2="12" y2="7.5"/><line x1="6" y1="10.5" x2="12" y2="10.5"/><line x1="2" y1="16" x2="16" y2="16"/></svg>
             <span>Airports</span>
         </a>
@@ -304,7 +357,7 @@
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="1" x2="9" y2="17"/><path d="M2 9 L9 7 L16 9"/><path d="M6 14.5 L9 13 L12 14.5"/></svg>
             <span>Aircraft</span>
         </a>
-        <a class="nav-item soon" href="/ground" title="Ground Ops">
+        <a class="nav-item" href="/ground" title="Ground Ops">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="1" x2="9" y2="12"/><line x1="5" y1="6" x2="13" y2="6"/><line x1="3" y1="10.5" x2="15" y2="10.5"/><line x1="2" y1="15" x2="16" y2="15"/></svg>
             <span>Ground</span>
         </a>
@@ -347,7 +400,12 @@
 
         <div class="section-grid">
             <div class="section">
-                <h2>Source Breakdown</h2>
+                <div class="section-head">
+                    <h2>Source Breakdown</h2>
+                    <div class="search-wrap">
+                        <input class="search-input" id="source-search" type="text" placeholder="Filter sources…" oninput="filterSources()">
+                    </div>
+                </div>
                 <div id="sources-content"><div class="status-msg">Loading…</div></div>
             </div>
             <div class="section">
@@ -369,21 +427,77 @@
 
 <script>
 const SOURCE_LABELS = {
-    'faa-swim': 'FAA / SWIM',
-    'faa-stdds': 'FAA / SWIM',
-    'adsblol': 'ADSB.lol Re-API',
-    'adsblol-ground': 'ADSB.lol Ground',
-    'ground': 'Ground Sweep',
-    'unknown': 'Unknown',
+    'faa-sfdps':        'FAA / SFDPS',
+    'faa-stdds-tfms':   'FAA / STDDS-TFMS',
+    'faa-stdds-tfm':    'FAA / STDDS-TFM',
+    'faa-stdds':        'FAA / STDDS',
+    'faa-swim':         'FAA / SWIM',
+    'faa':              'FAA / SWIM',
+    'adsb-lol-reapi':   'ADSB.lol Re-API',
+    'adsblol-ground-sweep': 'ADSB.lol Ground Sweep',
+    'adsblol-ground':   'ADSB.lol Ground',
+    'adsblol':          'ADSB.lol Re-API',
+    'opensky':          'OpenSky Network',
+    'ground':           'Ground Sweep',
+    'unknown':          'Unknown',
+};
+
+const SOURCE_DESCRIPTIONS = {
+    'faa-sfdps':        'FAA System-wide Information Management Flight Data Publication Service. Primary source for FAA-tracked IFR flight plans, positions, and system data.',
+    'faa-stdds-tfms':   'FAA System-wide Terminal Data Distribution System — Traffic Flow Management System feed. Provides TFMS-enriched flight information.',
+    'faa-stdds-tfm':    'FAA STDDS Traffic Flow Management feed. Real-time flight data from FAA TFMS.',
+    'faa-stdds':        'FAA System-wide Terminal Data Distribution System. Distributes flight data from FAA ARTCC facilities.',
+    'faa-swim':         'FAA System Wide Information Management. Aggregated FAA data bus covering SFDPS, STDDS, and related systems.',
+    'faa':              'FAA / SWIM data feed.',
+    'adsb-lol-reapi':   'ADSB.lol Re-API ingestor. Pulls live ADS-B position reports from the ADSB.lol global receiver network via their REST API.',
+    'adsblol-ground-sweep': 'ADSB.lol Ground Sweep ingestor. Polls airport surface area bounding boxes for low-altitude and ground-level ADS-B targets including taxiing and parked aircraft.',
+    'adsblol-ground':   'ADSB.lol ground-layer data from the surface sweep ingestor.',
+    'adsblol':          'ADSB.lol Re-API ingestor. Live ADS-B data from the ADSB.lol global receiver network.',
+    'opensky':          'OpenSky Network. Crowdsourced ADS-B receiver network providing global flight position data.',
+    'ground':           'Ground sweep data. Surface-level aircraft position reports from airport surface surveillance.',
+    'unknown':          'Source could not be determined. Data may be from an unrecognized ingestor or an older record with missing provenance.',
 };
 
 function friendlySource(raw) {
     if (!raw) return 'Unknown';
     const lower = raw.toLowerCase();
-    for (const [prefix, label] of Object.entries(SOURCE_LABELS)) {
-        if (lower.startsWith(prefix)) return label;
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower === key || lower.startsWith(key + '-') || lower === key) return label;
+    }
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower.startsWith(key)) return label;
     }
     return raw;
+}
+
+function sourceDescription(raw) {
+    if (!raw) return SOURCE_DESCRIPTIONS['unknown'];
+    const lower = raw.toLowerCase();
+    for (const key of Object.keys(SOURCE_DESCRIPTIONS)) {
+        if (lower === key) return SOURCE_DESCRIPTIONS[key];
+    }
+    for (const key of Object.keys(SOURCE_DESCRIPTIONS)) {
+        if (lower.startsWith(key + '-') || lower.startsWith(key)) return SOURCE_DESCRIPTIONS[key];
+    }
+    return 'No description available for this source.';
+}
+
+function filterSources() {
+    const q = (document.getElementById('source-search')?.value || '').toLowerCase();
+    document.querySelectorAll('#sources-content tbody tr.src-row').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const show = !q || text.includes(q);
+        row.style.display = show ? '' : 'none';
+        const detail = row.nextElementSibling;
+        if (detail && detail.classList.contains('detail-row')) {
+            if (!show) detail.classList.add('hidden');
+        }
+    });
+}
+
+function toggleSrcDetail(id) {
+    const row = document.getElementById(id);
+    if (row) row.classList.toggle('hidden');
 }
 
 function relativeTime(ts) {
@@ -532,20 +646,27 @@ function render(d) {
     if (srcEntries.length === 0) {
         document.getElementById('sources-content').innerHTML = '<div class="status-msg">No source data</div>';
     } else {
-        let rows = '';
-        for (const [src, cnt] of srcEntries) {
-            rows += `<tr>
-                <td class="src">${friendlySource(src)}</td>
-                <td class="key" style="color:#3a3a3a;font-size:10px">${src}</td>
+        function srcRowPair(src, cnt, keyLabel) {
+            const id = 'src-detail-' + src.replace(/[^a-z0-9]/gi, '-');
+            const desc = sourceDescription(src);
+            const label = friendlySource(src);
+            return `<tr class="src-row clickable-row" onclick="toggleSrcDetail('${id}')">
+                <td class="src">${label}</td>
+                <td class="key" style="color:#3a3a3a;font-size:10px">${keyLabel || src}</td>
                 <td class="num">${cnt.toLocaleString()}</td>
+            </tr><tr class="detail-row hidden" id="${id}">
+                <td colspan="3"><div class="detail-panel">
+                    <div class="dp-title">${label}</div>
+                    ${desc}
+                </div></td>
             </tr>`;
         }
+        let rows = '';
+        for (const [src, cnt] of srcEntries) {
+            rows += srcRowPair(src, cnt, src);
+        }
         if (adsbLolAircraft > 0) {
-            rows += `<tr>
-                <td class="src">ADSB.lol Re-API</td>
-                <td class="key" style="color:#3a3a3a;font-size:10px">adsblol:state:icao:*</td>
-                <td class="num">${adsbLolAircraft.toLocaleString()}</td>
-            </tr>`;
+            rows += srcRowPair('adsb-lol-reapi', adsbLolAircraft, 'adsblol:state:icao:*');
         }
         document.getElementById('sources-content').innerHTML = `
             <table>

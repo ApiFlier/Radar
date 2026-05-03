@@ -67,15 +67,15 @@
         .nav-item {
             width: 46px; display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 3px; padding: 8px 0 7px; border-radius: 6px;
-            text-decoration: none; color: #383838; font-size: 8.5px; font-weight: 600;
+            text-decoration: none; color: #686868; font-size: 8.5px; font-weight: 600;
             text-transform: uppercase; letter-spacing: 0.4px;
         }
         .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-        .nav-item:hover { color: #888; background: rgba(255,255,255,0.04); }
+        .nav-item:hover { color: #b0b0b0; background: rgba(255,255,255,0.06); }
         .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
         .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
-        .nav-item.soon { color: #232323; }
-        .nav-item.soon:hover { color: #333; background: none; }
+        .nav-item.soon { color: #464646; }
+        .nav-item.soon:hover { color: #636363; background: rgba(255,255,255,0.02); }
         .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
 
         /* ── Main ── */
@@ -183,6 +183,30 @@
         .bar-fill { height: 100%; background: #00ffcc; border-radius: 3px; transition: width 0.4s; }
         td.cov-pct { text-align: right; color: #00ffcc; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
         td.cov-count { text-align: right; color: #444; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+        /* ── Clickable rows ── */
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: rgba(255,255,255,0.04) !important; }
+        .detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .detail-panel {
+            padding: 10px 14px;
+            background: rgba(0,255,204,0.03);
+            font-size: 11px;
+            color: #888;
+            line-height: 1.6;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .dp-field { display: flex; flex-direction: column; gap: 1px; }
+        .dp-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #444; }
+        .dp-value { color: #bbb; font-size: 12px; }
+        .dp-value.accent { color: #00ffcc; font-weight: 600; }
+        .dp-value.mono { font-family: 'Consolas','Menlo',monospace; }
+        .detail-row.hidden { display: none; }
 
         /* ── Status / Empty ── */
         .status-msg { text-align: center; padding: 40px 24px; color: #444; font-size: 13px; }
@@ -352,6 +376,36 @@ function fmtCoord(v) {
     return parseFloat(v).toFixed(4);
 }
 
+const SOURCE_LABELS = {
+    'adsblol-ground-sweep': 'ADSB.lol Ground Sweep',
+    'adsblol-ground':       'ADSB.lol Ground',
+    'adsb-lol-reapi':       'ADSB.lol Re-API',
+    'adsblol':              'ADSB.lol Re-API',
+    'faa-sfdps':            'FAA / SFDPS',
+    'faa-stdds':            'FAA / STDDS',
+    'faa-swim':             'FAA / SWIM',
+    'faa':                  'FAA / SWIM',
+    'opensky':              'OpenSky',
+    'unknown':              'Unknown',
+};
+
+function friendlySource(raw) {
+    if (!raw) return 'Unknown';
+    const lower = raw.toLowerCase();
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower === key) return label;
+    }
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower.startsWith(key)) return label;
+    }
+    return raw;
+}
+
+function toggleGroundDetail(id) {
+    const row = document.getElementById(id);
+    if (row) row.classList.toggle('hidden');
+}
+
 function pct(count, total) {
     if (!total) return 0;
     return Math.round(count / total * 100);
@@ -387,7 +441,7 @@ function applyFilters() {
     if (!tbl) return;
 
     let vis = 0;
-    for (const row of tbl.querySelectorAll('tbody tr')) {
+    for (const row of tbl.querySelectorAll('tbody tr.clickable-row')) {
         const catMatch =
             activeFilter === 'all'    ||
             (activeFilter === 'moving' && row.dataset.cat === 'moving') ||
@@ -400,6 +454,11 @@ function applyFilters() {
 
         const show = catMatch && qMatch;
         row.classList.toggle('hidden-row', !show);
+        const detail = row.nextElementSibling;
+        if (detail && detail.classList.contains('detail-row')) {
+            detail.classList.toggle('hidden-row', !show);
+            if (!show) detail.classList.add('hidden');
+        }
         if (show) vis++;
     }
     document.getElementById('ground-count').textContent = q || activeFilter !== 'all'
@@ -501,23 +560,29 @@ function renderGroundTable(ground) {
 
     const sorted = sortedGround(ground);
     let rows = '';
+    let rowIdx = 0;
     for (const p of sorted) {
         const spd  = fmtSpeed(p.speed);
         const age  = fmtAge(p.lastUpdate);
         const cat  = speedCategory(p);
         const isHeli = p.isHelicopter ? '1' : '0';
         const noId = noFlightId(p);
+        const callsignDisplay = noId ? (p.callsign || p.icaoHex) : (p.callsign || '—');
         const callsignHtml = noId
-            ? `<td class="callsign no-id">${p.callsign || p.icaoHex}</td>`
-            : `<td class="callsign">${p.callsign || '—'}</td>`;
+            ? `<td class="callsign no-id">${callsignDisplay}</td>`
+            : `<td class="callsign">${callsignDisplay}</td>`;
         const srch = [
             (p.callsign || ''), (p.registration || ''), (p.icaoHex || '')
         ].join(' ').toLowerCase();
         const cls = (p.aircraftClass || 'unknown').toLowerCase();
         const type = (p.aircraftType || '').trim();
         const typeStr = type ? `${type} · ` : '';
+        const detailId = `gnd-detail-${rowIdx++}`;
+        const srcLabel = friendlySource(p.source || p.positionSource || '');
+        const cluster = (p.groundCluster || '').trim();
+        const facility = (p.sourceFacility || '').trim();
 
-        rows += `<tr data-cat="${cat}" data-heli="${isHeli}" data-srch="${srch}">
+        rows += `<tr class="clickable-row" data-cat="${cat}" data-heli="${isHeli}" data-srch="${srch}" onclick="toggleGroundDetail('${detailId}')">
             ${callsignHtml}
             <td class="reg">${p.registration || '—'}</td>
             <td class="hex">${p.icaoHex || '—'}</td>
@@ -527,7 +592,21 @@ function renderGroundTable(ground) {
             <td class="num">${fmtAlt(p.alt)}</td>
             <td class="coord">${fmtCoord(p.lat)}, ${fmtCoord(p.lon)}</td>
             <td class="num ${age.cls}">${age.txt}</td>
-        </tr>`;
+        </tr><tr class="detail-row hidden" id="${detailId}"><td colspan="9"><div class="detail-panel">
+            ${!noId && p.callsign ? `<div class="dp-field"><div class="dp-label">Callsign</div><div class="dp-value mono accent">${p.callsign}</div></div>` : ''}
+            ${p.registration ? `<div class="dp-field"><div class="dp-label">Registration</div><div class="dp-value mono">${p.registration}</div></div>` : ''}
+            <div class="dp-field"><div class="dp-label">ICAO Hex</div><div class="dp-value mono">${p.icaoHex || '—'}</div></div>
+            ${type ? `<div class="dp-field"><div class="dp-label">Aircraft Type</div><div class="dp-value">${type}</div></div>` : ''}
+            <div class="dp-field"><div class="dp-label">Class</div><div class="dp-value" style="text-transform:capitalize">${cls}</div></div>
+            <div class="dp-field"><div class="dp-label">Speed</div><div class="dp-value accent">${spd.txt}</div></div>
+            <div class="dp-field"><div class="dp-label">Heading</div><div class="dp-value">${fmtHeading(p.heading)}</div></div>
+            <div class="dp-field"><div class="dp-label">Altitude</div><div class="dp-value">${fmtAlt(p.alt)}</div></div>
+            <div class="dp-field"><div class="dp-label">Position</div><div class="dp-value mono">${fmtCoord(p.lat)}, ${fmtCoord(p.lon)}</div></div>
+            <div class="dp-field"><div class="dp-label">Source</div><div class="dp-value">${srcLabel}</div></div>
+            ${cluster ? `<div class="dp-field"><div class="dp-label">Cluster</div><div class="dp-value mono">${cluster}</div></div>` : ''}
+            ${facility ? `<div class="dp-field"><div class="dp-label">Facility</div><div class="dp-value mono">${facility}</div></div>` : ''}
+            <div class="dp-field"><div class="dp-label">Last Update</div><div class="dp-value">${age.txt}</div></div>
+        </div></td></tr>`;
     }
 
     document.getElementById('ground-content').innerHTML = `

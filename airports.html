@@ -116,18 +116,18 @@
             padding: 8px 0 7px;
             border-radius: 6px;
             text-decoration: none;
-            color: #383838;
+            color: #686868;
             font-size: 8.5px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.4px;
         }
         .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-        .nav-item:hover { color: #888; background: rgba(255,255,255,0.04); }
+        .nav-item:hover { color: #b0b0b0; background: rgba(255,255,255,0.06); }
         .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
         .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
-        .nav-item.soon { color: #232323; }
-        .nav-item.soon:hover { color: #333; background: none; }
+        .nav-item.soon { color: #464646; }
+        .nav-item.soon:hover { color: #636363; background: rgba(255,255,255,0.02); }
         .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
 
         /* ── Main ── */
@@ -306,6 +306,47 @@
         }
         .status-msg.error { color: #f97; }
 
+        /* ── Filter tabs ── */
+        .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+        .filter-btn {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 3px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: transparent;
+            color: #555;
+            cursor: pointer;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            font-family: inherit;
+        }
+        .filter-btn:hover { color: #888; border-color: rgba(255,255,255,0.2); }
+        .filter-btn.active { color: #00ffcc; border-color: rgba(0,255,204,0.4); background: rgba(0,255,204,0.07); }
+
+        /* ── Clickable rows ── */
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: rgba(255,255,255,0.04) !important; }
+        .detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .detail-panel {
+            padding: 12px 16px;
+            background: rgba(0,255,204,0.03);
+            font-size: 12px;
+            color: #888;
+            line-height: 1.6;
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .dp-field { display: flex; flex-direction: column; gap: 2px; }
+        .dp-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #444; }
+        .dp-value { color: #bbb; font-size: 13px; }
+        .dp-value.accent { color: #00ffcc; font-weight: 600; }
+        .detail-row.hidden { display: none; }
+
         /* ── Footer ── */
         .footer {
             margin-top: 28px;
@@ -343,7 +384,7 @@
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="1" x2="9" y2="17"/><path d="M2 9 L9 7 L16 9"/><path d="M6 14.5 L9 13 L12 14.5"/></svg>
             <span>Aircraft</span>
         </a>
-        <a class="nav-item soon" href="/ground" title="Ground Ops">
+        <a class="nav-item" href="/ground" title="Ground Ops">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="1" x2="9" y2="12"/><line x1="5" y1="6" x2="13" y2="6"/><line x1="3" y1="10.5" x2="15" y2="10.5"/><line x1="2" y1="15" x2="16" y2="15"/></svg>
             <span>Ground</span>
         </a>
@@ -409,6 +450,12 @@
             <div class="section">
                 <div class="section-head">
                     <h2>All Active Airports</h2>
+                    <div class="filter-tabs" id="airport-filter-tabs">
+                        <button class="filter-btn active" data-f="all"   onclick="setAirportFilter('all')">All</button>
+                        <button class="filter-btn"        data-f="dep"   onclick="setAirportFilter('dep')">Origins Only</button>
+                        <button class="filter-btn"        data-f="arr"   onclick="setAirportFilter('arr')">Destinations Only</button>
+                        <button class="filter-btn"        data-f="both"  onclick="setAirportFilter('both')">Both</button>
+                    </div>
                     <div class="search-wrap">
                         <input class="search-input" id="airport-search" type="text" placeholder="Filter by code or name…" oninput="filterAirports()">
                     </div>
@@ -489,6 +536,20 @@ function regionLabel(region) {
 
 /* ── Aggregation state ── */
 let lastProcessed = null;
+let airportFilterMode = 'all'; // 'all' | 'dep' | 'arr' | 'both'
+
+function setAirportFilter(mode) {
+    airportFilterMode = mode;
+    document.querySelectorAll('#airport-filter-tabs .filter-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.f === mode);
+    });
+    filterAirports();
+}
+
+function toggleAirportDetail(id) {
+    const row = document.getElementById(id);
+    if (row) row.classList.toggle('hidden');
+}
 
 /* ── Main data processing ── */
 function processPlanes(planes) {
@@ -616,15 +677,28 @@ function airportRow(code, deps, arrs, total, rank) {
     const info = airportInfo(code);
     const name = info ? info.name : '';
     const region = info ? regionLabel(info.region) : '';
+    const fullRegion = info ? (info.region || '') : '';
     const rankHtml = rank != null ? `<span class="rank">${rank}.</span>` : '';
-    return `<tr data-code="${code}" data-name="${name.toLowerCase()}">
+    const detailId = 'apt-detail-' + code;
+    const roleLabel = deps > 0 && arrs > 0 ? 'Origin + Destination'
+                    : deps > 0 ? 'Origin Only'
+                    : 'Destination Only';
+    return `<tr class="clickable-row" data-code="${code}" data-name="${name.toLowerCase()}" data-deps="${deps}" data-arrs="${arrs}" onclick="toggleAirportDetail('${detailId}')">
         <td class="code">${rankHtml}${code}</td>
         <td class="name">${name}</td>
         <td class="region">${region}</td>
         <td class="num">${deps > 0 ? deps.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
         <td class="num">${arrs > 0 ? arrs.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
         <td class="num total">${total.toLocaleString()}</td>
-    </tr>`;
+    </tr><tr class="detail-row hidden" id="${detailId}"><td colspan="6"><div class="detail-panel">
+        <div class="dp-field"><div class="dp-label">Code</div><div class="dp-value accent">${code}</div></div>
+        ${name ? `<div class="dp-field"><div class="dp-label">Airport</div><div class="dp-value">${name}</div></div>` : ''}
+        ${fullRegion ? `<div class="dp-field"><div class="dp-label">Region</div><div class="dp-value">${fullRegion}</div></div>` : ''}
+        <div class="dp-field"><div class="dp-label">Role</div><div class="dp-value">${roleLabel}</div></div>
+        <div class="dp-field"><div class="dp-label">Departures</div><div class="dp-value accent">${deps.toLocaleString()}</div></div>
+        <div class="dp-field"><div class="dp-label">Arrivals</div><div class="dp-value accent">${arrs.toLocaleString()}</div></div>
+        <div class="dp-field"><div class="dp-label">Total Flights</div><div class="dp-value accent">${total.toLocaleString()}</div></div>
+    </div></td></tr>`;
 }
 
 function renderTopList(entries, containerId, countId, maxRows = 20) {
@@ -676,7 +750,6 @@ function renderAllAirports(airportActivity, total) {
             <tbody>${rows}</tbody>
         </table>`;
 
-    // Re-apply any active search
     filterAirports();
 }
 
@@ -700,16 +773,33 @@ function filterAirports() {
     const table = document.getElementById('all-airports-table');
     if (!table) return;
     let visCount = 0;
-    for (const row of table.querySelectorAll('tbody tr')) {
+    let total = 0;
+    for (const row of table.querySelectorAll('tbody tr.clickable-row')) {
+        total++;
         const code = (row.dataset.code || '').toLowerCase();
         const name = (row.dataset.name || '');
-        const match = !q || code.includes(q) || name.includes(q);
-        row.classList.toggle('hidden-row', !match);
-        if (match) visCount++;
+        const deps = parseInt(row.dataset.deps || '0', 10);
+        const arrs = parseInt(row.dataset.arrs || '0', 10);
+
+        const textMatch = !q || code.includes(q) || name.includes(q);
+        let filterMatch = true;
+        if (airportFilterMode === 'dep')  filterMatch = deps > 0 && arrs === 0;
+        else if (airportFilterMode === 'arr')  filterMatch = arrs > 0 && deps === 0;
+        else if (airportFilterMode === 'both') filterMatch = deps > 0 && arrs > 0;
+
+        const show = textMatch && filterMatch;
+        row.classList.toggle('hidden-row', !show);
+        const detail = row.nextElementSibling;
+        if (detail && detail.classList.contains('detail-row')) {
+            detail.classList.toggle('hidden-row', !show);
+            if (!show) detail.classList.add('hidden');
+        }
+        if (show) visCount++;
     }
-    document.getElementById('all-airports-count').textContent = q
-        ? `${visCount} of ${table.querySelectorAll('tbody tr').length} airports`
-        : `${table.querySelectorAll('tbody tr').length} airports`;
+    document.getElementById('all-airports-count').textContent =
+        (q || airportFilterMode !== 'all')
+            ? `${visCount} of ${total} airports`
+            : `${total} airports`;
 }
 
 /* ── Fetch & render ── */
