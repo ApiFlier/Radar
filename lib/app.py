@@ -1,8 +1,27 @@
 import os
 import requests
-from flask import Flask, Response, request, render_template
+from flask import Flask, Response, request, render_template, render_template_string
 
 app = Flask(__name__)
+
+_SOON = """<!doctype html><html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Radar — {{ title }}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#ccc;font-family:'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
+.box{text-align:center}
+.ttl{font-size:20px;font-weight:700;color:#00ffcc;margin-bottom:6px}
+.sub{font-size:13px;color:#3a3a3a;margin-bottom:22px}
+a{color:#00ffcc;font-size:12px;text-decoration:none;border:1px solid rgba(0,255,204,.25);padding:6px 18px;border-radius:4px}
+a:hover{background:rgba(0,255,204,.07)}
+</style>
+</head>
+<body><div class="box">
+<div class="ttl">{{ title }}</div>
+<div class="sub">Coming soon</div>
+<a href="/">&#8592; Radar</a>
+</div></body></html>"""
 
 API_HOST = os.getenv("API_HOST", "api")
 API_PORT = os.getenv("API_PORT", "8081")
@@ -17,6 +36,27 @@ def index():
 @app.route("/stats")
 def stats():
     return render_template("stats.html")
+
+
+@app.route("/airports")
+def airports():
+    return render_template_string(_SOON, title="Airports")
+
+@app.route("/aircraft")
+def aircraft():
+    return render_template_string(_SOON, title="Aircraft")
+
+@app.route("/ground")
+def ground():
+    return render_template_string(_SOON, title="Ground Ops")
+
+@app.route("/alerts")
+def alerts():
+    return render_template_string(_SOON, title="Alerts")
+
+@app.route("/settings")
+def settings():
+    return render_template_string(_SOON, title="Settings")
 
 
 @app.route("/health")
