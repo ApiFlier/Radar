@@ -424,11 +424,186 @@
             return htmlEscape(value);
         }
 
+        var AIRLINE_PREFIXES = {
+            AAL: "American Airlines",
+            UAL: "United Airlines",
+            DAL: "Delta Air Lines",
+            SWA: "Southwest Airlines",
+            JBU: "JetBlue Airways",
+            ASA: "Alaska Airlines",
+            FFT: "Frontier Airlines",
+            NKS: "Spirit Airlines",
+            HAL: "Hawaiian Airlines",
+            AAY: "Allegiant Air",
+            RPA: "Republic Airways",
+            ENY: "Envoy Air",
+            SKW: "SkyWest Airlines",
+            JIA: "PSA Airlines",
+            GJS: "GoJet Airlines",
+            UCA: "CommutAir",
+            PDT: "Piedmont Airlines",
+            EDV: "Endeavor Air",
+            AWI: "Air Wisconsin",
+            ATN: "Air Transport International",
+            GTI: "Atlas Air",
+            FDX: "FedEx",
+            UPS: "UPS Airlines",
+            CKS: "Kalitta Air",
+            ABX: "ABX Air",
+            RCH: "USAF Air Mobility Command",
+            THY: "Turkish Airlines",
+            DLH: "Lufthansa",
+            BAW: "British Airways",
+            AFR: "Air France",
+            KLM: "KLM Royal Dutch Airlines",
+            ACA: "Air Canada",
+            ROU: "Air Canada Rouge",
+            WJA: "WestJet",
+            VOI: "Volaris",
+            AMX: "Aeromexico",
+            AVA: "Avianca",
+            LAN: "LATAM Airlines",
+            QFA: "Qantas",
+            UAE: "Emirates",
+            QTR: "Qatar Airways",
+            ETD: "Etihad Airways"
+        };
+
+        var AIRPORT_NAME_FIXES = {
+            KORD: "Chicago O'Hare Intl",
+            KMDW: "Chicago Midway Intl",
+            KPHL: "Philadelphia Intl",
+            KUNV: "State College / University Park",
+            KBKL: "Burke Lakefront",
+            K4G4: "Youngstown Elser Metro",
+            "4G4": "Youngstown Elser Metro"
+        };
+
+        function cleanAirportName(name) {
+            name = String(name || '').trim();
+            return name
+                .replace(/\s+Airport$/i, '')
+                .replace(/\s+International$/i, ' Intl')
+                .replace(/\s+International\s+Airport$/i, ' Intl')
+                .replace(/\s+Regional\s+Airport$/i, ' Regional')
+                .replace(/\s+Municipal\s+Airport$/i, ' Municipal');
+        }
+
+        function airportCandidates(code) {
+            var c = String(code || '').trim().toUpperCase();
+            if (!c || c === '???') return [];
+
+            var out = [c];
+
+            // Some small US airports are stored as 4G4 instead of K4G4.
+            if (/^K[0-9A-Z]{3}$/.test(c)) out.push(c.substring(1));
+
+            // Some sources may omit the leading K for US airports.
+            if (/^[0-9A-Z]{3}$/.test(c)) out.push('K' + c);
+
+            return Array.from(new Set(out));
+        }
+
+        function airportState(a) {
+            if (!a) return '';
+
+            var region = a.iso_region || a.region || '';
+            if (region && region.indexOf('-') >= 0) {
+                return region.split('-').pop();
+            }
+
+            return a.state || a.state_code || '';
+        }
+
+        function buildAirportLookup() {
+            airportLookup = {};
+
+            if (!airportData || !airportData.length) return;
+
+            airportData.forEach(function(a) {
+                [
+                    a.ident,
+                    a.icao,
+                    a.icao_code,
+                    a.gps_code,
+                    a.local_code,
+                    a.iata_code
+                ].forEach(function(code) {
+                    if (code) airportLookup[String(code).toUpperCase()] = a;
+                });
+            });
+        }
+
+        function lookupAirport(code) {
+            var candidates = airportCandidates(code);
+
+            for (var i = 0; i < candidates.length; i++) {
+                if (airportLookup[candidates[i]]) return airportLookup[candidates[i]];
+            }
+
+            return null;
+        }
+
+        function formatAirport(code) {
+            var raw = String(code || '').trim().toUpperCase();
+            if (!raw || raw === '???') return '???';
+
+            var a = lookupAirport(raw);
+            var displayCode = raw;
+            var fixedName = AIRPORT_NAME_FIXES[raw] || null;
+
+            if (!fixedName && a) {
+                for (var i = 0; i < airportCandidates(raw).length; i++) {
+                    var c = airportCandidates(raw)[i];
+                    if (AIRPORT_NAME_FIXES[c]) {
+                        fixedName = AIRPORT_NAME_FIXES[c];
+                        break;
+                    }
+                }
+            }
+
+            if (!a && !fixedName) return displayCode;
+
+            var name = fixedName || cleanAirportName(a.name || a.municipality || displayCode);
+            var state = airportState(a);
+            var statePart = state ? ', ' + state : '';
+
+            return name + statePart + ' (' + displayCode + ')';
+        }
+
+        function formatRoute(p) {
+            var dep = p.dep || p.origin || p.departure || '???';
+            var arr = p.arr || p.destination || p.arrival || '???';
+
+            return formatAirport(dep) + ' → ' + formatAirport(arr);
+        }
+
+        function airlineInfo(p) {
+            var callsign = String((p && (p.callsign || p.flight || p.flightId || p.flight_id)) || '').trim().toUpperCase();
+            var m = callsign.match(/^([A-Z]{2,3})([0-9]{1,5}[A-Z]?)$/);
+
+            if (!m) return null;
+
+            var prefix = m[1];
+            var number = m[2];
+            var airline = AIRLINE_PREFIXES[prefix];
+
+            if (!airline) return null;
+
+            return {
+                prefix: prefix,
+                number: number,
+                airline: airline,
+                display: airline + ' ' + number
+            };
+        }
+
         function popupContent(p) {
             if (!p) return '<div>No aircraft data</div>';
 
             var name = displayName(p);
-            var route = (p.dep || '???') + ' → ' + (p.arr || '???');
+            var route = formatRoute(p);
+            var airline = airlineInfo(p);
             var aircraftClass = p.aircraftClass || p.aircraft_class || 'unknown';
             var iconType = p.iconType || p.icon_type || aircraftClass;
             var state = aircraftDisplayState(p);
@@ -444,6 +619,7 @@
             var html = '<div style="min-width:240px">';
             html += '<b>' + htmlEscape(name) + '</b>';
             html += '<div class="route">' + htmlEscape(route) + '</div>';
+            if (airline) html += '<div class="meta">Airline: ' + htmlEscape(airline.display) + '</div>';
 
             html += '<div class="meta">';
             html += 'Class: ' + htmlEscape(aircraftClass);
@@ -796,6 +972,7 @@
 
 
         var airportData = [];
+        var airportLookup = {};
         var airportMarkers = {};
         var airportLayer = L.layerGroup().addTo(map);
 
@@ -902,6 +1079,7 @@
             .then(function(res) { return res.json(); })
             .then(function(json) {
                 airportData = json.airports || [];
+                buildAirportLookup();
                 syncAirportMarkers();
 
                 // Ground aircraft visibility depends on airportData.
@@ -994,7 +1172,7 @@
                                 r.flightId.replace(/'/g, "\\'") + '\')">' +
                                 '<span class="sr-call">' + (r.callsign || r.flightId) + '</span> ' +
                                 (r.operator ? '(' + r.operator + ')' : '') +
-                                '<div class="sr-route">' + (r.dep || '???') + ' → ' + (r.arr || '???') + '</div>' +
+                                '<div class="sr-route">' + htmlEscape(formatRoute(r)) + '</div>' +
                                 '</div>';
                         }).join('');
                     }
