@@ -504,7 +504,19 @@
             return Array.from(new Set(out));
         }
 
-        function airportState(a) {
+        var AIRPORT_STATE_FIXES = {
+            CYUL: "QC",
+            CYYZ: "ON",
+            CYVR: "BC",
+            CYOW: "ON",
+            CYYC: "AB",
+            CYEG: "AB"
+        };
+
+        function airportState(a, code) {
+            code = String(code || '').trim().toUpperCase();
+            if (AIRPORT_STATE_FIXES[code]) return AIRPORT_STATE_FIXES[code];
+
             if (!a) return '';
 
             var region = a.iso_region || a.region || '';
@@ -565,7 +577,7 @@
             if (!a && !fixedName) return displayCode;
 
             var name = fixedName || cleanAirportName(a.name || a.municipality || displayCode);
-            var state = airportState(a);
+            var state = airportState(a, raw);
             var statePart = state ? ', ' + state : '';
 
             return name + statePart + ' (' + displayCode + ')';
@@ -658,7 +670,7 @@
             if (p.icaoHex) html += '<br>ICAO: ' + popupValue(p.icaoHex);
 
             html += '<hr style="border-color:#333">';
-            html += '<div class="meta">Source: ' + popupValue(p.positionSource || p.source) + '</div>';
+            html += '<div class="meta">Position source: ' + popupValue(p.positionSource || p.source) + '</div>';
             if (p.enrichmentSource) html += '<div class="meta">Enrichment: ' + popupValue(p.enrichmentSource) + '</div>';
             if (p.faaTs) html += '<div class="meta">FAA TS: ' + popupValue(p.faaTs) + '</div>';
 
