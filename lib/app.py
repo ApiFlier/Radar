@@ -61,6 +61,10 @@ def settings():
 
 @app.route("/health")
 def health():
+    return render_template("health.html")
+
+@app.route("/health.json")
+def health_json():
     return {
         "status": "ok",
         "service": "flight-web",
