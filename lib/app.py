@@ -14,6 +14,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/stats")
+def stats():
+    return render_template("stats.html")
+
+
 @app.route("/health")
 def health():
     return {

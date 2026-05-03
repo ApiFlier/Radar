@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radar — Statistics</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #111;
+            color: #ccc;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 13px 24px;
+            background: rgba(0,0,0,0.75);
+            border-bottom: 1px solid rgba(0,255,204,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            gap: 16px;
+        }
+        .page-header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffcc;
+            letter-spacing: 0.6px;
+            flex: 1;
+            text-align: center;
+        }
+        .page-header a {
+            color: #555;
+            text-decoration: none;
+            font-size: 12px;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .page-header a:hover { color: #00ffcc; }
+        #last-update {
+            font-size: 11px;
+            color: #444;
+            white-space: nowrap;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        /* ── Main ── */
+        .main {
+            max-width: 1380px;
+            margin: 0 auto;
+            padding: 24px 20px 48px;
+        }
+
+        /* ── Summary cards ── */
+        .cards-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+        .card {
+            flex: 1 1 120px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,255,204,0.13);
+            border-radius: 8px;
+            padding: 14px 18px 13px;
+            min-width: 110px;
+        }
+        .card .value {
+            font-size: 26px;
+            font-weight: 700;
+            color: #00ffcc;
+            line-height: 1.1;
+            letter-spacing: -0.5px;
+            font-variant-numeric: tabular-nums;
+        }
+        .card .label {
+            font-size: 10px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            margin-top: 5px;
+        }
+        .card.dim .value { color: #666; }
+
+        /* ── Section grid ── */
+        .section-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        @media (max-width: 960px) {
+            .section-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 580px) {
+            .section-grid { grid-template-columns: 1fr; }
+        }
+
+        .section {
+            background: rgba(0,0,0,0.45);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .section h2 {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 11px 16px 9px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        /* ── Tables ── */
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            font-size: 10px;
+            font-weight: 600;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 8px 16px 6px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        th.r { text-align: right; }
+        td {
+            padding: 7px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: middle;
+        }
+        td.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: #00ffcc;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        td.pct {
+            text-align: right;
+            color: #3a3a3a;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        td.name { color: #888; font-size: 13px; }
+        td.code { color: #ddd; font-weight: 600; font-size: 13px; white-space: nowrap; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: rgba(255,255,255,0.025); }
+
+        /* ── Status ── */
+        .status-msg {
+            text-align: center;
+            padding: 36px;
+            color: #444;
+            font-size: 13px;
+        }
+        .status-msg.error { color: #f97; }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 28px;
+            text-align: center;
+            font-size: 11px;
+            color: #383838;
+        }
+    </style>
+</head>
+<body>
+
+<header class="page-header">
+    <a href="/">← Radar</a>
+    <h1>Statistics</h1>
+    <span id="last-update">Loading…</span>
+</header>
+
+<main class="main">
+    <div class="cards-row" id="cards-row">
+        <div class="status-msg" style="width:100%">Fetching aircraft data…</div>
+    </div>
+    <div class="section-grid" id="section-grid" style="display:none"></div>
+    <div class="footer" id="footer"></div>
+</main>
+
+<script>
+    var AIRLINE_PREFIXES = {
+        SIA:"Singapore Airlines", AIC:"Air India", ANA:"All Nippon Airways",
+        JAL:"Japan Airlines", CPA:"Cathay Pacific", EVA:"EVA Air",
+        KAL:"Korean Air", AAR:"Asiana Airlines", CES:"China Eastern Airlines",
+        CCA:"Air China", CSN:"China Southern Airlines",
+        AAL:"American Airlines", UAL:"United Airlines", DAL:"Delta Air Lines",
+        SWA:"Southwest Airlines", JBU:"JetBlue Airways", ASA:"Alaska Airlines",
+        FFT:"Frontier Airlines", NKS:"Spirit Airlines", HAL:"Hawaiian Airlines",
+        AAY:"Allegiant Air", RPA:"Republic Airways", ENY:"Envoy Air",
+        SKW:"SkyWest Airlines", JIA:"PSA Airlines", GJS:"GoJet Airlines",
+        UCA:"CommutAir", PDT:"Piedmont Airlines", EDV:"Endeavor Air",
+        AWI:"Air Wisconsin", ATN:"Air Transport International",
+        GTI:"Atlas Air", FDX:"FedEx", UPS:"UPS Airlines",
+        CKS:"Kalitta Air", ABX:"ABX Air",
+        RCH:"USAF Air Mobility Command",
+        THY:"Turkish Airlines", DLH:"Lufthansa", BAW:"British Airways",
+        AFR:"Air France", KLM:"KLM Royal Dutch Airlines",
+        ACA:"Air Canada", ROU:"Air Canada Rouge", WJA:"WestJet",
+        VOI:"Volaris", AMX:"Aeromexico", AVA:"Avianca", LAN:"LATAM Airlines",
+        QFA:"Qantas", UAE:"Emirates", QTR:"Qatar Airways", ETD:"Etihad Airways",
+        ASH:"Mesa Airlines", QXE:"Horizon Air", SCX:"Sun Country Airlines",
+        JZA:"Jazz Air", AUA:"Austrian Airlines", IBE:"Iberia",
+        SAS:"Scandinavian Airlines", NAX:"Norwegian Air Shuttle",
+        WZZ:"Wizz Air", EZY:"easyJet", RYR:"Ryanair",
+        BEL:"Brussels Airlines", TAP:"TAP Air Portugal",
+        AZU:"Azul Brazilian Airlines", GLO:"Gol Linhas Aéreas"
+    };
+
+    var AIRPORT_NAMES = {
+        KBOS:"Boston Logan Intl", KPIT:"Pittsburgh Intl",
+        KDCA:"Reagan National", KBWI:"Baltimore/Washington Intl",
+        KDFW:"Dallas Fort Worth Intl", KMCO:"Orlando Intl",
+        KORD:"Chicago O'Hare Intl", KMDW:"Chicago Midway Intl",
+        KPHL:"Philadelphia Intl", KATL:"Hartsfield-Jackson Atlanta Intl",
+        KJFK:"John F. Kennedy Intl", KLGA:"LaGuardia",
+        KEWR:"Newark Liberty Intl", KDTW:"Detroit Metro",
+        KDEN:"Denver Intl", KBNA:"Nashville Intl",
+        KSTL:"St. Louis Lambert Intl", KLAS:"Harry Reid Intl",
+        KPHX:"Phoenix Sky Harbor Intl", KSEA:"Seattle-Tacoma Intl",
+        KMSP:"Minneapolis-St. Paul Intl", KCVG:"Cincinnati/N. Kentucky Intl",
+        KMIA:"Miami Intl", KTPA:"Tampa Intl", KRSW:"SW Florida Intl",
+        KRDU:"Raleigh-Durham Intl", KGRR:"Gerald R. Ford Intl",
+        KSDF:"Louisville Intl", KDAL:"Dallas Love Field",
+        KHOU:"Hobby Airport", KIAH:"George Bush Intercontinental",
+        KCLE:"Cleveland Hopkins Intl", KCMH:"John Glenn Columbus Intl",
+        KBUF:"Buffalo Niagara Intl", KIAD:"Washington Dulles Intl",
+        KLAX:"Los Angeles Intl", KSFO:"San Francisco Intl",
+        KERI:"Erie Intl", KIAG:"Niagara Falls Intl",
+        KAGC:"Allegheny County", KAVP:"Wilkes-Barre/Scranton Intl",
+        KABE:"Lehigh Valley Intl", KYNG:"Youngstown-Warren Regional",
+        KCAK:"Akron-Canton", KFKL:"Venango Regional",
+        KCKB:"N. Central West Virginia",
+        KPDX:"Portland Intl", KMKE:"Milwaukee Mitchell Intl",
+        KRIC:"Richmond Intl", KCLT:"Charlotte Douglas Intl",
+        KSRQ:"Sarasota/Bradenton Intl", KPBI:"Palm Beach Intl",
+        KJAX:"Jacksonville Intl",
+        CYYZ:"Toronto Pearson Intl", CYVR:"Vancouver Intl",
+        CYOW:"Ottawa Macdonald-Cartier Intl", CYYC:"Calgary Intl",
+        CYEG:"Edmonton Intl", CYUL:"Montréal-Trudeau Intl",
+        LEMD:"Madrid Barajas Intl", LFPG:"Paris CDG",
+        EGLL:"London Heathrow", EDDF:"Frankfurt Intl",
+        EHAM:"Amsterdam Schiphol", LIRF:"Rome Fiumicino",
+        LEBL:"Barcelona El Prat", EBBR:"Brussels Airport",
+        KUNV:"State College/University Park",
+        KBKL:"Burke Lakefront", KSLC:"Salt Lake City Intl",
+        KSAN:"San Diego Intl", KAUS:"Austin-Bergstrom Intl",
+        KMEM:"Memphis Intl", KCHS:"Charleston Intl",
+        KSAT:"San Antonio Intl", KABQ:"Albuquerque Intl Sunport",
+        KONT:"Ontario Intl", KSMF:"Sacramento Intl",
+        KRNO:"Reno-Tahoe Intl", KTUS:"Tucson Intl",
+        KELP:"El Paso Intl", KOKC:"Will Rogers World"
+    };
+
+    var SOURCE_LABELS = {
+        'adsb-lol-reapi':       'ADSB.lol re-api',
+        'adsblol-ground-sweep': 'ADSB.lol ground',
+        'swim-sfdps':           'FAA/SWIM (SFDPS)',
+        'swim-stdds':           'FAA/SWIM (STDDS)',
+        'swim-tfms':            'FAA/SWIM (TFMS)',
+        'opensky':              'OpenSky',
+        'faa-sfdps':            'FAA/SWIM (SFDPS)',
+        'faa':                  'FAA/SWIM',
+        'adsb-lol':             'ADSB.lol re-api'
+    };
+
+    function friendlySource(raw) {
+        if (!raw) return 'Unknown';
+        var key = String(raw).toLowerCase().trim();
+        if (SOURCE_LABELS[key]) return SOURCE_LABELS[key];
+        if (key.startsWith('faa-') || key.startsWith('swim-')) return 'FAA/SWIM';
+        if (key.startsWith('opensky')) return 'OpenSky';
+        if (key.startsWith('adsb-lol') || key.startsWith('adsblol')) return 'ADSB.lol';
+        return String(raw);
+    }
+
+    function airportName(code) {
+        if (!code) return '';
+        return AIRPORT_NAMES[String(code).trim().toUpperCase()] || '';
+    }
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function pct(n, total) {
+        if (!total || !n) return '';
+        return (n / total * 100).toFixed(1) + '%';
+    }
+
+    function sortedDesc(obj) {
+        return Object.entries(obj).sort(function(a,b){ return b[1]-a[1]; });
+    }
+
+    function card(value, label, dim) {
+        return '<div class="card' + (dim ? ' dim' : '') + '">' +
+               '<div class="value">' + esc(value) + '</div>' +
+               '<div class="label">' + esc(label) + '</div>' +
+               '</div>';
+    }
+
+    function tableHtml(headers, rows) {
+        if (!rows.length) return '<p class="status-msg" style="padding:20px">No data</p>';
+        var h = '<table><thead><tr>';
+        headers.forEach(function(col) {
+            h += '<th' + (col.r ? ' class="r"' : '') + '>' + esc(col.label) + '</th>';
+        });
+        h += '</tr></thead><tbody>';
+        rows.forEach(function(cells) {
+            h += '<tr>';
+            cells.forEach(function(cell) {
+                h += '<td class="' + esc(cell.cls || '') + '">' + esc(cell.v) + '</td>';
+            });
+            h += '</tr>';
+        });
+        return h + '</tbody></table>';
+    }
+
+    function section(title, tbl) {
+        return '<div class="section"><h2>' + esc(title) + '</h2>' + tbl + '</div>';
+    }
+
+    function computeAndRender(planes, total) {
+        // Airborne / ground
+        var airborne = 0, taxiing = 0, parked = 0;
+        planes.forEach(function(p) {
+            if (String(p.airborne) === '1') {
+                airborne++;
+            } else {
+                if ((parseFloat(p.speed) || 0) > 5) taxiing++;
+                else parked++;
+            }
+        });
+        var onGround = taxiing + parked;
+
+        // Ground sweep
+        var groundSweep = planes.filter(function(p) {
+            return p.source === 'adsblol-ground-sweep' || p.positionSource === 'adsblol-ground-sweep';
+        }).length;
+
+        // Source counts (per-plane resolved source)
+        var sourceCounts = {};
+        planes.forEach(function(p) {
+            var s = friendlySource(p.source || 'unknown');
+            sourceCounts[s] = (sourceCounts[s] || 0) + 1;
+        });
+
+        // Aircraft class (backend provides aircraftClass per plane)
+        var classCounts = {};
+        planes.forEach(function(p) {
+            var c = String(p.aircraftClass || 'unknown');
+            classCounts[c] = (classCounts[c] || 0) + 1;
+        });
+
+        // Route coverage
+        var fullRoute = 0, depOnly = 0, arrOnly = 0, noRoute = 0;
+        planes.forEach(function(p) {
+            var d = !!(p.dep && String(p.dep).trim());
+            var a = !!(p.arr && String(p.arr).trim());
+            if (d && a) fullRoute++;
+            else if (d) depOnly++;
+            else if (a) arrOnly++;
+            else noRoute++;
+        });
+
+        // Airlines (operator 3-letter prefix)
+        var airlineCounts = {};
+        planes.forEach(function(p) {
+            var op = String(p.operator || '').trim().toUpperCase();
+            if (/^[A-Z]{3}$/.test(op)) {
+                airlineCounts[op] = (airlineCounts[op] || 0) + 1;
+            }
+        });
+
+        // Origins / destinations
+        var originCounts = {}, destCounts = {};
+        planes.forEach(function(p) {
+            if (p.dep && String(p.dep).trim()) {
+                var d = String(p.dep).trim().toUpperCase();
+                originCounts[d] = (originCounts[d] || 0) + 1;
+            }
+            if (p.arr && String(p.arr).trim()) {
+                var a = String(p.arr).trim().toUpperCase();
+                destCounts[a] = (destCounts[a] || 0) + 1;
+            }
+        });
+
+        // ── Summary cards ──
+        var commercial = classCounts.commercial || 0;
+        var priv       = classCounts.private    || 0;
+        var military   = classCounts.military   || 0;
+        var heli       = classCounts.helicopter || 0;
+
+        document.getElementById('cards-row').innerHTML =
+            card(total.toLocaleString(),     'Total Aircraft') +
+            card(airborne.toLocaleString(),  'Airborne') +
+            card(onGround.toLocaleString(),  'On Ground') +
+            card(commercial.toLocaleString(),'Commercial') +
+            card(priv.toLocaleString(),      'Private') +
+            card(military.toLocaleString(),  'Military', military === 0) +
+            card(heli.toLocaleString(),      'Helicopter', heli === 0) +
+            card(groundSweep.toLocaleString(),'Ground Sweep', groundSweep === 0);
+
+        // ── Sources ──
+        var srcRows = sortedDesc(sourceCounts).map(function(e) {
+            return [
+                {v: e[0], cls: 'name'},
+                {v: e[1].toLocaleString(), cls: 'num'},
+                {v: pct(e[1], total), cls: 'pct'}
+            ];
+        });
+
+        // ── Aircraft classes ──
+        var classOrder = ['commercial','private','military','helicopter','unknown'];
+        var classLabel = {commercial:'Commercial',private:'Private',military:'Military',helicopter:'Helicopter',unknown:'Unknown'};
+        var classRows = classOrder
+            .filter(function(k){ return classCounts[k]; })
+            .map(function(k) {
+                return [
+                    {v: classLabel[k], cls: 'name'},
+                    {v: classCounts[k].toLocaleString(), cls: 'num'},
+                    {v: pct(classCounts[k], total), cls: 'pct'}
+                ];
+            });
+
+        // ── Route coverage ──
+        var routeRows = [
+            {label: 'Full route (dep + arr)', n: fullRoute},
+            {label: 'Departure known only',  n: depOnly},
+            {label: 'Arrival known only',    n: arrOnly},
+            {label: 'No route data',         n: noRoute}
+        ].map(function(r) {
+            return [
+                {v: r.label, cls: 'name'},
+                {v: r.n.toLocaleString(), cls: 'num'},
+                {v: pct(r.n, total), cls: 'pct'}
+            ];
+        });
+
+        // ── Airlines ──
+        var airlineRows = sortedDesc(airlineCounts).slice(0, 20).map(function(e) {
+            return [
+                {v: e[0], cls: 'code'},
+                {v: AIRLINE_PREFIXES[e[0]] || '—', cls: 'name'},
+                {v: e[1].toLocaleString(), cls: 'num'}
+            ];
+        });
+
+        // ── Origins ──
+        var originRows = sortedDesc(originCounts).slice(0, 15).map(function(e) {
+            var name = airportName(e[0]);
+            return [
+                {v: e[0], cls: 'code'},
+                {v: name, cls: 'name'},
+                {v: e[1].toLocaleString(), cls: 'num'}
+            ];
+        });
+
+        // ── Destinations ──
+        var destRows = sortedDesc(destCounts).slice(0, 15).map(function(e) {
+            var name = airportName(e[0]);
+            return [
+                {v: e[0], cls: 'code'},
+                {v: name, cls: 'name'},
+                {v: e[1].toLocaleString(), cls: 'num'}
+            ];
+        });
+
+        var hdr3 = [{label:'Source'},{label:'Count',r:true},{label:'%',r:true}];
+        document.getElementById('section-grid').innerHTML =
+            section('Data Sources',    tableHtml(hdr3, srcRows)) +
+            section('Aircraft Classes',tableHtml(hdr3, classRows)) +
+            section('Route Coverage',  tableHtml(hdr3, routeRows)) +
+            section('Top Airlines',    tableHtml([{label:'Code'},{label:'Airline'},{label:'Flights',r:true}], airlineRows)) +
+            section('Top Origins',     tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], originRows)) +
+            section('Top Destinations',tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], destRows));
+
+        document.getElementById('section-grid').style.display = 'grid';
+
+        var now = new Date();
+        var ts = now.toLocaleTimeString();
+        document.getElementById('last-update').textContent = 'Updated ' + ts;
+        document.getElementById('footer').textContent =
+            total + ' aircraft · ' + ts + ' · auto-refreshes every 60 s';
+    }
+
+    function loadStats() {
+        document.getElementById('last-update').textContent = 'Refreshing…';
+        fetch('/api/?action=Planes&_=' + Date.now())
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function(json) {
+                var data = (json.response && json.response.data) ? json.response.data : {};
+                var planes = data.planes || [];
+                computeAndRender(planes, data.count || planes.length);
+            })
+            .catch(function(err) {
+                document.getElementById('cards-row').innerHTML =
+                    '<div class="status-msg error" style="width:100%">Error loading data: ' + esc(String(err)) + '</div>';
+                document.getElementById('last-update').textContent = 'Error';
+            });
+    }
+
+    loadStats();
+    setInterval(loadStats, 60000);
+</script>
+
+</body>
+</html>
