@@ -331,7 +331,7 @@
         function aircraftIconType(p) {
             if (!p) return 'private';
 
-            var iconType = String(p.iconType || p.aircraftClass || 'private').toLowerCase();
+            var iconType = String(displayIconType(p) || 'private').toLowerCase();
 
             if (boolField(p.isMilitary) || iconType === 'military') return 'military';
             if (boolField(p.isHelicopter) || iconType === 'helicopter') return 'helicopter';
@@ -425,6 +425,17 @@
         }
 
         var AIRLINE_PREFIXES = {
+            SIA: "Singapore Airlines",
+            AIC: "Air India",
+            ANA: "All Nippon Airways",
+            JAL: "Japan Airlines",
+            CPA: "Cathay Pacific",
+            EVA: "EVA Air",
+            KAL: "Korean Air",
+            AAR: "Asiana Airlines",
+            CES: "China Eastern Airlines",
+            CCA: "Air China",
+            CSN: "China Southern Airlines",
             AAL: "American Airlines",
             UAL: "United Airlines",
             DAL: "Delta Air Lines",
@@ -470,6 +481,14 @@
         };
 
         var AIRPORT_NAME_FIXES = {
+            KBOS: "Boston Logan Intl",
+            KPIT: "Pittsburgh Intl",
+            KDCA: "Ronald Reagan Washington National",
+            KBWI: "Baltimore/Washington International Thurgood Marshall",
+            KDFW: "Dallas Fort Worth Intl",
+            KMCO: "Orlando Intl",
+            CYUL: "Montréal-Trudeau Intl",
+            EBBR: "Brussels Airport",
             KORD: "Chicago O'Hare Intl",
             KMDW: "Chicago Midway Intl",
             KPHL: "Philadelphia Intl",
@@ -505,6 +524,13 @@
         }
 
         var AIRPORT_STATE_FIXES = {
+            KBOS: "MA",
+            KPIT: "PA",
+            KDCA: "DC",
+            KBWI: "MD",
+            KDFW: "TX",
+            KMCO: "FL",
+            EBBR: "BE",
             CYUL: "QC",
             CYYZ: "ON",
             CYVR: "BC",
@@ -623,14 +649,35 @@
             };
         }
 
+
+        function displayAircraftClass(p) {
+            var cls = String((p && (p.aircraftClass || p.aircraft_class)) || 'unknown').toLowerCase();
+            var airline = airlineInfo(p);
+
+            if (airline && airline.prefix === 'RCH') return 'military';
+            if (airline && cls !== 'military' && cls !== 'helicopter') return 'commercial';
+
+            return cls;
+        }
+
+        function displayIconType(p) {
+            var icon = String((p && (p.iconType || p.icon_type || p.aircraftClass || p.aircraft_class)) || 'private').toLowerCase();
+            var airline = airlineInfo(p);
+
+            if (airline && airline.prefix === 'RCH') return 'military';
+            if (airline && (icon === 'private' || icon === 'unknown')) return 'commercial';
+
+            return icon;
+        }
+
         function popupContent(p) {
             if (!p) return '<div>No aircraft data</div>';
 
             var name = displayName(p);
             var route = formatRoute(p);
             var airline = airlineInfo(p);
-            var aircraftClass = p.aircraftClass || p.aircraft_class || 'unknown';
-            var iconType = p.iconType || p.icon_type || aircraftClass;
+            var aircraftClass = displayAircraftClass(p);
+            var iconType = displayIconType(p);
             var state = aircraftDisplayState(p);
 
             var badges = [];
