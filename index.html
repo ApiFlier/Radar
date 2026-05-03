@@ -571,11 +571,24 @@
             return name + statePart + ' (' + displayCode + ')';
         }
 
-        function formatRoute(p) {
-            var dep = p.dep || p.origin || p.departure || '???';
-            var arr = p.arr || p.destination || p.arrival || '???';
+        function routeCodeValue(value) {
+            var v = String(value || '').trim();
+            if (!v || v === '???' || v.toLowerCase() === 'unknown' || v.toLowerCase() === 'none' || v.toLowerCase() === 'null') {
+                return '';
+            }
+            return v;
+        }
 
-            return formatAirport(dep) + ' → ' + formatAirport(arr);
+        function formatRoute(p) {
+            var dep = routeCodeValue(p.dep || p.origin || p.departure);
+            var arr = routeCodeValue(p.arr || p.destination || p.arrival);
+
+            if (!dep && !arr) return 'Route unavailable';
+
+            var depText = dep ? formatAirport(dep) : 'Departure unknown';
+            var arrText = arr ? formatAirport(arr) : 'Arrival unknown';
+
+            return depText + ' → ' + arrText;
         }
 
         function airlineInfo(p) {
@@ -619,7 +632,10 @@
             var html = '<div style="min-width:240px">';
             html += '<b>' + htmlEscape(name) + '</b>';
             html += '<div class="route">' + htmlEscape(route) + '</div>';
-            if (airline) html += '<div class="meta">Airline: ' + htmlEscape(airline.display) + '</div>';
+            if (airline) {
+                html += '<div class="meta">Airline: ' + htmlEscape(airline.airline) + '</div>';
+                html += '<div class="meta">Flight: ' + htmlEscape(airline.display) + '</div>';
+            }
 
             html += '<div class="meta">';
             html += 'Class: ' + htmlEscape(aircraftClass);
