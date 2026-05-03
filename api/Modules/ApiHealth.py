@@ -19,17 +19,25 @@ class ApiHealth(ApiBase):
         airborneCount = 0
         sourceCounts = {}
         
+        adsbLolCount = 0
+        adsbLolHeartbeat = {}
+
         if redisOk:
             for key in redis.scan_iter(match="state:*", count=1000):
                 planeCount += 1
                 state = redis.hgetall(key)
-                
+
                 if state.get("airborne") == "1" or float(state.get("speed", 0) or 0) >= 40:
                     airborneCount += 1
-                
+
                 source = state.get("source", "unknown")
                 sourceCounts[source] = sourceCounts.get(source, 0) + 1
-        
+
+            for _ in redis.scan_iter(match="adsblol:state:icao:*", count=1000):
+                adsbLolCount += 1
+
+            adsbLolHeartbeat = redis.hgetall("adsblol:heartbeat") or {}
+
         self.responseData = {
             "status": "ok" if redisOk else "degraded",
             "timestamp": time.time(),
@@ -40,7 +48,11 @@ class ApiHealth(ApiBase):
                 "total": planeCount,
                 "airborne": airborneCount
             },
-            "sources": sourceCounts
+            "sources": sourceCounts,
+            "adsbLol": {
+                "count": adsbLolCount,
+                "heartbeat": adsbLolHeartbeat
+            }
         }
         
         if not redisOk:

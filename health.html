@@ -421,7 +421,8 @@ async function refresh() {
     try {
         const res = await fetch('/api/?action=Health');
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const d = await res.json();
+        const raw = await res.json();
+        const d = raw && raw.response && raw.response.data ? raw.response.data : raw;
         lastData = d;
         render(d);
         document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -558,7 +559,10 @@ function render(d) {
         { label: 'API Health',   url: '/api/health',        expect: r => r.status === 'ok' },
         { label: 'API Stream',   url: '/api/stream',        expect: null, skip: true },
         { label: 'Health (web)', url: '/health.json',       expect: r => r.status === 'ok' },
-        { label: 'Health Data',  url: '/api/?action=Health',expect: r => r.status === 'ok' || r.status === 'degraded' },
+        { label: 'Health Data',  url: '/api/?action=Health',expect: r => {
+            const d = r && r.response && r.response.data ? r.response.data : r;
+            return d.status === 'ok' || d.status === 'degraded';
+        } },
     ];
 
     const epRows = endpoints.filter(e => !e.skip).map(e => `
