@@ -12,6 +12,7 @@ COPY stats.html /app/templates/stats.html
 COPY health.html /app/templates/health.html
 COPY airports.html /app/templates/airports.html
 COPY ground.html /app/templates/ground.html
+COPY aircraft.html /app/templates/aircraft.html
 COPY data/airports.json /app/static/airports.json
 
 EXPOSE 8080

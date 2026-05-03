@@ -44,7 +44,7 @@ def airports():
 
 @app.route("/aircraft")
 def aircraft():
-    return render_template_string(_SOON, title="Aircraft")
+    return render_template("aircraft.html")
 
 @app.route("/ground")
 def ground():
