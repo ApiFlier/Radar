@@ -617,14 +617,33 @@
             return v;
         }
 
+        function routeEndpointText(value, fallback) {
+            var raw = routeCodeValue(value);
+            if (!raw) return fallback;
+
+            var code = String(raw).trim().toUpperCase();
+            var hasAirport = !!lookupAirport(code);
+            var hasFix = !!AIRPORT_NAME_FIXES[code];
+
+            if (!hasAirport && !hasFix) {
+                for (var i = 0; i < airportCandidates(code).length; i++) {
+                    if (AIRPORT_NAME_FIXES[airportCandidates(code)[i]]) {
+                        hasFix = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasAirport && !hasFix) return fallback;
+
+            return formatAirport(code);
+        }
+
         function formatRoute(p) {
-            var dep = routeCodeValue(p.dep || p.origin || p.departure);
-            var arr = routeCodeValue(p.arr || p.destination || p.arrival);
+            var depText = routeEndpointText(p.dep || p.origin || p.departure, 'Departure unknown');
+            var arrText = routeEndpointText(p.arr || p.destination || p.arrival, 'Arrival unknown');
 
-            if (!dep && !arr) return 'Route unavailable';
-
-            var depText = dep ? formatAirport(dep) : 'Departure unknown';
-            var arrText = arr ? formatAirport(arr) : 'Arrival unknown';
+            if (depText === 'Departure unknown' && arrText === 'Arrival unknown') return 'Route unavailable';
 
             return depText + ' → ' + arrText;
         }
