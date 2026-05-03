@@ -6,3 +6,21 @@ data/airport-frequencies.csv
 # Python cache files
 __pycache__/
 *.py[cod]
+
+# Local runtime/deployment secrets
+.env
+.env.*
+deploy.env
+
+# Keep the safe template
+!deploy.env.example
+
+# Python/cache/runtime noise
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local editor/OS noise
+.vscode/
+.idea/
+.DS_Store
