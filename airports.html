@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radar — Airports</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #111;
+            color: #ccc;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 13px 24px;
+            background: rgba(0,0,0,0.75);
+            border-bottom: 1px solid rgba(0,255,204,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .page-header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffcc;
+            letter-spacing: 0.6px;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        #last-update {
+            font-size: 11px;
+            color: #444;
+            white-space: nowrap;
+        }
+        .refresh-btn {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            background: rgba(0,255,204,0.07);
+            border: 1px solid rgba(0,255,204,0.22);
+            border-radius: 4px;
+            padding: 4px 12px;
+            cursor: pointer;
+            letter-spacing: 0.3px;
+            transition: background 0.15s;
+        }
+        .refresh-btn:hover { background: rgba(0,255,204,0.14); }
+        .refresh-btn:active { background: rgba(0,255,204,0.2); }
+
+        /* ── Page content offset ── */
+        .page-content { margin-left: 56px; }
+
+        /* ── App sidebar ── */
+        #sidebar {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 56px;
+            z-index: 1100;
+            background: rgba(8,8,8,0.97);
+            border-right: 1px solid rgba(0,255,204,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .sidebar-logo {
+            width: 100%;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            color: #00ffcc;
+            flex-shrink: 0;
+        }
+        .sidebar-logo svg { width: 20px; height: 20px; }
+        .sidebar-nav {
+            flex: 1;
+            width: 100%;
+            padding: 6px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .sidebar-bottom {
+            width: 100%;
+            padding: 6px 0 8px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            flex-shrink: 0;
+        }
+        .nav-item {
+            width: 46px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 8px 0 7px;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #383838;
+            font-size: 8.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+        .nav-item:hover { color: #888; background: rgba(255,255,255,0.04); }
+        .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
+        .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
+        .nav-item.soon { color: #232323; }
+        .nav-item.soon:hover { color: #333; background: none; }
+        .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
+
+        /* ── Main ── */
+        .main {
+            max-width: 1380px;
+            margin: 0 auto;
+            padding: 24px 20px 48px;
+        }
+
+        /* ── Summary cards ── */
+        .cards-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+        .card {
+            flex: 1 1 140px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,255,204,0.13);
+            border-radius: 8px;
+            padding: 14px 18px 13px;
+            min-width: 120px;
+        }
+        .card .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #00ffcc;
+            line-height: 1.15;
+            letter-spacing: -0.5px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .card .value.sm { font-size: 18px; }
+        .card .label {
+            font-size: 10px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            margin-top: 5px;
+        }
+        .card .sub {
+            font-size: 11px;
+            color: #444;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .card.dim .value { color: #555; }
+
+        /* ── Section grid ── */
+        .section-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .section-grid.wide {
+            grid-template-columns: 1fr;
+        }
+        @media (max-width: 900px) {
+            .section-grid { grid-template-columns: 1fr; }
+        }
+
+        .section {
+            background: rgba(0,0,0,0.45);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 16px 8px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            gap: 10px;
+        }
+        .section-head h2 {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+        .section-head .count-badge {
+            font-size: 10px;
+            color: #444;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        .search-wrap {
+            flex: 1;
+            max-width: 240px;
+        }
+        .search-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            color: #ccc;
+            font-size: 11px;
+            padding: 4px 9px;
+            outline: none;
+            font-family: inherit;
+        }
+        .search-input:focus { border-color: rgba(0,255,204,0.35); }
+        .search-input::placeholder { color: #3a3a3a; }
+
+        /* ── Tables ── */
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            font-size: 10px;
+            font-weight: 600;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 7px 14px 6px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            white-space: nowrap;
+        }
+        th.r { text-align: right; }
+        td {
+            padding: 6px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: middle;
+            font-size: 13px;
+        }
+        td.code {
+            color: #ddd;
+            font-weight: 700;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            font-family: 'Consolas', 'Menlo', monospace;
+        }
+        td.name { color: #888; font-size: 12px; }
+        td.region { color: #3a3a3a; font-size: 11px; white-space: nowrap; }
+        td.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: #00ffcc;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        td.num.dim { color: #3a3a3a; }
+        td.num.total { color: #aaa; }
+        td.pct { text-align: right; color: #333; font-size: 11px; white-space: nowrap; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: rgba(255,255,255,0.025); }
+        .hidden-row { display: none; }
+
+        /* ── Rank badge ── */
+        .rank {
+            display: inline-block;
+            width: 20px;
+            font-size: 10px;
+            color: #333;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            margin-right: 4px;
+        }
+
+        /* ── Status messages ── */
+        .status-msg {
+            text-align: center;
+            padding: 32px;
+            color: #444;
+            font-size: 13px;
+        }
+        .status-msg.error { color: #f97; }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 28px;
+            text-align: center;
+            font-size: 11px;
+            color: #383838;
+        }
+    </style>
+</head>
+<body>
+
+<nav id="sidebar">
+    <div class="sidebar-logo">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="9" cy="9" r="7"/>
+            <circle cx="9" cy="9" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="9" x2="14.2" y2="4.2" stroke-opacity="0.55"/>
+        </svg>
+    </div>
+    <div class="sidebar-nav">
+        <a class="nav-item" href="/" title="Radar">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="7"/><circle cx="9" cy="9" r="2.5"/><line x1="9" y1="1" x2="9" y2="5.5"/><line x1="9" y1="12.5" x2="9" y2="17"/><line x1="1" y1="9" x2="5.5" y2="9"/><line x1="12.5" y1="9" x2="17" y2="9"/></svg>
+            <span>Radar</span>
+        </a>
+        <a class="nav-item" href="/stats" title="Stats">
+            <svg viewBox="0 0 18 18" fill="currentColor"><rect x="2" y="10" width="3.5" height="6" rx="0.5"/><rect x="7.25" y="6" width="3.5" height="10" rx="0.5"/><rect x="12.5" y="3" width="3.5" height="13" rx="0.5"/></svg>
+            <span>Stats</span>
+        </a>
+        <div class="nav-sep"></div>
+        <a class="nav-item active" href="/airports" title="Airports">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="2" x2="9" y2="13"/><line x1="5.5" y1="4.5" x2="12.5" y2="4.5"/><line x1="6" y1="7.5" x2="12" y2="7.5"/><line x1="6" y1="10.5" x2="12" y2="10.5"/><line x1="2" y1="16" x2="16" y2="16"/></svg>
+            <span>Airports</span>
+        </a>
+        <a class="nav-item soon" href="/aircraft" title="Aircraft">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="1" x2="9" y2="17"/><path d="M2 9 L9 7 L16 9"/><path d="M6 14.5 L9 13 L12 14.5"/></svg>
+            <span>Aircraft</span>
+        </a>
+        <a class="nav-item soon" href="/ground" title="Ground Ops">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="1" x2="9" y2="12"/><line x1="5" y1="6" x2="13" y2="6"/><line x1="3" y1="10.5" x2="15" y2="10.5"/><line x1="2" y1="15" x2="16" y2="15"/></svg>
+            <span>Ground</span>
+        </a>
+        <a class="nav-item soon" href="/alerts" title="Alerts">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 3 C5.8 3 3.5 5.8 3.5 9.5 L3.5 13 L14.5 13 L14.5 9.5 C14.5 5.8 12.2 3 9 3 Z"/><line x1="9" y1="1.5" x2="9" y2="3"/><path d="M7.5 14.5 Q7.5 16 9 16 Q10.5 16 10.5 14.5"/></svg>
+            <span>Alerts</span>
+        </a>
+    </div>
+    <div class="sidebar-bottom">
+        <a class="nav-item" href="/health" title="Health">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,9 4,9 6.5,4 9,13.5 11,6.5 13.5,9 17,9"/></svg>
+            <span>Health</span>
+        </a>
+        <a class="nav-item soon" href="/settings" title="Settings">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="2.5"/><path d="M9 1.5 L9 4.5 M9 13.5 L9 16.5 M1.5 9 L4.5 9 M13.5 9 L16.5 9 M3.7 3.7 L5.8 5.8 M12.2 12.2 L14.3 14.3 M3.7 14.3 L5.8 12.2 M12.2 5.8 L14.3 3.7"/></svg>
+            <span>Settings</span>
+        </a>
+    </div>
+</nav>
+
+<div class="page-content">
+    <header class="page-header">
+        <h1>Airports</h1>
+        <div class="header-right">
+            <span id="last-update">Loading…</span>
+            <button class="refresh-btn" onclick="refresh()">Refresh</button>
+        </div>
+    </header>
+
+    <div class="main">
+
+        <!-- Summary cards -->
+        <div class="cards-row" id="cards-row">
+            <div class="card dim"><div class="value">—</div><div class="label">Active Airports</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Known Origins</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Known Destinations</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Busiest Origin</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Busiest Destination</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">No Route Data</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Ground Sweep</div></div>
+        </div>
+
+        <!-- Top Origins / Top Destinations -->
+        <div class="section-grid" style="margin-bottom:16px">
+            <div class="section">
+                <div class="section-head">
+                    <h2>Top Origins</h2>
+                    <span class="count-badge" id="origins-count"></span>
+                </div>
+                <div id="origins-content"><div class="status-msg">Loading…</div></div>
+            </div>
+            <div class="section">
+                <div class="section-head">
+                    <h2>Top Destinations</h2>
+                    <span class="count-badge" id="dests-count"></span>
+                </div>
+                <div id="dests-content"><div class="status-msg">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- All Active Airports -->
+        <div class="section-grid wide" style="margin-bottom:16px">
+            <div class="section">
+                <div class="section-head">
+                    <h2>All Active Airports</h2>
+                    <div class="search-wrap">
+                        <input class="search-input" id="airport-search" type="text" placeholder="Filter by code or name…" oninput="filterAirports()">
+                    </div>
+                    <span class="count-badge" id="all-airports-count"></span>
+                </div>
+                <div id="all-airports-content"><div class="status-msg">Loading…</div></div>
+            </div>
+        </div>
+
+        <!-- Unresolved Route Codes -->
+        <div class="section-grid wide" id="unresolved-section" style="margin-bottom:16px;display:none">
+            <div class="section">
+                <div class="section-head">
+                    <h2>Unresolved Route Codes</h2>
+                    <span class="count-badge" id="unresolved-count"></span>
+                </div>
+                <div id="unresolved-content"><div class="status-msg">Loading…</div></div>
+            </div>
+        </div>
+
+        <div class="footer">Auto-refreshes every 60 seconds</div>
+    </div>
+</div>
+
+<script>
+/* ── Airport lookup built from /static/airports.json ── */
+let airportMap = new Map(); // code → {name, region, type, lat, lon}
+let airportsLoaded = false;
+
+async function loadAirports() {
+    try {
+        const r = await fetch('/static/airports.json');
+        const d = await r.json();
+        for (const a of (d.airports || [])) {
+            const info = {
+                name: a.name || '',
+                region: a.region || '',
+                type: a.type || '',
+                lat: a.lat,
+                lon: a.lon,
+            };
+            // index by all known codes
+            for (const key of [a.ident, a.icao, a.iata, a.gps, a.code, a.local]) {
+                if (key && key.length >= 3) airportMap.set(key.toUpperCase(), info);
+            }
+        }
+        airportsLoaded = true;
+    } catch (e) {
+        console.warn('airports.json load failed:', e);
+    }
+}
+
+/* ── Code validation ──
+   Valid if in airportMap, OR looks like IATA (3 alpha) / ICAO (4 alpha).
+   Rejects VOR/fix patterns with digits or 5+ char codes not in map.
+*/
+const VALID_CODE_RE = /^[A-Z]{3,4}$/;
+
+function isValidCode(code) {
+    if (!code) return false;
+    const c = code.toUpperCase().trim();
+    if (airportMap.has(c)) return true;
+    return VALID_CODE_RE.test(c);
+}
+
+function airportInfo(code) {
+    if (!code) return null;
+    return airportMap.get(code.toUpperCase().trim()) || null;
+}
+
+function regionLabel(region) {
+    if (!region) return '';
+    // "US-NM" → "NM", "US" → "US", "GB-ENG" → "GB"
+    const parts = region.split('-');
+    if (parts[0] === 'US' && parts[1]) return parts[1];
+    return parts[0];
+}
+
+/* ── Aggregation state ── */
+let lastProcessed = null;
+
+/* ── Main data processing ── */
+function processPlanes(planes) {
+    const depCounts  = new Map(); // code → count
+    const arrCounts  = new Map(); // code → count
+    const unresCodes = new Map(); // raw_code → count
+
+    let groundCount = 0;
+    let noRouteCount = 0;
+    let knownDepCount = 0;
+    let knownArrCount = 0;
+
+    for (const p of planes) {
+        const src = (p.source || '').toLowerCase();
+        if (src.includes('ground')) {
+            groundCount++;
+            continue;
+        }
+
+        const dep = (p.dep || '').trim().toUpperCase();
+        const arr = (p.arr || '').trim().toUpperCase();
+
+        const depOk = isValidCode(dep);
+        const arrOk = isValidCode(arr);
+
+        if (!dep && !arr) {
+            noRouteCount++;
+            continue;
+        }
+
+        // count valid codes
+        if (dep) {
+            if (depOk) {
+                depCounts.set(dep, (depCounts.get(dep) || 0) + 1);
+                knownDepCount++;
+            } else {
+                unresCodes.set(dep, (unresCodes.get(dep) || 0) + 1);
+            }
+        } else {
+            noRouteCount++;
+        }
+
+        if (arr) {
+            if (arrOk) {
+                arrCounts.set(arr, (arrCounts.get(arr) || 0) + 1);
+                knownArrCount++;
+            } else {
+                unresCodes.set(arr, (unresCodes.get(arr) || 0) + 1);
+            }
+        } else {
+            noRouteCount++;
+        }
+    }
+
+    // Merge into unified airport activity map
+    const allCodes = new Set([...depCounts.keys(), ...arrCounts.keys()]);
+    const airportActivity = [];
+    for (const code of allCodes) {
+        const deps = depCounts.get(code) || 0;
+        const arrs = arrCounts.get(code) || 0;
+        const info = airportInfo(code);
+        airportActivity.push({ code, deps, arrs, total: deps + arrs, info });
+    }
+    airportActivity.sort((a, b) => b.total - a.total);
+
+    // Top origins / destinations
+    const topOrigins = [...depCounts.entries()].sort((a,b) => b[1]-a[1]);
+    const topDests   = [...arrCounts.entries()].sort((a,b) => b[1]-a[1]);
+
+    return {
+        airportActivity,
+        topOrigins,
+        topDests,
+        unresCodes: [...unresCodes.entries()].sort((a,b) => b[1]-a[1]),
+        groundCount,
+        noRouteCount,
+        knownDepCount,
+        knownArrCount,
+        uniqueAirports: allCodes.size,
+    };
+}
+
+/* ── Render ── */
+function renderCards(s, planes) {
+    const busiestOrigin = s.topOrigins[0];
+    const busiestDest   = s.topDests[0];
+    const boInfo = busiestOrigin ? airportInfo(busiestOrigin[0]) : null;
+    const bdInfo = busiestDest   ? airportInfo(busiestDest[0])   : null;
+
+    document.getElementById('cards-row').innerHTML = `
+        <div class="card">
+            <div class="value">${s.uniqueAirports.toLocaleString()}</div>
+            <div class="label">Active Airports</div>
+        </div>
+        <div class="card">
+            <div class="value">${s.knownDepCount.toLocaleString()}</div>
+            <div class="label">Known Origins</div>
+        </div>
+        <div class="card">
+            <div class="value">${s.knownArrCount.toLocaleString()}</div>
+            <div class="label">Known Destinations</div>
+        </div>
+        <div class="card">
+            <div class="value sm">${busiestOrigin ? busiestOrigin[0] : '—'}</div>
+            <div class="label">Busiest Origin</div>
+            <div class="sub">${busiestOrigin ? busiestOrigin[1].toLocaleString() + ' departures' + (boInfo ? ' · ' + (boInfo.name || '') : '') : ''}</div>
+        </div>
+        <div class="card">
+            <div class="value sm">${busiestDest ? busiestDest[0] : '—'}</div>
+            <div class="label">Busiest Destination</div>
+            <div class="sub">${busiestDest ? busiestDest[1].toLocaleString() + ' arrivals' + (bdInfo ? ' · ' + (bdInfo.name || '') : '') : ''}</div>
+        </div>
+        <div class="card ${s.noRouteCount > 0 ? '' : 'dim'}">
+            <div class="value ${s.noRouteCount > 0 ? '' : ''}">${s.noRouteCount.toLocaleString()}</div>
+            <div class="label">No Route Data</div>
+        </div>
+        <div class="card dim">
+            <div class="value">${s.groundCount.toLocaleString()}</div>
+            <div class="label">Ground Sweep</div>
+        </div>
+    `;
+}
+
+function airportRow(code, deps, arrs, total, rank) {
+    const info = airportInfo(code);
+    const name = info ? info.name : '';
+    const region = info ? regionLabel(info.region) : '';
+    const rankHtml = rank != null ? `<span class="rank">${rank}.</span>` : '';
+    return `<tr data-code="${code}" data-name="${name.toLowerCase()}">
+        <td class="code">${rankHtml}${code}</td>
+        <td class="name">${name}</td>
+        <td class="region">${region}</td>
+        <td class="num">${deps > 0 ? deps.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
+        <td class="num">${arrs > 0 ? arrs.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
+        <td class="num total">${total.toLocaleString()}</td>
+    </tr>`;
+}
+
+function renderTopList(entries, containerId, countId, maxRows = 20) {
+    document.getElementById(countId).textContent = entries.length.toLocaleString() + ' airports';
+    if (entries.length === 0) {
+        document.getElementById(containerId).innerHTML = '<div class="status-msg">No data</div>';
+        return;
+    }
+    const shown = entries.slice(0, maxRows);
+    let rows = '';
+    shown.forEach(([code, cnt], i) => {
+        const info = airportInfo(code);
+        const name = info ? info.name : '';
+        const region = info ? regionLabel(info.region) : '';
+        rows += `<tr>
+            <td class="code"><span class="rank">${i+1}.</span>${code}</td>
+            <td class="name">${name}</td>
+            <td class="region">${region}</td>
+            <td class="num">${cnt.toLocaleString()}</td>
+        </tr>`;
+    });
+    document.getElementById(containerId).innerHTML = `
+        <table>
+            <thead><tr><th>Code</th><th>Airport</th><th>Region</th><th class="r">Count</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function renderAllAirports(airportActivity, total) {
+    document.getElementById('all-airports-count').textContent = airportActivity.length.toLocaleString() + ' airports';
+    if (airportActivity.length === 0) {
+        document.getElementById('all-airports-content').innerHTML = '<div class="status-msg">No data</div>';
+        return;
+    }
+    let rows = '';
+    airportActivity.forEach(({ code, deps, arrs, total: tot }, i) => {
+        rows += airportRow(code, deps, arrs, tot, i + 1);
+    });
+    document.getElementById('all-airports-content').innerHTML = `
+        <table id="all-airports-table">
+            <thead><tr>
+                <th>Code</th>
+                <th>Airport</th>
+                <th>Region</th>
+                <th class="r">Origins</th>
+                <th class="r">Destinations</th>
+                <th class="r">Total</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+    // Re-apply any active search
+    filterAirports();
+}
+
+function renderUnresolved(unresCodes) {
+    const sec = document.getElementById('unresolved-section');
+    if (unresCodes.length === 0) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    document.getElementById('unresolved-count').textContent = unresCodes.length.toLocaleString() + ' codes';
+    let rows = unresCodes.map(([code, cnt]) =>
+        `<tr><td class="code">${code}</td><td class="num">${cnt.toLocaleString()}</td></tr>`
+    ).join('');
+    document.getElementById('unresolved-content').innerHTML = `
+        <table>
+            <thead><tr><th>Raw Code</th><th class="r">Occurrences</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function filterAirports() {
+    const q = (document.getElementById('airport-search').value || '').toLowerCase().trim();
+    const table = document.getElementById('all-airports-table');
+    if (!table) return;
+    let visCount = 0;
+    for (const row of table.querySelectorAll('tbody tr')) {
+        const code = (row.dataset.code || '').toLowerCase();
+        const name = (row.dataset.name || '');
+        const match = !q || code.includes(q) || name.includes(q);
+        row.classList.toggle('hidden-row', !match);
+        if (match) visCount++;
+    }
+    document.getElementById('all-airports-count').textContent = q
+        ? `${visCount} of ${table.querySelectorAll('tbody tr').length} airports`
+        : `${table.querySelectorAll('tbody tr').length} airports`;
+}
+
+/* ── Fetch & render ── */
+async function refresh() {
+    document.getElementById('last-update').textContent = 'Refreshing…';
+    try {
+        const r = await fetch('/api/?action=Planes');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const planes = (d.response?.data?.planes) || [];
+
+        const s = processPlanes(planes);
+        lastProcessed = s;
+
+        renderCards(s, planes);
+        renderTopList(s.topOrigins, 'origins-content', 'origins-count', 20);
+        renderTopList(s.topDests,   'dests-content',   'dests-count',   20);
+        renderAllAirports(s.airportActivity);
+        renderUnresolved(s.unresCodes);
+
+        document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        document.getElementById('last-update').textContent = 'Error: ' + e.message;
+        ['origins-content','dests-content','all-airports-content','unresolved-content'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+        });
+    }
+}
+
+let timer;
+function scheduleRefresh() {
+    clearTimeout(timer);
+    timer = setTimeout(() => { refresh().then(scheduleRefresh); }, 60000);
+}
+
+/* ── Init: load airports then data ── */
+loadAirports().then(() => refresh().then(scheduleRefresh));
+</script>
+</body>
+</html>

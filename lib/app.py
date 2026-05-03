@@ -40,7 +40,7 @@ def stats():
 
 @app.route("/airports")
 def airports():
-    return render_template_string(_SOON, title="Airports")
+    return render_template("airports.html")
 
 @app.route("/aircraft")
 def aircraft():
