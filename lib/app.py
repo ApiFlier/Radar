@@ -52,7 +52,7 @@ def ground():
 
 @app.route("/alerts")
 def alerts():
-    return render_template_string(_SOON, title="Alerts")
+    return render_template("alerts.html")
 
 @app.route("/settings")
 def settings():
