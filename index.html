@@ -523,6 +523,189 @@
             background: rgba(255,255,255,0.015);
         }
 
+        /* ── Detail panel ── */
+        #detail-panel {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: 380px;
+            z-index: 1050;
+            background: rgba(8,8,12,0.97);
+            border-left: 1px solid rgba(0,255,204,0.1);
+            display: flex; flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: -6px 0 28px rgba(0,0,0,0.55);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 13px; color: #bbb;
+        }
+        #detail-panel.open { transform: translateX(0); }
+
+        #dp-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 14px 9px;
+            background: rgba(0,255,204,0.03);
+            border-bottom: 1px solid rgba(0,255,204,0.1);
+            flex-shrink: 0; gap: 10px;
+        }
+        #dp-mode-label {
+            font-size: 9px; font-weight: 700; color: #00ffcc;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        #dp-close {
+            background: transparent; border: none;
+            color: #555; font-size: 15px; cursor: pointer;
+            padding: 2px 6px; border-radius: 4px; line-height: 1;
+            font-family: inherit;
+        }
+        #dp-close:hover { color: #aaa; background: rgba(255,255,255,0.06); }
+
+        #dp-body {
+            flex: 1; overflow-y: auto; overflow-x: hidden;
+        }
+        #dp-body::-webkit-scrollbar { width: 4px; }
+        #dp-body::-webkit-scrollbar-track { background: transparent; }
+        #dp-body::-webkit-scrollbar-thumb { background: rgba(0,255,204,0.15); border-radius: 2px; }
+
+        .dp-ac-head {
+            padding: 13px 14px 11px;
+            background: rgba(0,255,204,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .dp-ac-name {
+            font-size: 20px; font-weight: 800; color: #00ffcc;
+            font-family: Consolas, Menlo, monospace;
+            letter-spacing: 0.3px; line-height: 1.1;
+        }
+        .dp-ac-sub { font-size: 11px; color: #777; margin-top: 3px; line-height: 1.3; }
+
+        .dp-apt-head {
+            padding: 13px 14px 11px;
+            background: rgba(0,255,204,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .dp-apt-code {
+            font-size: 22px; font-weight: 800; color: #00ffcc;
+            font-family: Consolas, Menlo, monospace;
+            letter-spacing: 0.3px; line-height: 1.1;
+        }
+        .dp-apt-name { font-size: 12px; font-weight: 600; color: #ddd; margin-top: 3px; line-height: 1.3; }
+        .dp-apt-region { font-size: 11px; color: #777; margin-top: 2px; }
+
+        .dp-badge {
+            display: inline-block; font-size: 9px; font-weight: 700; color: #00ffcc;
+            border: 1px solid rgba(0,255,204,0.28); background: rgba(0,255,204,0.07);
+            border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;
+            text-transform: uppercase; white-space: nowrap; margin-top: 5px;
+        }
+
+        .dp-route {
+            padding: 9px 14px; font-size: 13px; color: #eee; line-height: 1.35;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .dp-grid-3 {
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 1px; background: rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .dp-cell { background: rgba(0,0,0,0.24); padding: 8px 9px; min-width: 0; }
+        .dp-cell-label {
+            color: #555; font-size: 9px; text-transform: uppercase;
+            letter-spacing: 0.55px; margin-bottom: 2px;
+        }
+        .dp-cell-value {
+            color: #ddd; font-size: 12px; font-weight: 650;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .dp-cell-value.accent { color: #00ffcc; }
+
+        .dp-section {
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .dp-section-dim { background: rgba(0,0,0,0.12); }
+        .dp-section-title {
+            font-size: 9px; font-weight: 800; color: #00ffcc;
+            text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 7px;
+        }
+
+        .dp-row {
+            display: flex; justify-content: space-between; align-items: baseline;
+            gap: 10px; padding: 2px 0; font-size: 11px;
+        }
+        .dp-row-label {
+            color: #555; text-transform: uppercase; letter-spacing: 0.45px;
+            white-space: nowrap; flex-shrink: 0; font-size: 10px;
+        }
+        .dp-row-value { color: #aaa; text-align: right; overflow-wrap: anywhere; font-size: 11px; }
+
+        .dp-actions {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .dp-action {
+            color: #aaa; border: 1px solid rgba(255,255,255,0.13);
+            background: rgba(255,255,255,0.03); border-radius: 4px;
+            padding: 5px 10px; font-size: 10px; font-weight: 700;
+            text-decoration: none; cursor: pointer; text-transform: uppercase;
+            letter-spacing: 0.4px; font-family: inherit;
+        }
+        .dp-action:hover { color: #fff; background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.22); }
+        .dp-action.primary {
+            color: #00ffcc; border-color: rgba(0,255,204,0.3); background: rgba(0,255,204,0.055);
+        }
+        .dp-action.primary:hover { background: rgba(0,255,204,0.11); }
+
+        .dp-freq {
+            display: grid; grid-template-columns: 44px 80px 1fr;
+            gap: 8px; font-size: 11px; padding: 3px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .dp-freq:last-child { border-bottom: none; }
+        .dp-freq-type { color: #00ffcc; font-family: Consolas, Menlo, monospace; font-weight: 700; }
+        .dp-freq-mhz { color: #ddd; font-family: Consolas, Menlo, monospace; }
+        .dp-freq-desc { color: #777; }
+
+        .dp-flights-box { border-top: 1px solid rgba(255,255,255,0.05); }
+        .dp-flights-loading { padding: 14px; color: #555; font-size: 11px; text-align: center; }
+        .dp-flights-counts {
+            display: flex; gap: 10px; align-items: center;
+            padding: 8px 14px 4px; font-size: 11px; color: #666;
+        }
+        .dp-flights-group { padding: 0 14px 10px; }
+        .dp-flights-group-title {
+            font-size: 9px; font-weight: 800; color: #00ffcc; text-transform: uppercase;
+            letter-spacing: 0.7px; padding: 8px 0 5px;
+        }
+        .dp-flight-row {
+            display: grid; grid-template-columns: 76px 1fr auto auto;
+            gap: 5px; align-items: center; padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px;
+        }
+        .dp-flight-row:last-child { border-bottom: none; }
+        .dp-flight-call { color: #ddd; font-family: Consolas, Menlo, monospace; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+        .dp-flight-route { color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+        .dp-flight-alt { color: #555; font-size: 10px; white-space: nowrap; }
+        .dp-flight-link {
+            color: #00ffcc; font-size: 9px; font-weight: 700; text-decoration: none;
+            border: 1px solid rgba(0,255,204,0.2); border-radius: 3px; padding: 1px 5px;
+            white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
+        }
+        .dp-flight-link:hover { background: rgba(0,255,204,0.08); }
+
+        .dp-stale {
+            margin: 10px 14px; padding: 7px 10px;
+            background: rgba(255,255,255,0.02);
+            border-left: 2px solid rgba(255,255,255,0.12);
+            font-size: 11px; color: #555;
+            border-radius: 0 3px 3px 0;
+        }
+        .dp-empty { padding: 24px 14px; text-align: center; color: #444; font-size: 12px; }
+
+        /* Shift search when panel open */
+        body.panel-open #search-box,
+        body.panel-open #search-results { right: 392px; }
+
     </style>
 </head>
 <body>
@@ -583,6 +766,13 @@
     <div id="search-results"></div>
     <div id="follow-bar" onclick="stopFollow()">Following <span id="follow-name"></span> — click to stop</div>
     <div id="map"></div>
+    <div id="detail-panel">
+        <div id="dp-header">
+            <span id="dp-mode-label">Details</span>
+            <button id="dp-close" onclick="closePanel()" title="Close">&#x2715;</button>
+        </div>
+        <div id="dp-body"></div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -1455,6 +1645,7 @@
                         if (shouldDrawTrail(planeData[fid])) {
                             showTrail(fid);
                         }
+                        openAircraftPanel(fid);
                     };
                 })(id))
                 .addTo(map);
@@ -1720,6 +1911,10 @@
             } else if (shouldDisplayPlane(planeData[id])) {
                 addMarker(id);
             }
+
+            if (panelMode === 'aircraft' && selectedAcId === id) {
+                renderAircraftPanel();
+            }
         }
 
         function syncVisiblePlanes() {
@@ -1895,7 +2090,11 @@
                 fillColor: airportColor(a),
                 fillOpacity: 0.65,
                 opacity: 0.95
-            }).bindPopup(airportPopup(a));
+            }).bindPopup(airportPopup(a))
+              .on('click', (function(apt) {
+                var aptCode = String(apt.ident || apt.gps_code || apt.icao || apt.code || '').toUpperCase();
+                return function() { openAirportPanel(aptCode, apt); };
+              })(a));
 
             marker.addTo(airportLayer);
             airportMarkers[id] = marker;
@@ -2222,6 +2421,7 @@
 
             if (r.kind === 'airport') {
                 applyAirportDeepLink(r.code);
+                openAirportPanel(r.code);
                 return;
             }
 
@@ -2242,6 +2442,7 @@
             }
 
             startFollow(flightId);
+            openAircraftPanel(flightId);
         }
 
         document.addEventListener('click', function(e) {
@@ -2378,6 +2579,7 @@
                         if (!planeMarkers[targetId]) addMarker(targetId);
                         var marker = planeMarkers[targetId];
                         if (marker) { marker.openPopup(); startFollow(targetId); }
+                        openAircraftPanel(targetId);
                     }, 350);
                     return;
                 }
@@ -2401,6 +2603,7 @@
                 map.setView([lat, lon], zoom);
                 var label = code + (a.name ? ' — ' + a.name : '');
                 showStatusHUD('Centered on ' + label, 'info');
+                openAirportPanel(code, a);
                 return true;
             }
 
@@ -2435,7 +2638,7 @@
                     'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
                     'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(255,153,119,0.35)',
                     'border-radius:6px', 'padding:9px 18px', 'font-size:12px',
-                    'font-family:"Segoe UI",sans-serif', 'color:#f97',
+                    'font-family:”Segoe UI”,sans-serif', 'color:#f97',
                     'z-index:9999', 'cursor:pointer', 'white-space:nowrap',
                     'box-shadow:0 2px 12px rgba(0,0,0,0.5)'
                 ].join(';');
@@ -2445,6 +2648,360 @@
             hud.textContent = 'Aircraft “' + label + '” not found in current feed — click to dismiss';
             hud.style.display = 'block';
             setTimeout(function() { if (hud) hud.style.display = 'none'; }, 8000);
+        }
+
+        /* ── Side detail panel ── */
+        var selectedAcId   = null;
+        var selectedAptCode = null;
+        var selectedAptObj  = null;
+        var panelMode       = null;   // 'aircraft' | 'airport' | null
+        var aptFlightsCache = {};     // code → {ts, inbound, outbound}
+        var APT_FLIGHTS_TTL = 45000;  // ms throttle between re-fetches
+
+        function openPanel() {
+            document.getElementById('detail-panel').classList.add('open');
+            document.body.classList.add('panel-open');
+        }
+
+        function closePanel() {
+            selectedAcId    = null;
+            selectedAptCode = null;
+            selectedAptObj  = null;
+            panelMode       = null;
+            document.getElementById('detail-panel').classList.remove('open');
+            document.body.classList.remove('panel-open');
+            document.getElementById('dp-body').innerHTML = '';
+        }
+
+        /* ── Aircraft panel ── */
+        function openAircraftPanel(flightId) {
+            selectedAcId    = flightId;
+            selectedAptCode = null;
+            selectedAptObj  = null;
+            panelMode       = 'aircraft';
+            document.getElementById('dp-mode-label').textContent = 'Aircraft';
+            openPanel();
+            renderAircraftPanel();
+        }
+
+        function renderAircraftPanel() {
+            if (panelMode !== 'aircraft' || !selectedAcId) return;
+            document.getElementById('dp-body').innerHTML =
+                buildAircraftPanelHTML(planeData[selectedAcId], selectedAcId);
+        }
+
+        function buildAircraftPanelHTML(p, flightId) {
+            if (!p) {
+                return '<div class=”dp-stale”>Not in current feed — data unavailable</div>' +
+                       '<div class=”dp-empty”>Aircraft may have landed or left range.</div>';
+            }
+
+            var name         = displayName(p);
+            var route        = formatRoute(p);
+            var airline      = airlineInfo(p);
+            var acClass      = displayAircraftClass(p);
+            var state        = aircraftDisplayState(p);
+            var stateLbl     = stateLabel(state);
+            var icao         = String(p.icaoHex || '').trim().toUpperCase();
+            var csRaw        = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
+            var isFollowing  = (followFlightId === flightId);
+
+            var tags = [];
+            if (boolField(p.isMilitary))  tags.push('Military');
+            if (boolField(p.isHelicopter)) tags.push('Helicopter');
+            if (boolField(p.isPia))        tags.push('PIA');
+            if (boolField(p.isLadd))       tags.push('LADD');
+
+            var subtitle = airline ? airline.display : (p.operator || p.registration || '');
+
+            var html = '';
+
+            html += '<div class=”dp-ac-head”>';
+            html += '<div class=”dp-ac-name”>' + htmlEscape(name) + '</div>';
+            if (subtitle) html += '<div class=”dp-ac-sub”>' + htmlEscape(subtitle) + '</div>';
+            if (stateLbl) html += '<div class=”dp-badge”>' + htmlEscape(stateLbl) + '</div>';
+            html += '</div>';
+
+            if (route !== 'Route unavailable') {
+                html += '<div class=”dp-route”>' + htmlEscape(route) + '</div>';
+            }
+
+            function fmtAlt(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n).toLocaleString() + ' ft'; }
+            function fmtSpd(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + ' kt'; }
+            function fmtHdg(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + '°'; }
+
+            html += '<div class=”dp-grid-3”>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Altitude</div><div class=”dp-cell-value accent”>' + htmlEscape(fmtAlt(p.alt)) + '</div></div>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Speed</div><div class=”dp-cell-value”>' + htmlEscape(fmtSpd(p.speed)) + '</div></div>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Heading</div><div class=”dp-cell-value”>' + htmlEscape(fmtHdg(p.heading)) + '</div></div>';
+            html += '</div>';
+
+            function dpRow(label, value) {
+                if (value === null || value === undefined || value === '') return '';
+                return '<div class=”dp-row”><span class=”dp-row-label”>' + htmlEscape(label) +
+                       '</span><span class=”dp-row-value”>' + value + '</span></div>';
+            }
+
+            html += '<div class=”dp-section”>';
+            var vr = parseFloat(p.verticalRate);
+            if (!isNaN(vr) && Math.abs(vr) >= 100) {
+                html += dpRow('V/S', htmlEscape((vr > 0 ? '+' : '') + Math.round(vr).toLocaleString() + ' fpm'));
+            }
+            var aAlt = parseFloat(p.assignedAlt);
+            if (!isNaN(aAlt) && aAlt > 0 && Math.abs((parseFloat(p.alt) || 0) - aAlt) > 300) {
+                html += dpRow('Assigned Alt', htmlEscape(fmtAlt(p.assignedAlt)));
+            }
+            if (airline) html += dpRow('Airline', htmlEscape(airline.airline));
+            if (p.registration) {
+                html += dpRow('Registration',
+                    '<span style=”font-family:Consolas,Menlo,monospace”>' + htmlEscape(p.registration) + '</span>');
+            }
+            if (p.aircraftType) html += dpRow('Type', htmlEscape(p.aircraftType));
+            html += dpRow('Class', htmlEscape(acClass));
+            if (tags.length) html += dpRow('Tags', htmlEscape(tags.join(' · ')));
+            if (icao) {
+                html += dpRow('ICAO',
+                    '<span style=”font-family:Consolas,Menlo,monospace”>' + htmlEscape(icao) + '</span>');
+            }
+            var sq = String(p.squawk || '').trim();
+            if (sq && sq !== '0') {
+                var sqHtml = htmlEscape(sq);
+                if (sq === '7500') sqHtml += ' <span style=”color:#ff6060;font-weight:700”>HIJACK</span>';
+                else if (sq === '7600') sqHtml += ' <span style=”color:#f5a623;font-weight:700”>RADIO FAIL</span>';
+                else if (sq === '7700') sqHtml += ' <span style=”color:#ff6060;font-weight:700”>EMERGENCY</span>';
+                html += dpRow('Squawk', sqHtml);
+            }
+            html += '</div>';
+
+            var posLabel   = friendlySource(p.positionSource || p.source);
+            var routeLabel = friendlySource(p.enrichmentSource);
+            if (posLabel || routeLabel || p.sourceFacility) {
+                html += '<div class=”dp-section dp-section-dim”>';
+                if (posLabel) html += dpRow('Position', htmlEscape(posLabel));
+                if (routeLabel && routeLabel !== posLabel) html += dpRow('Route data', htmlEscape(routeLabel));
+                if (p.sourceFacility) html += dpRow('Facility', htmlEscape(p.sourceFacility));
+                html += '</div>';
+            }
+
+            var fid = String(flightId || '').replace(/\\/g, '\\\\').replace(/'/g, “\\'”);
+            html += '<div class=”dp-actions”>';
+            if (isFollowing) {
+                html += '<button class=”dp-action primary” onclick=”stopFollow();renderAircraftPanel()”>Stop Follow</button>';
+            } else {
+                html += '<button class=”dp-action primary” onclick=”startFollow(\'' + fid + '\');renderAircraftPanel()”>Follow</button>';
+            }
+            if (icao) {
+                html += '<a class=”dp-action” href=”https://globe.adsbexchange.com/?icao=' +
+                        htmlEscape(icao.toLowerCase()) + '” target=”_blank” rel=”noopener”>ADSBx</a>';
+            }
+            if (csRaw && airline) {
+                html += '<a class=”dp-action” href=”https://flightaware.com/live/flight/' +
+                        htmlEscape(csRaw) + '” target=”_blank” rel=”noopener”>FlightAware</a>';
+            }
+            var copyVal = icao || csRaw;
+            if (copyVal && navigator && navigator.clipboard) {
+                html += '<button class=”dp-action” onclick=”navigator.clipboard.writeText(\'' +
+                        htmlEscape(copyVal) + '\')”>Copy</button>';
+            }
+            html += '</div>';
+
+            return html;
+        }
+
+        /* ── Airport panel ── */
+        function openAirportPanel(code, airportObj) {
+            code = String(code || '').toUpperCase().trim();
+            if (!code) return;
+            selectedAcId    = null;
+            selectedAptCode = code;
+            selectedAptObj  = airportObj || lookupAirport(code) || null;
+            panelMode       = 'airport';
+            document.getElementById('dp-mode-label').textContent = 'Airport';
+            openPanel();
+            renderAirportPanel();
+            fetchAptFlights(code);
+        }
+
+        function renderAirportPanel() {
+            if (panelMode !== 'airport' || !selectedAptCode) return;
+            var code = selectedAptCode;
+            document.getElementById('dp-body').innerHTML = buildAirportPanelHTML(selectedAptObj, code);
+            var cache = aptFlightsCache[code];
+            if (cache && cache.inbound !== undefined) {
+                renderAptFlightsInPanel(code, cache.inbound, cache.outbound);
+            }
+        }
+
+        function buildAirportPanelHTML(a, code) {
+            function esc(v) { return htmlEscape(v); }
+            function clean(v) { return String(v || '').trim(); }
+
+            var html = '';
+
+            if (!a) {
+                html += '<div class=”dp-apt-head”><div class=”dp-apt-code”>' + esc(code) + '</div></div>';
+                html += '<div class=”dp-flights-box” id=”dp-flights-' + esc(code) +
+                        '”><div class=”dp-flights-loading”>Loading…</div></div>';
+                return html;
+            }
+
+            var iata     = clean(a.iata_code || a.iata).toUpperCase();
+            var icao     = clean(a.gps_code || a.icao || a.ident).toUpperCase();
+            var local    = clean(a.local_code).toUpperCase();
+            var gps      = clean(a.gps_code).toUpperCase();
+            var name     = clean(a.name) || 'Airport';
+            var muni     = clean(a.municipality || a.city);
+            var region   = clean(a.region || a.iso_region);
+            var country  = clean(a.iso_country || a.country);
+            var elev     = clean(a.elevation_ft || a.elevation);
+            var type     = clean(a.type).replace(/_/g, ' ');
+            var website  = clean(a.home_link || a.website || a.url);
+            var wiki     = clean(a.wikipedia_link);
+            var loc      = [muni, region || country].filter(Boolean).join(' · ');
+
+            html += '<div class=”dp-apt-head”>';
+            html += '<div class=”dp-apt-code”>' + esc(code) + '</div>';
+            html += '<div class=”dp-apt-name”>' + esc(name) + '</div>';
+            if (loc) html += '<div class=”dp-apt-region”>' + esc(loc) + '</div>';
+            html += '</div>';
+
+            html += '<div class=”dp-grid-3”>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>IATA</div>' +
+                    '<div class=”dp-cell-value' + (iata ? ' accent' : '') + '”>' + esc(iata || '—') + '</div></div>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>ICAO</div>' +
+                    '<div class=”dp-cell-value' + (icao ? ' accent' : '') + '”>' + esc(icao || code || '—') + '</div></div>';
+            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Elevation</div>' +
+                    '<div class=”dp-cell-value”>' + esc(elev ? elev + ' ft' : '—') + '</div></div>';
+            html += '</div>';
+
+            function dpRow(label, val) {
+                if (!val) return '';
+                return '<div class=”dp-row”><span class=”dp-row-label”>' + esc(label) +
+                       '</span><span class=”dp-row-value”>' + esc(val) + '</span></div>';
+            }
+
+            html += '<div class=”dp-section”>';
+            if (type) html += dpRow('Type', type.replace(/\b\w/g, function(c) { return c.toUpperCase(); }));
+            if (local) html += dpRow('Local', local);
+            if (gps && gps !== icao) html += dpRow('GPS', gps);
+            if (region) html += dpRow('Region', region);
+            html += '</div>';
+
+            var freqs = Array.isArray(a.frequencies) ? a.frequencies : [];
+            if (freqs.length) {
+                html += '<div class=”dp-section”>';
+                html += '<div class=”dp-section-title”>Frequencies</div>';
+                freqs.slice(0, 8).forEach(function(f) {
+                    var fType = clean(f.type || f.frequency_type || f.name).toUpperCase();
+                    var mhz   = clean(f.frequency_mhz || f.mhz || f.freq || f.frequency);
+                    var desc  = clean(f.description || f.desc || f.use || f.name);
+                    html += '<div class=”dp-freq”>';
+                    html += '<span class=”dp-freq-type”>' + esc(fType || '—') + '</span>';
+                    html += '<span class=”dp-freq-mhz”>' + esc(mhz ? mhz + ' MHz' : '—') + '</span>';
+                    html += '<span class=”dp-freq-desc”>' + esc(desc || '') + '</span>';
+                    html += '</div>';
+                });
+                if (freqs.length > 8) {
+                    html += '<div style=”font-size:10px;color:#444;margin-top:4px”>+' +
+                            esc(String(freqs.length - 8)) + ' more</div>';
+                }
+                html += '</div>';
+            }
+
+            var aptCode = icao || code;
+            html += '<div class=”dp-actions”>';
+            html += '<button class=”dp-action primary” onclick=”applyAirportDeepLink(\'' +
+                    htmlEscape(aptCode) + '\')”>Center Map</button>';
+            html += '<a class=”dp-action” href=”/airports”>Airports</a>';
+            if (website) html += '<a class=”dp-action” href=”' + esc(website) + '” target=”_blank” rel=”noopener”>Website</a>';
+            if (wiki)    html += '<a class=”dp-action” href=”' + esc(wiki) + '” target=”_blank” rel=”noopener”>Wikipedia</a>';
+            html += '</div>';
+
+            html += '<div class=”dp-flights-box” id=”dp-flights-' + esc(code) +
+                    '”><div class=”dp-flights-loading”>Loading aircraft…</div></div>';
+
+            return html;
+        }
+
+        function fetchAptFlights(code) {
+            var now   = Date.now();
+            var cache = aptFlightsCache[code];
+            if (cache && (now - cache.ts) < APT_FLIGHTS_TTL) {
+                if (selectedAptCode === code && panelMode === 'airport') {
+                    renderAptFlightsInPanel(code, cache.inbound, cache.outbound);
+                }
+                return;
+            }
+            fetch('/api/?action=Planes&view=airport&airport=' + encodeURIComponent(code) + '&_=' + now)
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(json) {
+                    var data     = ((json.response || {}).data) || {};
+                    var inbound  = data.inbound  || [];
+                    var outbound = data.outbound || [];
+                    aptFlightsCache[code] = { ts: Date.now(), inbound: inbound, outbound: outbound };
+                    if (selectedAptCode === code && panelMode === 'airport') {
+                        renderAptFlightsInPanel(code, inbound, outbound);
+                    }
+                })
+                .catch(function() {
+                    var box = document.getElementById('dp-flights-' + code);
+                    if (box) box.innerHTML = '<div class=”dp-flights-loading” style=”color:#555”>Aircraft data unavailable</div>';
+                });
+        }
+
+        function renderAptFlightsInPanel(code, inbound, outbound) {
+            var box = document.getElementById('dp-flights-' + code);
+            if (!box) return;
+
+            if (!inbound.length && !outbound.length) {
+                box.innerHTML = '<div class=”dp-flights-loading” style=”color:#555”>No active aircraft for ' +
+                                htmlEscape(code) + '</div>';
+                return;
+            }
+
+            function groupHtml(list, label) {
+                if (!list.length) return '';
+                var h = '<div class=”dp-flights-group”>';
+                h += '<div class=”dp-flights-group-title”>' + htmlEscape(label) +
+                     ' <span style=”color:#444;font-weight:400”>(' + list.length + ')</span></div>';
+                list.slice(0, 10).forEach(function(p) {
+                    var icaoHex = (p.icaoHex || '').toUpperCase();
+                    var cs      = (p.callsign || '').trim();
+                    var call    = (cs && cs !== icaoHex) ? cs :
+                                  (p.registration || p.flightId || icaoHex || '—');
+                    var dep     = (p.dep || '').trim().toUpperCase();
+                    var arr     = (p.arr || '').trim().toUpperCase();
+                    var rt      = (dep && arr) ? dep + '→' + arr :
+                                  dep ? dep + '→?' : arr ? '?→' + arr : '—';
+                    var altN    = parseFloat(p.alt);
+                    var altStr  = (!isNaN(altN) && altN > 0) ?
+                                  Math.round(altN).toLocaleString() + ' ft' : '';
+                    var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
+                    h += '<div class=”dp-flight-row”>';
+                    h += '<span class=”dp-flight-call”>'  + htmlEscape(call)   + '</span>';
+                    h += '<span class=”dp-flight-route”>' + htmlEscape(rt)     + '</span>';
+                    h += '<span class=”dp-flight-alt”>'   + htmlEscape(altStr) + '</span>';
+                    h += link ? '<a class=”dp-flight-link” href=”' + htmlEscape(link) + '”>Radar</a>'
+                              : '<span></span>';
+                    h += '</div>';
+                });
+                if (list.length > 10) {
+                    h += '<div style=”font-size:10px;color:#444;padding:4px 0”>+' +
+                         (list.length - 10) + ' more</div>';
+                }
+                h += '</div>';
+                return h;
+            }
+
+            var html = '<div class=”dp-flights-counts”>';
+            html += '<span style=”color:#aaa”>' + inbound.length  + ' inbound</span>';
+            html += '<span style=”color:#444”>·</span>';
+            html += '<span style=”color:#aaa”>' + outbound.length + ' outbound</span>';
+            html += '</div>';
+            html += groupHtml(inbound,  'Inbound to '    + code);
+            html += groupHtml(outbound, 'Outbound from ' + code);
+
+            box.innerHTML = html;
         }
     </script>
 </body>
