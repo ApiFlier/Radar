@@ -2695,7 +2695,7 @@
                 hud.onclick = function() { this.style.display = 'none'; };
                 document.body.appendChild(hud);
             }
-            hud.textContent = 'Aircraft "' + label + '" not found in current feed — click to dismiss';
+            hud.textContent = 'Aircraft "' + label + '" is not currently mappable — no live position in feed. May be stale or out of range. Click to dismiss.';
             hud.style.display = 'block';
             setTimeout(function() { if (hud) hud.style.display = 'none'; }, 8000);
         }

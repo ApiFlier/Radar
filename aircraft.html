@@ -269,6 +269,7 @@
         .dp-action:hover { color: #888; border-color: rgba(255,255,255,0.2); }
         .dp-action.primary { color: #00ffcc; border-color: rgba(0,255,204,0.3); background: rgba(0,255,204,0.04); }
         .dp-action.primary:hover { background: rgba(0,255,204,0.09); }
+        .no-radar-action { font-size: 11px; color: #444; align-self: center; cursor: default; }
         .detail-row.hidden { display: none; }
 
         /* ── Status / Empty ── */
@@ -367,6 +368,9 @@
                 </label>
                 <label class="check-label" title="Show only aircraft with no callsign or registration">
                     <input type="checkbox" id="chk-noid" onchange="applyFilters()"> Missing ID
+                </label>
+                <label class="check-label" title="Show only aircraft with a live position on the radar map">
+                    <input type="checkbox" id="chk-mappable" onchange="applyFilters()"> Mappable
                 </label>
                 <div class="search-wrap">
                     <input class="search-input" id="ac-search" type="text"
@@ -523,6 +527,35 @@ function classBadgeLabel(p) {
     return (p.aircraftClass || 'unknown');
 }
 
+// VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE must match index.html radar thresholds.
+const RADAR_AIR_MAX_AGE    = 120;   // seconds — airborne freshness window
+const RADAR_GROUND_MAX_AGE = 900;   // seconds — ground freshness window
+
+function isMappable(p) {
+    const icao = (p.icaoHex || '').trim().toUpperCase();
+    const call = (p.callsign || '').trim().toUpperCase();
+    const hasId = !!(icao || call);
+
+    const lat = parseFloat(p.lat);
+    const lon = parseFloat(p.lon);
+    const hasPos = !isNaN(lat) && !isNaN(lon) && !(lat === 0 && lon === 0);
+
+    const lu = parseFloat(p.lastUpdate) || 0;
+    const ageS = lu > 1e9 ? Math.floor(Date.now() / 1000 - lu) : 999999;
+    const airborne = String(p.airborne) === '1' || (parseFloat(p.speed) || 0) > 40;
+    const maxAge = airborne ? RADAR_AIR_MAX_AGE : RADAR_GROUND_MAX_AGE;
+    const isStale = ageS > maxAge;
+
+    const link = icao ? `/?icao=${icao}` : (call ? `/?callsign=${encodeURIComponent(call)}` : null);
+
+    let reason = null;
+    if (!hasId)       reason = 'No identifier';
+    else if (!hasPos) reason = 'No current position';
+    else if (isStale) reason = 'Position stale';
+
+    return { ok: hasId && hasPos && !isStale, reason, link };
+}
+
 /* ── Sorting ── */
 function thHtml(label, col, isRight) {
     const active = sortCol === col;
@@ -593,11 +626,13 @@ function buildRowHtml(p, detailId) {
         p.aircraftType || '', p.operator || ''
     ].join(' ').toLowerCase();
 
+    const mp = isMappable(p);
     return `<tr class="clickable-row"
         data-class="${p.aircraftClass || 'unknown'}"
         data-ground="${isGroundPlane(p) ? '1' : '0'}"
         data-route="${route.full ? '1' : '0'}"
         data-noid="${noIdentity(p) ? '1' : '0'}"
+        data-mappable="${mp.ok ? '1' : '0'}"
         data-srch="${srch}"
         data-detail-id="${detailId}"
         onclick="toggleDetail('${detailId}')">
@@ -667,7 +702,13 @@ function buildDetailHtml(p, id) {
             ${p.squawk && p.squawk !== '0' ? field('Squawk', p.squawk, 'mono') : ''}
         </div>
         <div class="dp-actions">
-            <a class="dp-action primary" href="/?icao=${icao}" title="Open on radar map">Open on Radar</a>
+            ${(function() {
+                const _mp = isMappable(p);
+                if (_mp.ok && _mp.link) {
+                    return `<a class="dp-action primary" href="${_mp.link}" title="Open on radar map">Open on Radar</a>`;
+                }
+                return `<span class="no-radar-action" title="${_mp.reason || 'Not mappable'}">${_mp.reason || 'Not mappable'}</span>`;
+            })()}
         </div>
     </div>`;
 }
@@ -755,31 +796,34 @@ function setClassFilter(cls) {
 }
 
 function applyFilters() {
-    const q        = (document.getElementById('ac-search').value || '').toLowerCase().trim();
-    const routeOnly = document.getElementById('chk-route').checked;
-    const noIdOnly  = document.getElementById('chk-noid').checked;
+    const q           = (document.getElementById('ac-search').value || '').toLowerCase().trim();
+    const routeOnly   = document.getElementById('chk-route').checked;
+    const noIdOnly    = document.getElementById('chk-noid').checked;
+    const mappableOnly = document.getElementById('chk-mappable').checked;
     const tbl = document.getElementById('ac-table');
     if (!tbl) return;
 
     let vis = 0, total = 0;
     for (const row of tbl.querySelectorAll('tbody tr.clickable-row')) {
         total++;
-        const cls    = row.dataset.class  || 'unknown';
-        const ground = row.dataset.ground === '1';
-        const hasRt  = row.dataset.route  === '1';
-        const noId   = row.dataset.noid   === '1';
-        const srch   = row.dataset.srch   || '';
+        const cls      = row.dataset.class    || 'unknown';
+        const ground   = row.dataset.ground   === '1';
+        const hasRt    = row.dataset.route    === '1';
+        const noId     = row.dataset.noid     === '1';
+        const mappable = row.dataset.mappable === '1';
+        const srch     = row.dataset.srch     || '';
 
         let clsMatch;
         if (classFilter === 'all')        clsMatch = true;
         else if (classFilter === 'ground') clsMatch = ground;
         else                               clsMatch = cls === classFilter && !ground;
 
-        const rtMatch   = !routeOnly || hasRt;
-        const noidMatch = !noIdOnly  || noId;
-        const qMatch    = !q || srch.includes(q);
+        const rtMatch     = !routeOnly    || hasRt;
+        const noidMatch   = !noIdOnly     || noId;
+        const mapMatch    = !mappableOnly || mappable;
+        const qMatch      = !q || srch.includes(q);
 
-        const show = clsMatch && rtMatch && noidMatch && qMatch;
+        const show = clsMatch && rtMatch && noidMatch && mapMatch && qMatch;
         row.classList.toggle('hidden-row', !show);
 
         const detail = row.nextElementSibling;
@@ -790,7 +834,7 @@ function applyFilters() {
         if (show) vis++;
     }
 
-    const hasFilter = q || classFilter !== 'all' || routeOnly || noIdOnly;
+    const hasFilter = q || classFilter !== 'all' || routeOnly || noIdOnly || mappableOnly;
     document.getElementById('ac-count').textContent =
         hasFilter
             ? `${vis} of ${total} rendered`
