@@ -326,6 +326,17 @@
         var DEAD_RECKON_MAX_AGE = 180;
         var REMOVE_STALE_AGE = 3600;
 
+        // Refresh reliability state
+        var lastGoodAircraftCount = 0;
+        var lastGoodRefreshAt = 0;
+        var consecutiveEmptyResponses = 0;
+        var refreshInFlight = false;
+        var refreshSeqId = 0;
+        var deepLinkApplied = false;
+        var FULL_REFRESH_INTERVAL_MS = 90000;   // periodic fallback behind SSE
+        var FETCH_TIMEOUT_MS = 30000;            // abort hung fetches
+        var SUSPICIOUS_EMPTY_THRESHOLD = 3;     // ignore N empties before accepting
+
         function updateBounds() {
             currentBounds = map.getBounds().pad(BOUNDS_PAD);
         }
@@ -1540,15 +1551,8 @@
         }
         updateLabelVisibility();
 
-        // Load initial planes
-        fetch('/api/?action=Planes&_=' + Date.now())
-            .then(function(res) { return res.json(); })
-            .then(function(json) {
-                var planes = json.response && json.response.data ? json.response.data.planes || [] : [];
-                planes.forEach(processPlane);
-                syncVisiblePlanes();
-                applyDeepLink();
-            });
+        // Initial load — uses the hardened doFullRefresh (defined below)
+        doFullRefresh();
 
         // SSE stream
         var source = new EventSource('/api/stream');
@@ -1558,6 +1562,16 @@
         source.onerror = function() {
             console.log('SSE connection error, will retry...');
         };
+
+        // Periodic full re-fetch — fallback in case SSE is throttled by browser
+        setInterval(doFullRefresh, FULL_REFRESH_INTERVAL_MS);
+
+        // Re-fetch immediately when user returns to a background tab
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                doFullRefresh();
+            }
+        });
 
         setInterval(function() {
             var now = Date.now() / 1000;
@@ -1638,8 +1652,97 @@
             }
         });
 
+        /* ── Hardened full refresh ── */
+        function doFullRefresh() {
+            if (refreshInFlight) return;
+            refreshInFlight = true;
+            var seq = ++refreshSeqId;
+
+            var controller = new AbortController();
+            var abortTimer = setTimeout(function() { controller.abort(); }, FETCH_TIMEOUT_MS);
+
+            fetch('/api/?action=Planes&_=' + Date.now(), { signal: controller.signal })
+                .then(function(res) {
+                    clearTimeout(abortTimer);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(function(json) {
+                    // Discard if a newer request already finished
+                    if (seq !== refreshSeqId) { refreshInFlight = false; return; }
+                    refreshInFlight = false;
+
+                    var planes = (json.response && json.response.data && json.response.data.planes) || [];
+
+                    // Suspicious empty: API returned 0 aircraft but we had a healthy count before.
+                    // Keep existing markers until this happens repeatedly (edge case: real outage).
+                    if (planes.length === 0 && lastGoodAircraftCount > 50) {
+                        consecutiveEmptyResponses++;
+                        console.warn('[Radar] Empty response ' + consecutiveEmptyResponses + '/' +
+                            SUSPICIOUS_EMPTY_THRESHOLD + ' — keeping ' + lastGoodAircraftCount + ' aircraft');
+                        if (consecutiveEmptyResponses < SUSPICIOUS_EMPTY_THRESHOLD) {
+                            showStatusHUD('Empty aircraft response — keeping last known data');
+                            return;
+                        }
+                        console.warn('[Radar] Accepting empty response after ' +
+                            consecutiveEmptyResponses + ' consecutive empties');
+                    } else {
+                        consecutiveEmptyResponses = 0;
+                    }
+
+                    planes.forEach(processPlane);
+                    syncVisiblePlanes();
+
+                    if (planes.length > 0) {
+                        lastGoodAircraftCount = planes.length;
+                        lastGoodRefreshAt = Date.now();
+                    }
+
+                    applyDeepLink();
+                })
+                .catch(function(err) {
+                    clearTimeout(abortTimer);
+                    if (seq !== refreshSeqId) { refreshInFlight = false; return; }
+                    refreshInFlight = false;
+                    if (err.name === 'AbortError') {
+                        console.warn('[Radar] Refresh timed out after ' + (FETCH_TIMEOUT_MS / 1000) + 's');
+                    } else {
+                        console.warn('[Radar] Refresh failed:', err.message);
+                    }
+                    if (lastGoodAircraftCount > 0) {
+                        showStatusHUD('Radar refresh failed — showing last known aircraft');
+                    }
+                });
+        }
+
+        function showStatusHUD(message) {
+            var hud = document.getElementById('status-hud');
+            if (!hud) {
+                hud = document.createElement('div');
+                hud.id = 'status-hud';
+                hud.style.cssText = [
+                    'position:fixed', 'bottom:64px', 'left:50%', 'transform:translateX(-50%)',
+                    'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(255,170,85,0.35)',
+                    'border-radius:6px', 'padding:9px 18px', 'font-size:12px',
+                    'font-family:"Segoe UI",sans-serif', 'color:#fa5',
+                    'z-index:9999', 'cursor:pointer', 'white-space:nowrap',
+                    'box-shadow:0 2px 12px rgba(0,0,0,0.5)'
+                ].join(';');
+                hud.onclick = function() { this.style.display = 'none'; };
+                document.body.appendChild(hud);
+            }
+            hud.textContent = message;
+            hud.style.display = 'block';
+            if (hud._timer) clearTimeout(hud._timer);
+            hud._timer = setTimeout(function() { hud.style.display = 'none'; }, 10000);
+        }
+
         /* ── Deep-link support: /?icao=HEX or /?callsign=CALL ── */
         function applyDeepLink() {
+            // Guard: run at most once per page load regardless of how many refreshes fire
+            if (deepLinkApplied) return;
+            deepLinkApplied = true;
+
             var params = new URLSearchParams(window.location.search);
             var icaoParam  = (params.get('icao')     || '').toUpperCase().trim();
             var callParam  = (params.get('callsign') || '').toUpperCase().trim();
