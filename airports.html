@@ -407,6 +407,15 @@
             border-radius: 3px;
         }
         .mini-link:hover { background: rgba(0,255,204,0.08); }
+        .airport-code-link {
+            color: #00ffcc;
+            text-decoration: none;
+            font-family: Consolas, Menlo, monospace;
+            font-weight: 700;
+        }
+        .airport-code-link:hover {
+            text-decoration: underline;
+        }
 
         /* ── Footer ── */
         .footer {
@@ -713,7 +722,7 @@ function airportRow(code, deps, arrs, total, rank) {
                     : deps > 0 ? 'Origin Only'
                     : 'Destination Only';
     return `<tr class="clickable-row" data-code="${code}" data-name="${name.toLowerCase()}" data-deps="${deps}" data-arrs="${arrs}" onclick="toggleAirportDetail('${detailId}')">
-        <td class="code">${rankHtml}${code}</td>
+        <td class="code">${rankHtml}<a class="airport-code-link" href="/?airport=${code}" onclick="event.stopPropagation()">${code}</a></td>
         <td class="name">${name}</td>
         <td class="region">${region}</td>
         <td class="num">${deps > 0 ? deps.toLocaleString() : '<span style="color:#2a2a2a">—</span>'}</td>
@@ -749,15 +758,16 @@ function renderTopList(entries, containerId, countId, maxRows = 20) {
         const name = info ? info.name : '';
         const region = info ? regionLabel(info.region) : '';
         rows += `<tr>
-            <td class="code"><span class="rank">${i+1}.</span>${code}</td>
+            <td class="code"><span class="rank">${i+1}.</span><a class="airport-code-link" href="/?airport=${code}">${code}</a></td>
             <td class="name">${name}</td>
             <td class="region">${region}</td>
             <td class="num">${cnt.toLocaleString()}</td>
+            <td><a class="mini-link" href="/?airport=${code}">Map</a></td>
         </tr>`;
     });
     document.getElementById(containerId).innerHTML = `
         <table>
-            <thead><tr><th>Code</th><th>Airport</th><th>Region</th><th class="r">Count</th></tr></thead>
+            <thead><tr><th>Code</th><th>Airport</th><th>Region</th><th class="r">Count</th><th>Map</th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 }
