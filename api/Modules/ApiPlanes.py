@@ -43,6 +43,11 @@ class ApiPlanes(ApiBase):
             "required": False,
             "type": "string"
         },
+        "airport": {
+            "description": "Airport code for airport-focused view (e.g., KPIT, KJFK)",
+            "required": False,
+            "type": "string"
+        },
         "view": {
             "description": "Response shape: summary (aggregated counts), ground (ground sweep only), alerts (alert fields), table (lookup table). Omit for full response.",
             "required": False,
@@ -146,6 +151,12 @@ class ApiPlanes(ApiBase):
 
         total_count = len(planes)
 
+        if view == "airport":
+            airport = (self.params.get("airport") or self.params.get("near") or "").strip().upper()
+            self.responseData = self._buildAirportView(planes, airport, total_count)
+            self.sendResponse(self.SUCCESS)
+            return
+
         if view == "ground":
             planes = [p for p in planes if self._isGroundPlane(p)]
             planes = self._pickFields(planes, "ground")
@@ -180,8 +191,9 @@ class ApiPlanes(ApiBase):
         plane.update(profile)
         plane.update(state)
 
-        _state_src   = state.get("source", "")
-        _profile_src = profile.get("source", "")
+        _state_src   = (state.get("source", "") or "").strip()
+        _profile_src = (profile.get("source", "") or "").strip()
+        _src = _state_src or _profile_src
 
         normalized = {
             "flightId": plane.get("flight_id", flightId),
@@ -196,8 +208,8 @@ class ApiPlanes(ApiBase):
             "faaTs": plane.get("faa_ts", ""),
             "flightStatus": plane.get("flight_status", ""),
             "icaoHex": plane.get("icao_hex", ""),
-            "source": _state_src or _profile_src,
-            "positionSource": _state_src or _profile_src,
+            "source": _src,
+            "positionSource": _src,
             "enrichmentSource": _profile_src,
             "sourceFacility": plane.get("source_facility", ""),
             "trackKey": plane.get("track_key", ""),
@@ -215,6 +227,26 @@ class ApiPlanes(ApiBase):
 
         if normalized["lat"] == 0 and normalized["lon"] == 0:
             return None
+
+        # Drop empty zombie records that have a position but no useful identity,
+        # no route, and no provenance. These create misleading "Unknown source"
+        # counts without adding operational value.
+        has_identity = bool(
+            (normalized.get("icaoHex") or "").strip()
+            or (normalized.get("callsign") or "").strip()
+            or (normalized.get("registration") or "").strip()
+            or (normalized.get("flightId") or "").strip()
+        )
+        has_route = bool((normalized.get("dep") or "").strip() or (normalized.get("arr") or "").strip())
+        has_source = bool((normalized.get("source") or "").strip())
+
+        if not has_source and not has_identity and not has_route:
+            return None
+
+        if not has_source:
+            normalized["source"] = "legacy-state"
+            normalized["positionSource"] = "legacy-state"
+            normalized["sourceFacility"] = normalized.get("sourceFacility") or "unprovenanced"
 
         return normalized
 
@@ -452,6 +484,43 @@ class ApiPlanes(ApiBase):
         else:
             fields = self._TABLE_FIELDS
         return [{k: v for k, v in p.items() if k in fields} for p in planes]
+
+    def _buildAirportView(self, planes: list, airport: str, total_count: int) -> dict:
+        airport = (airport or "").strip().upper()
+        if not airport:
+            return {
+                "airport": "",
+                "count": 0,
+                "total": total_count,
+                "inbound": [],
+                "outbound": [],
+                "message": "Missing airport parameter",
+            }
+
+        inbound = []
+        outbound = []
+
+        for p in planes:
+            dep = (p.get("dep") or "").strip().upper()
+            arr = (p.get("arr") or "").strip().upper()
+
+            if arr == airport:
+                inbound.append(p)
+            if dep == airport:
+                outbound.append(p)
+
+        inbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
+        outbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
+
+        return {
+            "airport": airport,
+            "count": len(inbound) + len(outbound),
+            "total": total_count,
+            "inboundCount": len(inbound),
+            "outboundCount": len(outbound),
+            "inbound": self._pickFields(inbound[:50], "table"),
+            "outbound": self._pickFields(outbound[:50], "table"),
+        }
 
     def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
         airborne = 0
