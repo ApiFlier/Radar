@@ -388,9 +388,14 @@
 </div>
 
 <script>
+/* ── Settings ── */
+const RS = (function() {
+    try { return JSON.parse(localStorage.getItem('radar.settings') || '{}'); } catch(e) { return {}; }
+})();
+
 /* ── Constants ── */
 const VALID_CODE_RE = /^[A-Z]{3,4}$/;
-const PAGE_SIZE = 500;
+const PAGE_SIZE = Math.max(50, Math.min(2000, parseInt(RS.aircraftPageSize || '500', 10) || 500));
 
 const SOURCE_LABELS = {
     'adsblol-ground-sweep': 'Ground Sweep',

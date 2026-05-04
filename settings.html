@@ -213,28 +213,28 @@
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default airport</div>
-                            <div class="setting-desc">Used by future radar startup behavior and airport-focused views.</div>
+                            <div class="setting-desc">Radar centers on this airport at startup when no URL deep link is present. Leave blank for lat/lon-based center.</div>
                         </div>
                         <input id="defaultAirport" type="text" maxlength="4" placeholder="KPIT">
                     </div>
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default map zoom</div>
-                            <div class="setting-desc">Saved preference. Wiring into radar startup is a future pass.</div>
+                            <div class="setting-desc">Applied at radar startup and when centering on the default airport.</div>
                         </div>
                         <input id="defaultZoom" type="number" min="3" max="16" step="1">
                     </div>
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default center latitude</div>
-                            <div class="setting-desc">Optional saved center point for future radar startup behavior.</div>
+                            <div class="setting-desc">Applied at startup if set and no default airport is configured.</div>
                         </div>
                         <input id="defaultLat" type="text" placeholder="40.491389">
                     </div>
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default center longitude</div>
-                            <div class="setting-desc">Optional saved center point for future radar startup behavior.</div>
+                            <div class="setting-desc">Applied at startup if set and no default airport is configured.</div>
                         </div>
                         <input id="defaultLon" type="text" placeholder="-80.232778">
                     </div>
@@ -246,8 +246,8 @@
                 <div class="section-body">
                     <div class="setting">
                         <div>
-                            <div class="setting-title">Show aircraft labels <span class="future">future wiring</span></div>
-                            <div class="setting-desc">Saved now; radar label behavior can read this later.</div>
+                            <div class="setting-title">Show aircraft labels</div>
+                            <div class="setting-desc">When off, aircraft callsign labels are hidden at all zoom levels.</div>
                         </div>
                         <label class="toggle"><input id="showLabels" type="checkbox"> Enabled</label>
                     </div>
@@ -267,8 +267,8 @@
                     </div>
                     <div class="setting">
                         <div>
-                            <div class="setting-title">Show raw source keys</div>
-                            <div class="setting-desc">Useful for debugging source normalization.</div>
+                            <div class="setting-title">Show source details</div>
+                            <div class="setting-desc">Shows position source, route enrichment, and facility in the aircraft detail panel. Useful for debugging.</div>
                         </div>
                         <label class="toggle"><input id="showRawSources" type="checkbox"> Enabled</label>
                     </div>
@@ -281,7 +281,7 @@
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default Alerts tab</div>
-                            <div class="setting-desc">Alerts can read this in a future wiring pass. Operational is recommended.</div>
+                            <div class="setting-desc">Alerts page opens on this tab. Operational is recommended for normal monitoring.</div>
                         </div>
                         <select id="defaultAlertsTab">
                             <option value="operational">Operational</option>
@@ -308,14 +308,14 @@
                     <div class="setting">
                         <div>
                             <div class="setting-title">Show Data Quality summary on Alerts</div>
-                            <div class="setting-desc">Saved preference. Data Quality Notes are non-operational.</div>
+                            <div class="setting-desc">When off, the Data Quality Notes summary card is hidden from the Alerts overview. The tab is still available.</div>
                         </div>
                         <label class="toggle"><input id="showDQSummary" type="checkbox"> Enabled</label>
                     </div>
                     <div class="setting">
                         <div>
                             <div class="setting-title">Show inferred warnings</div>
-                            <div class="setting-desc">Controls whether inferred observations should be highlighted in future UI passes.</div>
+                            <div class="setting-desc">When off, the aircraft panel suppresses stale/missing notices. Data Quality Notes remain available in the Alerts tab.</div>
                         </div>
                         <label class="toggle"><input id="showInferredWarnings" type="checkbox"> Enabled</label>
                     </div>

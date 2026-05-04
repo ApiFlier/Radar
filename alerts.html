@@ -357,13 +357,21 @@ const EMRG_SQUAWKS  = { '7500': 'Unlawful interference / Hijack', '7600': 'Radio
 const STALE_SECS    = 180;   // 3 min — flag as potentially stale
 const HB_STALE_SECS = 90;    // ADSB.lol heartbeat stale threshold
 
+/* ── Settings ── */
+const RS = (function() {
+    const D = { defaultAlertsTab:'operational', showDQSummary:true, showInferredWarnings:true };
+    try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
+    catch(e) { return Object.assign({}, D); }
+})();
+
 /* ── State ── */
 let allAlerts   = [];   // operational alerts only (emergency/military/helicopter/ground/source-health)
 let dqAlerts    = [];   // data-quality alerts (built lazily on first DQ tab click)
 let dqSummary   = { noId: 0, noRoute: 0, unknownSrc: 0, stale: 0 };
 let dqLoaded    = false;
 let lastPlanes  = [];   // stored for lazy DQ generation
-let catFilter   = 'operational';  // default: operational view excludes data-quality noise
+const _validTabs = ['operational','all','emergency','military','helicopter','ground','data-quality','source-health'];
+let catFilter   = _validTabs.includes(RS.defaultAlertsTab) ? RS.defaultAlertsTab : 'operational';
 const DQ_CAP    = 150;  // max per-type DQ rows to avoid DOM overload
 
 /* ── Helpers ── */
@@ -656,11 +664,11 @@ function renderCards(alerts) {
             <div class="value">${ground.toLocaleString()}</div>
             <div class="label">Ground</div>
         </div>
-        <div class="card dim">
+        ${RS.showDQSummary ? `<div class="card dim">
             <div class="value">${dqTotal.toLocaleString()}</div>
             <div class="label">Data Quality Notes</div>
             <div class="sub" style="font-size:10px;color:#555">${dqTotal > 0 ? 'Non-operational completeness notes' : ''}</div>
-        </div>
+        </div>` : ''}
         <div class="card ${sh > 0 ? 'warn' : 'dim'}">
             <div class="value">${sh.toLocaleString()}</div>
             <div class="label">Source Health</div>
@@ -915,6 +923,11 @@ function scheduleRefresh() {
     clearTimeout(timer);
     timer = setTimeout(() => { doRefresh().then(scheduleRefresh); }, 30000);
 }
+
+// Apply saved tab preference — update active button before first render
+document.querySelectorAll('#cat-filter-tabs .filter-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.f === catFilter);
+});
 
 doRefresh().then(scheduleRefresh);
 </script>
