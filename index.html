@@ -1639,9 +1639,14 @@
             var icon = makePlaneIcon(id, p.heading || 0, color, staleOpacity(p));
 
             var marker = L.marker([p.lat, p.lon], {icon: icon})
-                .bindPopup(popupContent(p))
                 .on('click', (function(fid) {
-                    return function() {
+                    return function(e) {
+                        if (e.originalEvent && e.originalEvent.shiftKey) {
+                            L.popup().setLatLng(planeMarkers[fid].getLatLng())
+                                     .setContent(popupContent(planeData[fid]))
+                                     .openOn(map);
+                            return;
+                        }
                         if (shouldDrawTrail(planeData[fid])) {
                             showTrail(fid);
                         }
@@ -2090,10 +2095,17 @@
                 fillColor: airportColor(a),
                 fillOpacity: 0.65,
                 opacity: 0.95
-            }).bindPopup(airportPopup(a))
-              .on('click', (function(apt) {
+            }).on('click', (function(apt) {
                 var aptCode = String(apt.ident || apt.gps_code || apt.icao || apt.code || '').toUpperCase();
-                return function() { openAirportPanel(aptCode, apt); };
+                return function(e) {
+                    if (e.originalEvent && e.originalEvent.shiftKey) {
+                        L.popup().setLatLng([apt.lat, apt.lon])
+                                 .setContent(airportPopup(apt))
+                                 .openOn(map);
+                        return;
+                    }
+                    openAirportPanel(aptCode, apt);
+                };
               })(a));
 
             marker.addTo(airportLayer);
@@ -2438,7 +2450,6 @@
                 var p = planeData[flightId];
                 map.setView([p.lat, p.lon], 12);
                 if (!planeMarkers[flightId]) addMarker(flightId);
-                if (planeMarkers[flightId]) planeMarkers[flightId].openPopup();
             }
 
             startFollow(flightId);
@@ -2577,8 +2588,7 @@
                     // Allow moveend / syncVisiblePlanes to run before opening popup
                     setTimeout(function() {
                         if (!planeMarkers[targetId]) addMarker(targetId);
-                        var marker = planeMarkers[targetId];
-                        if (marker) { marker.openPopup(); startFollow(targetId); }
+                        startFollow(targetId);
                         openAircraftPanel(targetId);
                     }, 350);
                     return;
@@ -2648,6 +2658,23 @@
             hud.textContent = 'Aircraft "' + label + '" not found in current feed — click to dismiss';
             hud.style.display = 'block';
             setTimeout(function() { if (hud) hud.style.display = 'none'; }, 8000);
+        }
+
+        /* ── Popup helpers (Shift+Click or panel Popup button) ── */
+        function openAircraftPopup(flightId) {
+            var p = planeData[flightId];
+            var m = planeMarkers[flightId];
+            if (!p || !m) return;
+            L.popup().setLatLng(m.getLatLng()).setContent(popupContent(p)).openOn(map);
+        }
+
+        function openAirportPopup(code) {
+            var a = lookupAirport(code);
+            if (!a) return;
+            var lat = parseFloat(a.lat || a.latitude_deg);
+            var lon = parseFloat(a.lon || a.longitude_deg);
+            if (isNaN(lat) || isNaN(lon)) return;
+            L.popup().setLatLng([lat, lon]).setContent(airportPopup(a)).openOn(map);
         }
 
         /* ── Side detail panel ── */
@@ -2790,6 +2817,7 @@
             } else {
                 html += '<button class="dp-action primary" onclick="startFollow(\'' + fid + '\');renderAircraftPanel()">Follow</button>';
             }
+            html += '<button class="dp-action" onclick="openAircraftPopup(\'' + fid + '\')">Popup</button>';
             if (icao) {
                 html += '<a class="dp-action" href="https://globe.adsbexchange.com/?icao=' +
                         htmlEscape(icao.toLowerCase()) + '" target="_blank" rel="noopener">ADSBx</a>';
@@ -2912,6 +2940,7 @@
             html += '<div class="dp-actions">';
             html += '<button class="dp-action primary" onclick="applyAirportDeepLink(\'' +
                     htmlEscape(aptCode) + '\')">Center Map</button>';
+            html += '<button class="dp-action" onclick="openAirportPopup(\'' + htmlEscape(aptCode) + '\')">Popup</button>';
             html += '<a class="dp-action" href="/airports">Airports</a>';
             if (website) html += '<a class="dp-action" href="' + esc(website) + '" target="_blank" rel="noopener">Website</a>';
             if (wiki)    html += '<a class="dp-action" href="' + esc(wiki) + '" target="_blank" rel="noopener">Wikipedia</a>';
