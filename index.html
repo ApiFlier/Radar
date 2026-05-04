@@ -379,6 +379,150 @@
             background: rgba(0,255,204,0.13);
             color: #fff;
         }
+
+        .apt-popup {
+            min-width: 300px;
+            max-width: 360px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #bbb;
+            overflow: hidden;
+        }
+        .apt-head {
+            padding: 12px 14px 9px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            background: rgba(0,255,204,0.035);
+        }
+        .apt-code {
+            color: #00ffcc;
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            font-family: Consolas, Menlo, monospace;
+            line-height: 1.1;
+        }
+        .apt-name {
+            color: #ddd;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 3px;
+            line-height: 1.3;
+        }
+        .apt-region {
+            color: #777;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+        .apt-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            background: rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .apt-cell {
+            background: rgba(0,0,0,0.24);
+            padding: 8px 9px;
+            min-width: 0;
+        }
+        .apt-label {
+            color: #555;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.55px;
+            margin-bottom: 2px;
+        }
+        .apt-value {
+            color: #ddd;
+            font-size: 12px;
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .apt-value.accent { color: #00ffcc; }
+        .apt-body {
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .apt-section-title {
+            color: #00ffcc;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.65px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .apt-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11px;
+            padding: 2px 0;
+        }
+        .apt-row span:first-child {
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.45px;
+            white-space: nowrap;
+        }
+        .apt-row span:last-child {
+            color: #aaa;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        .apt-frequency {
+            display: grid;
+            grid-template-columns: 44px 76px 1fr;
+            gap: 8px;
+            font-size: 11px;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.035);
+        }
+        .apt-frequency:last-child { border-bottom: none; }
+        .apt-frequency .type {
+            color: #00ffcc;
+            font-family: Consolas, Menlo, monospace;
+            font-weight: 700;
+        }
+        .apt-frequency .mhz {
+            color: #ddd;
+            font-family: Consolas, Menlo, monospace;
+        }
+        .apt-frequency .desc { color: #777; }
+        .apt-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 10px 14px 12px;
+        }
+        .apt-action {
+            color: #aaa;
+            border: 1px solid rgba(255,255,255,0.13);
+            background: rgba(255,255,255,0.03);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .apt-action:hover { color: #fff; background: rgba(255,255,255,0.07); }
+        .apt-action.primary {
+            color: #00ffcc;
+            border-color: rgba(0,255,204,0.28);
+            background: rgba(0,255,204,0.055);
+        }
+        .apt-action.primary:hover { background: rgba(0,255,204,0.11); }
+        .apt-note {
+            padding: 8px 14px 11px;
+            color: #555;
+            font-size: 10px;
+            line-height: 1.35;
+            background: rgba(255,255,255,0.015);
+        }
+
     </style>
 </head>
 <body>
@@ -1635,36 +1779,101 @@
         }
 
         function airportPopup(a) {
-            var codeLine = [
-                a.iata ? 'IATA ' + a.iata : '',
-                a.icao ? 'ICAO ' + a.icao : '',
-                a.local ? 'Local ' + a.local : '',
-                a.gps ? 'GPS ' + a.gps : ''
-            ].filter(Boolean).join(' / ');
+            if (!a) return '<div class="apt-popup"><div class="apt-body">No airport data</div></div>';
 
-            var html = '<div style="min-width:240px">';
-            html += '<b>' + (a.code || a.ident) + ' - ' + (a.name || '') + '</b>';
-            html += '<br>' + codeLine;
-            html += '<br>' + (a.municipality || '') + ' ' + (a.region || '');
-            if (a.elevation_ft) html += '<br>Elevation: ' + a.elevation_ft + ' ft';
-            html += '<br>Type: ' + (a.type || '').replace('_', ' ');
+            function clean(v) {
+                return String(v || '').trim();
+            }
 
-            if (a.frequencies && a.frequencies.length) {
-                html += '<hr style="border-color:#333">';
-                html += '<b>Frequencies</b>';
-                a.frequencies.slice(0, 8).forEach(function(f) {
-                    html += '<br>' + (f.type || '') + ': ' + f.mhz + ' MHz';
-                    if (f.description) html += ' - ' + f.description;
+            function codeValue(v) {
+                return clean(v).toUpperCase();
+            }
+
+            function prettyType(t) {
+                t = clean(t).replace(/_/g, ' ');
+                return t ? t.replace(/\b\w/g, function(c) { return c.toUpperCase(); }) : 'Airport';
+            }
+
+            function row(label, value) {
+                if (!value) return '';
+                return '<div class="apt-row"><span>' + htmlEscape(label) + '</span><span>' + htmlEscape(value) + '</span></div>';
+            }
+
+            function cell(label, value, cls) {
+                return '<div class="apt-cell"><div class="apt-label">' + htmlEscape(label) + '</div><div class="apt-value ' + (cls || '') + '">' + htmlEscape(value || '—') + '</div></div>';
+            }
+
+            var ident = codeValue(a.ident || a.icao || a.gps_code);
+            var iata = codeValue(a.iata_code || a.iata);
+            var icao = codeValue(a.gps_code || a.icao || a.ident);
+            var local = codeValue(a.local_code);
+            var gps = codeValue(a.gps_code);
+            var primaryCode = iata || icao || ident || local || gps || 'APT';
+
+            var name = clean(a.name) || 'Airport';
+            var municipality = clean(a.municipality || a.city);
+            var region = clean(a.region || a.iso_region);
+            var country = clean(a.iso_country || a.country);
+            var elevationRaw = clean(a.elevation_ft || a.elevation);
+            var elevation = elevationRaw ? Number(elevationRaw).toLocaleString() + ' ft' : '';
+            var type = prettyType(a.type);
+            var website = clean(a.home_link || a.website || a.url);
+            var wiki = clean(a.wikipedia_link);
+
+            var html = '<div class="apt-popup">';
+
+            html += '<div class="apt-head">';
+            html += '<div class="apt-code">' + htmlEscape(primaryCode) + '</div>';
+            html += '<div class="apt-name">' + htmlEscape(name) + '</div>';
+            html += '<div class="apt-region">' + htmlEscape([municipality, region || country].filter(Boolean).join(' · ')) + '</div>';
+            html += '</div>';
+
+            html += '<div class="apt-grid">';
+            html += cell('IATA', iata || '—', iata ? 'accent' : '');
+            html += cell('ICAO', icao || ident || '—', icao || ident ? 'accent' : '');
+            html += cell('Elevation', elevation || '—', '');
+            html += '</div>';
+
+            html += '<div class="apt-body">';
+            html += row('Type', type);
+            html += row('Local', local);
+            html += row('GPS', gps);
+            html += row('Region', region);
+            html += '</div>';
+
+            var freqs = Array.isArray(a.frequencies) ? a.frequencies : [];
+            if (freqs.length) {
+                html += '<div class="apt-body">';
+                html += '<div class="apt-section-title">Frequencies</div>';
+
+                freqs.slice(0, 8).forEach(function(f) {
+                    var fType = clean(f.type || f.frequency_type || f.name).toUpperCase();
+                    var mhz = clean(f.frequency_mhz || f.mhz || f.freq || f.frequency);
+                    var desc = clean(f.description || f.desc || f.use || f.name);
+
+                    html += '<div class="apt-frequency">';
+                    html += '<span class="type">' + htmlEscape(fType || '—') + '</span>';
+                    html += '<span class="mhz">' + htmlEscape(mhz ? mhz + ' MHz' : '—') + '</span>';
+                    html += '<span class="desc">' + htmlEscape(desc || '') + '</span>';
+                    html += '</div>';
                 });
+
+                if (freqs.length > 8) {
+                    html += '<div class="apt-row"><span>More</span><span>' + htmlEscape(String(freqs.length - 8)) + ' additional frequencies hidden</span></div>';
+                }
+
+                html += '</div>';
             }
 
-            if (a.home_link) {
-                html += '<hr style="border-color:#333">';
-                html += '<a href="' + a.home_link + '" target="_blank">Airport website</a>';
-            }
+            html += '<div class="apt-actions">';
+            html += '<a class="apt-action primary" href="/?airport=' + encodeURIComponent(icao || ident || primaryCode) + '">Center Map</a>';
+            html += '<a class="apt-action" href="/airports">Airport Dashboard</a>';
+            if (website) html += '<a class="apt-action" href="' + htmlEscape(website) + '" target="_blank" rel="noopener">Website</a>';
+            if (wiki) html += '<a class="apt-action" href="' + htmlEscape(wiki) + '" target="_blank" rel="noopener">Wikipedia</a>';
+            html += '</div>';
 
-            html += '<hr style="border-color:#333">';
-            html += '<small>Airport/frequency data is for display only. Verify against official FAA sources before operational use.</small>';
+            html += '<div class="apt-note">Airport and frequency data is for display only. Verify against official FAA sources before operational use.</div>';
+
             html += '</div>';
             return html;
         }
