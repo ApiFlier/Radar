@@ -24,3 +24,6 @@ deploy.env
 .vscode/
 .idea/
 .DS_Store
+
+# Claude Code local state (never commit)
+.claude/
