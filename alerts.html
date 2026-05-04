@@ -621,14 +621,23 @@ function buildDQAlerts(planes) {
 }
 
 function loadDQIfNeeded() {
-    if (dqLoaded || !lastPlanes.length) return;
-    dqAlerts = buildDQAlerts(lastPlanes);
-    dqLoaded = true;
-    const tbody = document.querySelector('#alerts-table tbody');
-    if (!tbody) return;
-    let html = '';
-    for (const alert of dqAlerts) html += buildAlertRow(alert);
-    tbody.insertAdjacentHTML('beforeend', html);
+    if (dqLoaded) return;
+    dqLoaded = true; // prevent double-fetch
+
+    // Fetch full alerts payload for DQ row generation (done lazily)
+    fetch('/api/?action=Planes&view=alerts&_=' + Date.now())
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(json) {
+            const planes = json?.response?.data?.planes || [];
+            dqAlerts = buildDQAlerts(planes);
+            const tbody = document.querySelector('#alerts-table tbody');
+            if (!tbody) return;
+            let html = '';
+            for (const alert of dqAlerts) html += buildAlertRow(alert);
+            tbody.insertAdjacentHTML('beforeend', html);
+            applyFilters();
+        })
+        .catch(function() { dqLoaded = false; }); // allow retry on error
 }
 
 /* ── Cards ── */
@@ -885,8 +894,10 @@ async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
     const t0 = Date.now();
     try {
+        // Fetch only operational-flagged aircraft for fast initial load.
+        // DQ rows are lazy-fetched when the Data Quality tab is selected.
         const [planesRes, healthRes] = await Promise.all([
-            fetch('/api/?action=Planes&view=alerts&_=' + Date.now()),
+            fetch('/api/?action=Planes&view=alerts&category=operational&_=' + Date.now()),
             fetch('/api/?action=Health'),
         ]);
         const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
@@ -894,12 +905,15 @@ async function doRefresh() {
         const planesJson = planesRes.ok ? await planesRes.json() : null;
         const healthJson = healthRes.ok ? await healthRes.json() : null;
 
-        const planes = planesJson?.response?.data?.planes || [];
-        const total  = planesJson?.response?.data?.total  || 0;
+        const data   = planesJson?.response?.data || {};
+        const planes = data.planes    || [];
+        const total  = data.total     || 0;
+        const serverDQ = data.dqSummary || null;
         const health = healthJson?.response?.data || healthJson;
 
-        lastPlanes = planes;     // store for lazy DQ generation
-        dqLoaded   = false;      // reset so DQ rows are rebuilt on next access
+        lastPlanes = [];    // no full plane list; DQ rows fetched on demand
+        dqLoaded   = false;
+        if (serverDQ) dqSummary = serverDQ;  // accurate DQ counts from server scan
 
         allAlerts = buildAlerts(planes, health);
         renderCards(allAlerts);

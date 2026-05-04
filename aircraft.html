@@ -364,17 +364,17 @@
                     <button class="filter-btn"        data-f="unknown"    onclick="setClassFilter('unknown')">Unknown</button>
                 </div>
                 <label class="check-label" title="Show only aircraft with known departure and arrival">
-                    <input type="checkbox" id="chk-route" onchange="applyFilters()"> Route only
+                    <input type="checkbox" id="chk-route"> Route only
                 </label>
                 <label class="check-label" title="Show only aircraft with no callsign or registration">
-                    <input type="checkbox" id="chk-noid" onchange="applyFilters()"> Missing ID
+                    <input type="checkbox" id="chk-noid"> Missing ID
                 </label>
                 <label class="check-label" title="Show only aircraft with a live position on the radar map">
-                    <input type="checkbox" id="chk-mappable" onchange="applyFilters()"> Mappable
+                    <input type="checkbox" id="chk-mappable"> Mappable
                 </label>
                 <div class="search-wrap">
                     <input class="search-input" id="ac-search" type="text"
-                           placeholder="callsign, reg, ICAO, route…" oninput="applyFilters()">
+                           placeholder="callsign, reg, ICAO, route…">
                 </div>
                 <span class="count-badge" id="ac-count"></span>
             </div>
@@ -417,13 +417,20 @@ const SOURCE_LABELS = {
 };
 
 /* ── State ── */
-let allPlanes    = [];
-let classFilter  = 'all';
-let sortCol      = 'lastUpdate';
-let sortDir      = 'desc';
-let currentSorted = [];
-let renderedCount = 0;
-const planeMap   = new Map(); // detailId → plane object
+let loadedPlanes   = [];      // planes for the currently loaded page(s)
+let classFilter    = 'all';
+let sortCol        = 'lastUpdate';
+let sortDir        = 'desc';
+let currentSorted  = [];
+let renderedCount  = 0;
+const planeMap     = new Map(); // detailId → plane object
+let currentPage    = 1;
+let serverPageSize = PAGE_SIZE;
+let serverTotal    = 0;
+let serverTotalMatching = 0;
+let serverHasMore  = false;
+let searchQ        = '';
+let searchDebounce = null;
 
 /* ── Helpers ── */
 function n(v) {
@@ -556,7 +563,7 @@ function isMappable(p) {
     return { ok: hasId && hasPos && !isStale, reason, link };
 }
 
-/* ── Sorting ── */
+/* ── Sorting (client-side, applies to loaded rows only) ── */
 function thHtml(label, col, isRight) {
     const active = sortCol === col;
     const cls = ['sortable', isRight ? 'r' : '', active ? `sort-${sortDir}` : ''].filter(Boolean).join(' ');
@@ -570,7 +577,7 @@ function sortBy(col) {
         sortCol = col;
         sortDir = col === 'callsign' || col === 'reg' ? 'asc' : 'desc';
     }
-    renderTable(allPlanes);
+    renderTable(loadedPlanes);
 }
 
 function sortedPlanes(planes) {
@@ -588,16 +595,18 @@ function sortedPlanes(planes) {
     });
 }
 
-/* ── Cards ── */
-function renderCards(planes) {
-    const total      = planes.length;
-    const commercial = planes.filter(p => p.aircraftClass === 'commercial' && !isGroundPlane(p)).length;
-    const priv       = planes.filter(p => p.aircraftClass === 'private'    && !isGroundPlane(p)).length;
-    const mil        = planes.filter(p => p.aircraftClass === 'military'   && !isGroundPlane(p)).length;
-    const heli       = planes.filter(p => p.isHelicopter  && !isGroundPlane(p)).length;
-    const ground     = planes.filter(isGroundPlane).length;
-    const unknown    = planes.filter(p => p.aircraftClass === 'unknown'    && !isGroundPlane(p)).length;
-    const withRoute  = planes.filter(p => isValidCode((p.dep||'').trim().toUpperCase()) || isValidCode((p.arr||'').trim().toUpperCase())).length;
+/* ── Cards (from summary data) ── */
+function renderCards(summary) {
+    const cc   = summary.classCounts   || {};
+    const rc   = summary.routeCoverage || {};
+    const total      = summary.total        || 0;
+    const commercial = cc.commercial        || 0;
+    const priv       = cc.private           || 0;
+    const mil        = cc.military          || 0;
+    const heli       = cc.helicopter        || 0;
+    const ground     = cc.ground            || 0;
+    const unknown    = cc.unknown           || 0;
+    const withRoute  = rc.withRoute         || 0;
 
     document.getElementById('cards-row').innerHTML = `
         <div class="card"><div class="value">${total.toLocaleString()}</div><div class="label">Total</div></div>
@@ -713,7 +722,7 @@ function buildDetailHtml(p, id) {
     </div>`;
 }
 
-/* ── Table rendering — paginated ── */
+/* ── Table rendering ── */
 function renderTable(planes) {
     currentSorted = sortedPlanes(planes);
     renderedCount = 0;
@@ -745,30 +754,49 @@ function renderTable(planes) {
         </table>
         </div>`;
 
-    appendBatch(PAGE_SIZE);
+    appendRows(currentSorted);
     updateShowMore();
     applyFilters();
 }
 
-function appendBatch(count) {
+function appendRows(planes) {
     const tbody = document.getElementById('ac-tbody');
     if (!tbody) return;
-    const end = Math.min(renderedCount + count, currentSorted.length);
     let html = '';
-    for (let idx = renderedCount; idx < end; idx++) {
-        const p = currentSorted[idx];
-        const detailId = `ac-detail-${idx}`;
+    const base = renderedCount;
+    for (let i = 0; i < planes.length; i++) {
+        const p = planes[i];
+        const detailId = `ac-detail-${base + i}`;
         planeMap.set(detailId, p);
         html += buildRowHtml(p, detailId);
     }
-    renderedCount = end;
+    renderedCount += planes.length;
     tbody.insertAdjacentHTML('beforeend', html);
 }
 
-function loadMore() {
-    appendBatch(PAGE_SIZE);
-    updateShowMore();
-    applyFilters();
+async function loadMore() {
+    if (!serverHasMore) return;
+    currentPage++;
+    const btn = document.getElementById('show-more-btn');
+    if (btn) btn.textContent = 'Loading…';
+    try {
+        const qs = buildTableQS(currentPage);
+        const r = await fetch('/api/?action=Planes&view=table&' + qs + '&_=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const data = d?.response?.data || {};
+        const planes = data.planes || [];
+        serverHasMore = data.hasMore || false;
+        serverTotalMatching = data.totalMatching || serverTotalMatching;
+        loadedPlanes = loadedPlanes.concat(planes);
+        const sorted = sortedPlanes(planes);
+        appendRows(sorted);
+        updateShowMore();
+        applyFilters();
+    } catch (e) {
+        currentPage--;
+        if (btn) btn.textContent = 'Retry';
+    }
 }
 
 function updateShowMore() {
@@ -776,12 +804,12 @@ function updateShowMore() {
     const btn  = document.getElementById('show-more-btn');
     const info = document.getElementById('show-more-info');
     if (!wrap) return;
-    if (renderedCount >= currentSorted.length) {
+    if (!serverHasMore) {
         wrap.style.display = 'none';
     } else {
-        const remaining = currentSorted.length - renderedCount;
-        btn.textContent = `Show ${Math.min(PAGE_SIZE, remaining).toLocaleString()} more`;
-        info.textContent = `Showing ${renderedCount.toLocaleString()} of ${currentSorted.length.toLocaleString()} aircraft · search applies to rendered rows`;
+        const remaining = serverTotalMatching - renderedCount;
+        btn.textContent = `Load ${Math.min(PAGE_SIZE, remaining).toLocaleString()} more`;
+        info.textContent = `Loaded ${renderedCount.toLocaleString()} of ${serverTotalMatching.toLocaleString()} matching · sort applies to loaded rows`;
         wrap.style.display = 'block';
     }
 }
@@ -792,13 +820,13 @@ function setClassFilter(cls) {
     document.querySelectorAll('#class-filter-tabs .filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === cls);
     });
-    applyFilters();
+    // Re-fetch from API with new class filter
+    fetchTablePage(1, true);
 }
 
 function applyFilters() {
-    const q           = (document.getElementById('ac-search').value || '').toLowerCase().trim();
-    const routeOnly   = document.getElementById('chk-route').checked;
-    const noIdOnly    = document.getElementById('chk-noid').checked;
+    const routeOnly    = document.getElementById('chk-route').checked;
+    const noIdOnly     = document.getElementById('chk-noid').checked;
     const mappableOnly = document.getElementById('chk-mappable').checked;
     const tbl = document.getElementById('ac-table');
     if (!tbl) return;
@@ -806,24 +834,15 @@ function applyFilters() {
     let vis = 0, total = 0;
     for (const row of tbl.querySelectorAll('tbody tr.clickable-row')) {
         total++;
-        const cls      = row.dataset.class    || 'unknown';
-        const ground   = row.dataset.ground   === '1';
         const hasRt    = row.dataset.route    === '1';
         const noId     = row.dataset.noid     === '1';
         const mappable = row.dataset.mappable === '1';
-        const srch     = row.dataset.srch     || '';
 
-        let clsMatch;
-        if (classFilter === 'all')        clsMatch = true;
-        else if (classFilter === 'ground') clsMatch = ground;
-        else                               clsMatch = cls === classFilter && !ground;
+        const rtMatch   = !routeOnly    || hasRt;
+        const noidMatch = !noIdOnly     || noId;
+        const mapMatch  = !mappableOnly || mappable;
 
-        const rtMatch     = !routeOnly    || hasRt;
-        const noidMatch   = !noIdOnly     || noId;
-        const mapMatch    = !mappableOnly || mappable;
-        const qMatch      = !q || srch.includes(q);
-
-        const show = clsMatch && rtMatch && noidMatch && mapMatch && qMatch;
+        const show = rtMatch && noidMatch && mapMatch;
         row.classList.toggle('hidden-row', !show);
 
         const detail = row.nextElementSibling;
@@ -834,13 +853,14 @@ function applyFilters() {
         if (show) vis++;
     }
 
-    const hasFilter = q || classFilter !== 'all' || routeOnly || noIdOnly || mappableOnly;
+    const hasClientFilter = routeOnly || noIdOnly || mappableOnly;
+    const rendered = renderedCount;
     document.getElementById('ac-count').textContent =
-        hasFilter
-            ? `${vis} of ${total} rendered`
-            : renderedCount < allPlanes.length
-                ? `${total} rendered of ${allPlanes.length.toLocaleString()} total`
-                : `${total} aircraft`;
+        hasClientFilter
+            ? `${vis} of ${rendered} loaded`
+            : serverHasMore
+                ? `${rendered} loaded of ${serverTotalMatching.toLocaleString()} matching`
+                : `${rendered} aircraft`;
 }
 
 function toggleDetail(id) {
@@ -860,26 +880,62 @@ function toggleDetail(id) {
     ownerRow.insertAdjacentElement('afterend', tr);
 }
 
+/* ── Server query helpers ── */
+function buildTableQS(page) {
+    let qs = 'page=' + page + '&pageSize=' + PAGE_SIZE;
+    if (searchQ) qs += '&q=' + encodeURIComponent(searchQ);
+    if (classFilter !== 'all') qs += '&aircraftClass=' + encodeURIComponent(classFilter);
+    return qs;
+}
+
+async function fetchTablePage(page, resetTable) {
+    if (resetTable) {
+        currentPage = 1;
+        loadedPlanes = [];
+    }
+    const qs = buildTableQS(page);
+    const r = await fetch('/api/?action=Planes&view=table&' + qs + '&_=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const data = d?.response?.data || {};
+    const planes = data.planes || [];
+    serverHasMore       = data.hasMore        || false;
+    serverTotalMatching = data.totalMatching  || planes.length;
+    serverTotal         = data.total          || serverTotalMatching;
+    serverPageSize      = data.pageSize       || PAGE_SIZE;
+    if (resetTable) {
+        loadedPlanes = planes;
+        renderTable(planes);
+    } else {
+        loadedPlanes = loadedPlanes.concat(planes);
+        appendRows(sortedPlanes(planes));
+        updateShowMore();
+        applyFilters();
+    }
+    return data;
+}
+
 /* ── Fetch & render ── */
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
     const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes&view=table&_=' + Date.now());
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.json();
-        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-        const data = d?.response?.data || {};
-        const planes = data.planes || [];
-        const total  = data.total  || planes.length;
+        const [summaryRes, tableData] = await Promise.all([
+            fetch('/api/?action=Planes&view=summary&_=' + Date.now())
+                .then(r => r.ok ? r.json() : null)
+                .then(d => (d?.response?.data) || {}),
+            fetchTablePage(1, true),
+        ]);
 
-        allPlanes = planes;
-        renderCards(planes);
-        renderTable(planes);
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+
+        if (summaryRes.total) {
+            renderCards(summaryRes);
+        }
 
         document.getElementById('last-update').textContent =
             'Updated ' + new Date().toLocaleTimeString() +
-            ' · ' + elapsed + 's · ' + total.toLocaleString() + ' aircraft';
+            ' · ' + elapsed + 's · ' + serverTotal.toLocaleString() + ' aircraft';
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         document.getElementById('ac-content').innerHTML =
@@ -893,6 +949,21 @@ function scheduleRefresh() {
     clearTimeout(timer);
     timer = setTimeout(() => { doRefresh().then(scheduleRefresh); }, 30000);
 }
+
+// Wire search input to server-side query with debounce
+document.getElementById('ac-search').addEventListener('input', function() {
+    clearTimeout(searchDebounce);
+    const q = this.value.trim();
+    searchDebounce = setTimeout(function() {
+        searchQ = q;
+        fetchTablePage(1, true).then(function() { applyFilters(); });
+    }, 350);
+});
+
+// Wire checkbox filters to client-side show/hide (they filter the loaded rows)
+['chk-route', 'chk-noid', 'chk-mappable'].forEach(function(id) {
+    document.getElementById(id).addEventListener('change', applyFilters);
+});
 
 doRefresh().then(scheduleRefresh);
 </script>

@@ -1,7 +1,14 @@
 import os
 import time
+import threading
 from Classes.ApiBase import ApiBase
 from Classes.Redis import getRedis
+
+# ── In-process summary cache (15 s TTL) ──────────────────────────────────────
+_summary_cache_lock = threading.Lock()
+_summary_cache      = None
+_summary_cache_ts   = 0.0
+_SUMMARY_CACHE_TTL  = 15.0   # seconds
 
 
 class ApiPlanes(ApiBase):
@@ -91,6 +98,31 @@ class ApiPlanes(ApiBase):
         },
         "scope": {
             "description": "For view=radar: 'global' skips bounds filtering and returns all fresh aircraft.",
+            "required": False,
+            "type": "string"
+        },
+        "page": {
+            "description": "1-based page number for view=table server-side paging.",
+            "required": False,
+            "type": "integer"
+        },
+        "pageSize": {
+            "description": "Page size for view=table server-side paging. 0 = no limit (legacy).",
+            "required": False,
+            "type": "integer"
+        },
+        "q": {
+            "description": "Search query for view=table: matched against callsign, reg, ICAO, dep, arr, operator, type.",
+            "required": False,
+            "type": "string"
+        },
+        "aircraftClass": {
+            "description": "Class filter for view=table: commercial/private/military/helicopter/unknown/ground.",
+            "required": False,
+            "type": "string"
+        },
+        "category": {
+            "description": "For view=alerts: 'operational' returns only flagged aircraft plus DQ summary metadata.",
             "required": False,
             "type": "string"
         }
@@ -186,6 +218,18 @@ class ApiPlanes(ApiBase):
 
         total_count = len(planes)
 
+        if view == "table":
+            self.responseData = self._buildTableView(planes, total_count, sourceCounts, adsbHealthy, redis)
+            self.sendResponse(self.SUCCESS)
+            return
+
+        if view == "alerts":
+            cat = (self.params.get("category") or "").strip().lower()
+            if cat == "operational":
+                self.responseData = self._buildAlertsOperational(planes, total_count)
+                self.sendResponse(self.SUCCESS)
+                return
+
         if view == "airport":
             airport = (self.params.get("airport") or self.params.get("near") or "").strip().upper()
             self.responseData = self._buildAirportView(planes, airport, total_count)
@@ -215,10 +259,6 @@ class ApiPlanes(ApiBase):
             planes = self._pickFields(planes, "ground")
         elif view == "alerts":
             planes = self._pickFields(planes, "alerts")
-        elif view == "table":
-            if limit > 0:
-                planes = planes[:limit]
-            planes = self._pickFields(planes, "table")
         elif limit > 0:
             planes = planes[:limit]
 
@@ -646,7 +686,130 @@ class ApiPlanes(ApiBase):
                 return {"count": 1, "total": total_count, "planes": [p]}
         return {"count": 0, "total": total_count, "planes": []}
 
+    def _buildTableView(self, planes: list, total_count: int, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+        """Server-side filtered and paged table view for the aircraft page."""
+        q          = (self.params.get("q") or "").strip().lower()
+        ac_class   = (self.params.get("aircraftClass") or "").strip().lower()
+        page       = max(1, self.safeInt(self.params.get("page") or 1, 1))
+        page_size  = self.safeInt(self.params.get("pageSize") or 0, 0)
+        limit      = self.safeInt(self.params.get("limit") or 0, 0)
+
+        filtered = planes
+        if q or ac_class:
+            out = []
+            for p in planes:
+                src_s    = ((p.get("source") or "") + (p.get("positionSource") or "")).lower()
+                is_ground = "ground" in src_s
+                if ac_class:
+                    if ac_class == "ground":
+                        if not is_ground:
+                            continue
+                    else:
+                        if is_ground or (p.get("aircraftClass") or "unknown") != ac_class:
+                            continue
+                if q:
+                    hay = " ".join([
+                        p.get("callsign") or "", p.get("registration") or "",
+                        p.get("icaoHex") or "", p.get("dep") or "",
+                        p.get("arr") or "", p.get("operator") or "",
+                        p.get("aircraftType") or "", p.get("source") or "",
+                    ]).lower()
+                    if q not in hay:
+                        continue
+                out.append(p)
+            filtered = out
+
+        total_matching = len(filtered)
+
+        if page_size > 0:
+            start  = (page - 1) * page_size
+            paged  = filtered[start:start + page_size]
+            has_more = (start + page_size) < total_matching
+        elif limit > 0:
+            paged    = filtered[:limit]
+            has_more = False
+        else:
+            paged    = filtered
+            has_more = False
+
+        return {
+            "count":          len(paged),
+            "total":          total_count,
+            "totalMatching":  total_matching,
+            "page":           page,
+            "pageSize":       page_size,
+            "hasMore":        has_more,
+            "planes":         self._pickFields(paged, "table"),
+            "sources":        sourceCounts,
+            "adsbLolHealthy": adsbHealthy,
+            "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
+        }
+
+    _EMRG_SQUAWKS = frozenset({"7500", "7600", "7700"})
+
+    def _buildAlertsOperational(self, planes: list, total_count: int) -> dict:
+        """Return only operationally flagged aircraft and DQ summary counts as metadata.
+        Reduces payload vs returning all aircraft for the full alerts scan."""
+        now_ts = time.time()
+        dq = {"noId": 0, "noRoute": 0, "unknownSrc": 0, "stale": 0}
+        op = []
+
+        for p in planes:
+            # DQ counting — scan all planes for summary
+            call     = (p.get("callsign") or "").upper()
+            icao     = (p.get("icaoHex") or "").upper()
+            reg      = (p.get("registration") or "").strip()
+            no_id    = bool(call and call == icao and not reg)
+            if no_id:
+                dq["noId"] += 1
+
+            src_s     = ((p.get("source") or "") + (p.get("positionSource") or "")).lower()
+            is_ground = "ground" in src_s
+            dep       = (p.get("dep") or "").strip().upper()
+            arr       = (p.get("arr") or "").strip().upper()
+            dep_ok    = 3 <= len(dep) <= 4 and dep.isalpha()
+            arr_ok    = 3 <= len(arr) <= 4 and arr.isalpha()
+            if p.get("aircraftClass") == "commercial" and not is_ground and not (dep_ok or arr_ok):
+                dq["noRoute"] += 1
+
+            raw_src = (p.get("source") or p.get("positionSource") or "").lower().strip()
+            if not raw_src or raw_src == "unknown":
+                dq["unknownSrc"] += 1
+
+            lu = self.safeFloat(p.get("lastUpdate", 0))
+            if lu > 1e9 and (now_ts - lu) > 180:
+                dq["stale"] += 1
+
+            # Operational filter — include only flagged aircraft
+            squawk   = str(p.get("squawk") or "").strip()
+            emrg     = str(p.get("emergency") or "").lower().strip()
+            is_emrg  = squawk in self._EMRG_SQUAWKS or (emrg and emrg not in ("0", "none", ""))
+            if is_emrg or p.get("isMilitary") or p.get("isHelicopter") or is_ground:
+                op.append(p)
+
+        return {
+            "count":      len(op),
+            "total":      total_count,
+            "dqSummary":  dq,
+            "planes":     self._pickFields(op, "alerts"),
+        }
+
     def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+        global _summary_cache, _summary_cache_ts
+        now = time.time()
+        with _summary_cache_lock:
+            if _summary_cache is not None and (now - _summary_cache_ts) < _SUMMARY_CACHE_TTL:
+                return _summary_cache
+
+        result = self._computeSummary(planes, sourceCounts, adsbHealthy, redis)
+
+        with _summary_cache_lock:
+            _summary_cache    = result
+            _summary_cache_ts = time.time()
+
+        return result
+
+    def _computeSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
         airborne = 0
         on_ground = 0
         ground_sweep = 0
