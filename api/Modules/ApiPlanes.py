@@ -49,7 +49,7 @@ class ApiPlanes(ApiBase):
             "type": "string"
         },
         "view": {
-            "description": "Response shape: summary (aggregated counts), ground (ground sweep only), alerts (alert fields), table (lookup table). Omit for full response.",
+            "description": "Response shape: radar (map-optimised bounds filter), target (single aircraft lookup), summary, ground, alerts, table. Omit for full response.",
             "required": False,
             "type": "string"
         },
@@ -58,6 +58,41 @@ class ApiPlanes(ApiBase):
             "required": False,
             "type": "integer",
             "default": 0
+        },
+        "minLat": {
+            "description": "Minimum latitude for radar bounds filter (decimal degrees).",
+            "required": False,
+            "type": "float"
+        },
+        "maxLat": {
+            "description": "Maximum latitude for radar bounds filter (decimal degrees).",
+            "required": False,
+            "type": "float"
+        },
+        "minLon": {
+            "description": "Minimum longitude for radar bounds filter (decimal degrees).",
+            "required": False,
+            "type": "float"
+        },
+        "maxLon": {
+            "description": "Maximum longitude for radar bounds filter (decimal degrees).",
+            "required": False,
+            "type": "float"
+        },
+        "icao": {
+            "description": "ICAO hex for view=target single-aircraft lookup.",
+            "required": False,
+            "type": "string"
+        },
+        "callsign": {
+            "description": "Callsign for view=target single-aircraft lookup.",
+            "required": False,
+            "type": "string"
+        },
+        "scope": {
+            "description": "For view=radar: 'global' skips bounds filtering and returns all fresh aircraft.",
+            "required": False,
+            "type": "string"
         }
     }
 
@@ -154,6 +189,24 @@ class ApiPlanes(ApiBase):
         if view == "airport":
             airport = (self.params.get("airport") or self.params.get("near") or "").strip().upper()
             self.responseData = self._buildAirportView(planes, airport, total_count)
+            self.sendResponse(self.SUCCESS)
+            return
+
+        if view == "radar":
+            # Params are already validated floats by _validateParams (None if absent, no default set)
+            min_lat = self.params.get("minLat")
+            max_lat = self.params.get("maxLat")
+            min_lon = self.params.get("minLon")
+            max_lon = self.params.get("maxLon")
+            scope = (self.params.get("scope") or "").strip().lower()
+            self.responseData = self._buildRadarView(planes, min_lat, max_lat, min_lon, max_lon, total_count, scope)
+            self.sendResponse(self.SUCCESS)
+            return
+
+        if view == "target":
+            icao_t = (self.params.get("icao") or "").strip().upper()
+            call_t = (self.params.get("callsign") or "").strip().upper()
+            self.responseData = self._buildTargetView(planes, icao_t, call_t, total_count)
             self.sendResponse(self.SUCCESS)
             return
 
@@ -473,6 +526,22 @@ class ApiPlanes(ApiBase):
         "depTime", "eta", "flightStatus", "assignedAlt", "verticalRate",
     })
 
+    # Freshness thresholds — must match index.html VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE
+    _AIR_MAX_AGE    = 120   # seconds
+    _GROUND_MAX_AGE = 900   # seconds
+    _RADAR_PAD      = 0.5   # degrees lat/lon padding around requested bounds
+
+    _RADAR_FIELDS = frozenset({
+        "flightId", "callsign", "icaoHex", "registration", "aircraftType",
+        "lat", "lon", "alt", "speed", "heading", "verticalRate",
+        "aircraftClass", "aircraftRole", "iconType",
+        "dep", "arr", "operator",
+        "source", "positionSource", "enrichmentSource", "sourceFacility",
+        "isMilitary", "isHelicopter", "isLadd", "isPia",
+        "airborne", "lastUpdate", "assignedAlt", "squawk", "emergency",
+        "groundCluster",
+    })
+
     def _isGroundPlane(self, plane: dict) -> bool:
         return bool(plane.get("groundCluster"))
 
@@ -521,6 +590,61 @@ class ApiPlanes(ApiBase):
             "inbound": self._pickFields(inbound[:50], "table"),
             "outbound": self._pickFields(outbound[:50], "table"),
         }
+
+    def _buildRadarView(self, planes: list, min_lat, max_lat, min_lon, max_lon, total_count: int, scope: str = "") -> dict:
+        """Return only fresh, positioned aircraft within optional bounds — optimized for map rendering.
+        scope='global' skips bounds filtering to return all fresh aircraft nationwide."""
+        now = time.time()
+        is_global = (scope == "global")
+        has_bounds = not is_global and all(v is not None for v in [min_lat, max_lat, min_lon, max_lon])
+        pad = self._RADAR_PAD
+
+        result = []
+        for p in planes:
+            lat = self.safeFloat(p.get("lat"))
+            lon = self.safeFloat(p.get("lon"))
+            if lat == 0.0 and lon == 0.0:
+                continue
+
+            last_update = self.safeFloat(p.get("lastUpdate", 0))
+            age = (now - last_update) if last_update > 1e9 else 999999
+            is_airborne = str(p.get("airborne", "")) == "1" or self.safeFloat(p.get("speed", 0)) > 40
+            max_age = self._AIR_MAX_AGE if is_airborne else self._GROUND_MAX_AGE
+            if age > max_age:
+                continue
+
+            if has_bounds:
+                if lat < (min_lat - pad) or lat > (max_lat + pad):
+                    continue
+                if lon < (min_lon - pad) or lon > (max_lon + pad):
+                    continue
+
+            result.append({k: v for k, v in p.items() if k in self._RADAR_FIELDS})
+
+        return {
+            "count": len(result),
+            "total": total_count,
+            "meta": {
+                "countReturned": len(result),
+                "totalAvailable": total_count,
+                "scope": scope or "local",
+                "padDeg": pad if has_bounds else None,
+                "boundsUsed": {
+                    "minLat": min_lat, "maxLat": max_lat,
+                    "minLon": min_lon, "maxLon": max_lon,
+                } if has_bounds else None,
+            },
+            "planes": result,
+        }
+
+    def _buildTargetView(self, planes: list, icao: str, callsign: str, total_count: int) -> dict:
+        """Return at most one aircraft matching the given ICAO hex or callsign — for deep-link resolution."""
+        for p in planes:
+            if icao and (p.get("icaoHex") or "").upper() == icao:
+                return {"count": 1, "total": total_count, "planes": [p]}
+            if callsign and (p.get("callsign") or "").upper() == callsign:
+                return {"count": 1, "total": total_count, "planes": [p]}
+        return {"count": 0, "total": total_count, "planes": []}
 
     def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
         airborne = 0

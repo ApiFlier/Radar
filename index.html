@@ -842,6 +842,9 @@
         var FULL_REFRESH_INTERVAL_MS = 90000;   // periodic fallback behind SSE
         var FETCH_TIMEOUT_MS = 30000;            // abort hung fetches
         var SUSPICIOUS_EMPTY_THRESHOLD = 3;     // ignore N empties before accepting
+        var globalLoadedAt = 0;
+        var globalLoadInFlight = false;
+        var GLOBAL_REFRESH_INTERVAL_MS = 300000; // 5 min between global background fetches
 
         function updateBounds() {
             currentBounds = map.getBounds().pad(BOUNDS_PAD);
@@ -1930,7 +1933,6 @@
                 planeMarkers[id].setLatLng([lat, lon]);
                 planeMarkers[id].setIcon(makePlaneIcon(id, heading, color, opacity));
                 planeMarkers[id]._lastColor = color;
-                planeMarkers[id].getPopup().setContent(popupContent(planeData[id]));
 
                 if (followFlightId === id) {
                     map.panTo([lat, lon], {animate: true, duration: 1});
@@ -2191,14 +2193,22 @@
             });
 
 
+        var _moveRefreshTimer = null;
+        function scheduleBoundsRefresh() {
+            clearTimeout(_moveRefreshTimer);
+            _moveRefreshTimer = setTimeout(doFullRefresh, 400);
+        }
+
         map.on('moveend', function() {
             syncVisiblePlanes();
             syncAirportMarkers();
+            scheduleBoundsRefresh();
         });
         map.on('zoomend', function() {
             syncVisiblePlanes();
             syncAirportMarkers();
             updateLabelVisibility();
+            scheduleBoundsRefresh();
         });
 
         function updateLabelVisibility() {
@@ -2228,6 +2238,8 @@
 
         // Periodic full re-fetch — fallback in case SSE is throttled by browser
         setInterval(doFullRefresh, FULL_REFRESH_INTERVAL_MS);
+        // Periodic background global refresh — keeps nationwide aircraft fresh
+        setInterval(doBackgroundGlobalLoad, GLOBAL_REFRESH_INTERVAL_MS);
 
         // Re-fetch immediately when user returns to a background tab
         document.addEventListener('visibilitychange', function() {
@@ -2502,7 +2514,16 @@
             }
         });
 
-        /* ── Hardened full refresh ── */
+        /* ── Bounds params for radar view ── */
+        function getMapBoundsParams() {
+            var b = map.getBounds();
+            return 'minLat=' + b.getSouth().toFixed(4) +
+                   '&maxLat=' + b.getNorth().toFixed(4) +
+                   '&minLon=' + b.getWest().toFixed(4)  +
+                   '&maxLon=' + b.getEast().toFixed(4);
+        }
+
+        /* ── Bounds-filtered radar refresh ── */
         function doFullRefresh() {
             if (refreshInFlight) return;
             refreshInFlight = true;
@@ -2511,35 +2532,26 @@
             var controller = new AbortController();
             var abortTimer = setTimeout(function() { controller.abort(); }, FETCH_TIMEOUT_MS);
 
-            fetch('/api/?action=Planes&_=' + Date.now(), { signal: controller.signal })
+            var url = '/api/?action=Planes&view=radar&' + getMapBoundsParams() + '&_=' + Date.now();
+            fetch(url, { signal: controller.signal })
                 .then(function(res) {
                     clearTimeout(abortTimer);
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     return res.json();
                 })
                 .then(function(json) {
-                    // Discard if a newer request already finished
                     if (seq !== refreshSeqId) { refreshInFlight = false; return; }
                     refreshInFlight = false;
 
-                    var planes = (json.response && json.response.data && json.response.data.planes) || [];
+                    var data   = (json.response && json.response.data) || {};
+                    var planes = data.planes || [];
+                    var meta   = data.meta   || {};
 
-                    // Suspicious empty: API returned 0 aircraft but we had a healthy count before.
-                    // Keep existing markers until this happens repeatedly (edge case: real outage).
-                    if (planes.length === 0 && lastGoodAircraftCount > 50) {
-                        consecutiveEmptyResponses++;
-                        console.warn('[Radar] Empty response ' + consecutiveEmptyResponses + '/' +
-                            SUSPICIOUS_EMPTY_THRESHOLD + ' — keeping ' + lastGoodAircraftCount + ' aircraft');
-                        if (consecutiveEmptyResponses < SUSPICIOUS_EMPTY_THRESHOLD) {
-                            showStatusHUD('Empty aircraft response — keeping last known data');
-                            return;
-                        }
-                        console.warn('[Radar] Accepting empty response after ' +
-                            consecutiveEmptyResponses + ' consecutive empties');
-                    } else {
-                        consecutiveEmptyResponses = 0;
-                    }
+                    // With bounds filtering, zero results in a remote area is normal — don't guard.
+                    // The suspicious-empty guard is removed because totalAvailable is exposed via meta.
+                    consecutiveEmptyResponses = 0;
 
+                    var isFirstLoad = (lastGoodRefreshAt === 0);
                     planes.forEach(processPlane);
                     syncVisiblePlanes();
 
@@ -2548,7 +2560,13 @@
                         lastGoodRefreshAt = Date.now();
                     }
 
+                    console.debug('[Radar] view=radar returned ' + planes.length +
+                        ' / ' + (meta.totalAvailable || '?') + ' total fresh');
                     applyDeepLink();
+
+                    // After the first viewport load completes, start a background global fetch
+                    // so aircraft outside the initial viewport are available when the user pans.
+                    if (isFirstLoad) setTimeout(doBackgroundGlobalLoad, 1000);
                 })
                 .catch(function(err) {
                     clearTimeout(abortTimer);
@@ -2562,6 +2580,34 @@
                     if (lastGoodAircraftCount > 0) {
                         showStatusHUD('Radar refresh failed — showing last known aircraft');
                     }
+                });
+        }
+
+        /* ── Background global aircraft load ── */
+        function doBackgroundGlobalLoad() {
+            if (globalLoadInFlight) return;
+            if (globalLoadedAt > 0 && (Date.now() - globalLoadedAt) < GLOBAL_REFRESH_INTERVAL_MS) return;
+            globalLoadInFlight = true;
+
+            var url = '/api/?action=Planes&view=radar&scope=global&_=' + Date.now();
+            fetch(url)
+                .then(function(res) {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(function(json) {
+                    globalLoadInFlight = false;
+                    globalLoadedAt = Date.now();
+                    var data   = (json.response && json.response.data) || {};
+                    var planes = data.planes || [];
+                    var meta   = data.meta   || {};
+                    planes.forEach(processPlane);
+                    syncVisiblePlanes();
+                    console.debug('[Radar] global background: ' + planes.length + ' fresh aircraft; visible: ' + Object.keys(planeMarkers).length);
+                })
+                .catch(function(err) {
+                    globalLoadInFlight = false;
+                    console.warn('[Radar] Background global load failed:', err.message);
                 });
         }
 
@@ -2612,9 +2658,22 @@
 
             showStatusHUD('Finding aircraft ' + (icaoParam || callParam) + '…', 'info');
 
-            // Aircraft deep-link with retry — aircraft may arrive via SSE after initial load
+            // Immediately fetch view=target so the aircraft appears in planeData even if it
+            // is outside the current map bounds (which the radar view would exclude).
+            var targetQs = '/api/?action=Planes&view=target&_=' + Date.now();
+            if (icaoParam)  targetQs += '&icao='     + encodeURIComponent(icaoParam);
+            if (callParam)  targetQs += '&callsign=' + encodeURIComponent(callParam);
+            fetch(targetQs)
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    var pl = (json.response && json.response.data && json.response.data.planes) || [];
+                    pl.forEach(processPlane);
+                })
+                .catch(function() {});
+
+            // Retry loop — will find the aircraft once processPlane() stores it
             var attempts = 0;
-            var maxAttempts = 5;
+            var maxAttempts = 8;
             function findAndFocus() {
                 var targetId = null;
                 for (var id in planeData) {
