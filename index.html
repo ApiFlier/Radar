@@ -221,14 +221,164 @@
         #follow-bar:hover { background: rgba(0,255,204,0.15); }
 
         .leaflet-popup-content-wrapper {
-            background: rgba(0,0,0,0.85); color: #ccc; border: 1px solid #00ffcc44;
-            border-radius: 6px; font-size: 13px;
+            background: rgba(5,8,8,0.96);
+            color: #ccc;
+            border: 1px solid rgba(0,255,204,0.26);
+            border-radius: 8px;
+            font-size: 13px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45);
         }
-        .leaflet-popup-tip { background: rgba(0,0,0,0.85); }
-        .leaflet-popup-content b { color: #00ffcc; }
-        .leaflet-popup-content .route { color: #fff; font-size: 14px; margin: 4px 0; }
-        .leaflet-popup-content .meta { color: #888; font-size: 11px; }
-        .leaflet-popup-content .follow-link { color: #00ffcc; cursor: pointer; text-decoration: underline; font-size: 11px; }
+        .leaflet-popup-tip { background: rgba(5,8,8,0.96); }
+        .leaflet-popup-content { margin: 0; }
+
+        .ac-popup {
+            min-width: 300px;
+            max-width: 350px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #bbb;
+            overflow: hidden;
+        }
+        .acp-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px 9px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            background: rgba(0,255,204,0.035);
+        }
+        .acp-title {
+            color: #00ffcc;
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            font-family: Consolas, Menlo, monospace;
+            line-height: 1.1;
+        }
+        .acp-sub {
+            color: #777;
+            font-size: 11px;
+            margin-top: 3px;
+            line-height: 1.25;
+        }
+        .acp-badge {
+            color: #00ffcc;
+            border: 1px solid rgba(0,255,204,0.28);
+            background: rgba(0,255,204,0.07);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .acp-route {
+            padding: 9px 14px;
+            color: #eee;
+            font-size: 13px;
+            line-height: 1.35;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .acp-body {
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .acp-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            background: rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .acp-cell {
+            background: rgba(0,0,0,0.24);
+            padding: 8px 9px;
+            min-width: 0;
+        }
+        .acp-label {
+            color: #555;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.55px;
+            margin-bottom: 2px;
+        }
+        .acp-value {
+            color: #ddd;
+            font-size: 12px;
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .acp-value.accent { color: #00ffcc; }
+        .acp-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11px;
+            padding: 2px 0;
+        }
+        .acp-row span:first-child {
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.45px;
+            white-space: nowrap;
+        }
+        .acp-row span:last-child {
+            color: #aaa;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        .acp-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 10px 14px 12px;
+        }
+        .acp-action {
+            color: #aaa;
+            border: 1px solid rgba(255,255,255,0.13);
+            background: rgba(255,255,255,0.03);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .acp-action:hover { color: #fff; background: rgba(255,255,255,0.07); }
+        .acp-action.primary {
+            color: #00ffcc;
+            border-color: rgba(0,255,204,0.28);
+            background: rgba(0,255,204,0.055);
+        }
+        .acp-action.primary:hover { background: rgba(0,255,204,0.11); }
+
+        .search-section-label {
+            color: #00ffcc;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+            padding: 7px 10px 3px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .search-section-label:first-child { border-top: none; }
+        .search-result .sr-kind {
+            color: #555;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.45px;
+            float: right;
+            margin-left: 8px;
+        }
+        .search-result.active {
+            background: rgba(0,255,204,0.13);
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -1015,7 +1165,7 @@
         }
 
         function popupContent(p) {
-            if (!p) return '<div>No aircraft data</div>';
+            if (!p) return '<div class="ac-popup"><div class="acp-body">No aircraft data</div></div>';
 
             var name = displayName(p);
             var route = formatRoute(p);
@@ -1023,6 +1173,7 @@
             var aircraftClass = displayAircraftClass(p);
             var iconType = displayIconType(p);
             var state = aircraftDisplayState(p);
+            var stateLbl = stateLabel(state);
 
             var tags = [];
             if (boolField(p.isMilitary)) tags.push('Military');
@@ -1031,64 +1182,116 @@
             if (boolField(p.isHelicopter)) tags.push('Helicopter');
 
             var flightId = String(p.flightId || p.flight_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            var stateLbl = stateLabel(state);
+            var icao = String(p.icaoHex || '').trim().toUpperCase();
+            var csRaw = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
 
-            var html = '<div style="min-width:240px">';
-            html += '<b>' + htmlEscape(name) + '</b>';
-            if (stateLbl) html += ' <span class="meta">' + htmlEscape(stateLbl) + '</span>';
-            html += '<div class="route">' + htmlEscape(route) + '</div>';
-            if (airline) {
-                html += '<div class="meta">Airline: ' + htmlEscape(airline.airline) + '</div>';
-                html += '<div class="meta">Flight: ' + htmlEscape(airline.display) + '</div>';
+            function fmtAlt(v) {
+                var n = parseFloat(v);
+                return isNaN(n) ? '—' : Math.round(n).toLocaleString() + ' ft';
             }
-            if (tags.length) {
-                html += '<div class="meta">Tags: ' + htmlEscape(tags.join(', ')) + '</div>';
+            function fmtSpd(v) {
+                var n = parseFloat(v);
+                return isNaN(n) ? '—' : Math.round(n) + ' kt';
+            }
+            function fmtHdg(v) {
+                var n = parseFloat(v);
+                return isNaN(n) ? '—' : Math.round(n) + '°';
+            }
+            function row(label, value) {
+                if (value === null || value === undefined || value === '') return '';
+                return '<div class="acp-row"><span>' + htmlEscape(label) + '</span><span>' + value + '</span></div>';
+            }
+            function cell(label, value, cls) {
+                return '<div class="acp-cell"><div class="acp-label">' + htmlEscape(label) + '</div><div class="acp-value ' + (cls || '') + '">' + htmlEscape(value || '—') + '</div></div>';
             }
 
-            html += '<hr style="border-color:#333">';
-            var fmtAlt = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n).toLocaleString(); };
-            var fmtSpd = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n); };
-            var fmtHdg = function(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n); };
-            html += 'Alt: ' + fmtAlt(p.alt) + ' ft';
-            html += ' &nbsp; Spd: ' + fmtSpd(p.speed) + ' kt';
-            html += ' &nbsp; Hdg: ' + fmtHdg(p.heading) + '°<br>';
+            var subtitle = '';
+            if (airline) subtitle = airline.display;
+            else if (p.operator) subtitle = p.operator;
+            else if (p.registration) subtitle = p.registration;
+
+            var html = '<div class="ac-popup">';
+
+            html += '<div class="acp-head">';
+            html += '<div><div class="acp-title">' + htmlEscape(name) + '</div>';
+            if (subtitle) html += '<div class="acp-sub">' + htmlEscape(subtitle) + '</div>';
+            html += '</div>';
+            if (stateLbl) html += '<div class="acp-badge">' + htmlEscape(stateLbl) + '</div>';
+            html += '</div>';
+
+            html += '<div class="acp-route">' + htmlEscape(route) + '</div>';
+
+            if (airline || tags.length) {
+                html += '<div class="acp-body">';
+                if (airline) {
+                    html += row('Airline', htmlEscape(airline.airline));
+                    html += row('Flight', htmlEscape(airline.display));
+                }
+                if (tags.length) html += row('Tags', htmlEscape(tags.join(', ')));
+                html += '</div>';
+            }
+
+            html += '<div class="acp-grid">';
+            html += cell('Altitude', fmtAlt(p.alt), 'accent');
+            html += cell('Speed', fmtSpd(p.speed), '');
+            html += cell('Heading', fmtHdg(p.heading), '');
+            html += '</div>';
+
+            var detailRows = '';
             var vr = parseFloat(p.verticalRate);
             if (!isNaN(vr) && Math.abs(vr) >= 100) {
-                var vrColor = vr > 0 ? '#7cf' : '#f97';
-                html += '<span style="color:' + vrColor + '">' + (vr > 0 ? '↑' : '↓') + ' ' + Math.abs(Math.round(vr)).toLocaleString() + ' fpm</span><br>';
+                detailRows += row('Vertical rate', htmlEscape((vr > 0 ? 'Climb ' : 'Descend ') + Math.abs(Math.round(vr)).toLocaleString() + ' fpm'));
             }
 
             var aAlt = parseFloat(p.assignedAlt);
             if (!isNaN(aAlt) && aAlt > 0 && Math.abs((parseFloat(p.alt) || 0) - aAlt) > 300) {
-                html += 'Assigned: ' + fmtAlt(p.assignedAlt) + ' ft<br>';
-            }
-            if (p.registration) html += 'Reg: ' + popupValue(p.registration) + '<br>';
-            if (p.aircraftType) html += 'Type: ' + popupValue(p.aircraftType) + '<br>';
-            if (p.icaoHex) html += '<span class="meta">ICAO: <a href="https://globe.adsbexchange.com/?icao=' + htmlEscape(p.icaoHex.toLowerCase()) + '" target="_blank" rel="noopener" style="color:#8af">' + popupValue(p.icaoHex) + '</a></span><br>';
-            if (p.squawk) {
-                var sq = String(p.squawk).trim();
-                var sqHtml = 'Squawk: ' + popupValue(sq);
-                if (sq === '7500') sqHtml += ' <span style="color:#f55;font-weight:bold">HIJACK</span>';
-                else if (sq === '7600') sqHtml += ' <span style="color:#fa5;font-weight:bold">RADIO FAIL</span>';
-                else if (sq === '7700') sqHtml += ' <span style="color:#f55;font-weight:bold">EMERGENCY</span>';
-                else if (p.emergency && p.emergency !== 'none' && p.emergency !== '0') sqHtml += ' <span style="color:#fa5;font-weight:bold">' + htmlEscape(p.emergency) + '</span>';
-                html += '<span class="meta">' + sqHtml + '</span><br>';
+                detailRows += row('Assigned altitude', htmlEscape(fmtAlt(p.assignedAlt)));
             }
 
-            html += '<hr style="border-color:#333">';
+            if (p.registration) detailRows += row('Registration', popupValue(p.registration));
+            if (p.aircraftType) detailRows += row('Type', htmlEscape(p.aircraftType));
+            detailRows += row('Class', htmlEscape(aircraftClass + ' / ' + iconType));
+
+            if (icao) {
+                detailRows += row(
+                    'ICAO',
+                    '<a href="https://globe.adsbexchange.com/?icao=' + htmlEscape(icao.toLowerCase()) + '" target="_blank" rel="noopener" style="color:#8af">' + htmlEscape(icao) + '</a>'
+                );
+            }
+
+            var sq = String(p.squawk || '').trim();
+            if (sq) {
+                var sqText = htmlEscape(sq);
+                if (sq === '7500') sqText += ' <span style="color:#ff6666;font-weight:800">HIJACK</span>';
+                else if (sq === '7600') sqText += ' <span style="color:#f5a623;font-weight:800">RADIO FAIL</span>';
+                else if (sq === '7700') sqText += ' <span style="color:#ff6666;font-weight:800">EMERGENCY</span>';
+                else if (p.emergency && p.emergency !== 'none' && p.emergency !== '0') {
+                    sqText += ' <span style="color:#f5a623;font-weight:800">' + htmlEscape(p.emergency) + '</span>';
+                }
+                detailRows += row('Squawk', sqText);
+            }
+
+            if (detailRows) html += '<div class="acp-body">' + detailRows + '</div>';
+
+            var sourceRows = '';
             var posLabel = friendlySource(p.positionSource || p.source);
             var routeLabel = friendlySource(p.enrichmentSource);
-            if (posLabel) html += '<div class="meta">Position: ' + htmlEscape(posLabel) + '</div>';
-            if (routeLabel && routeLabel !== posLabel) html += '<div class="meta">Route: ' + htmlEscape(routeLabel) + '</div>';
+            if (posLabel) sourceRows += row('Position source', htmlEscape(posLabel));
+            if (routeLabel && routeLabel !== posLabel) sourceRows += row('Route source', htmlEscape(routeLabel));
+            if (p.sourceFacility) sourceRows += row('Facility', htmlEscape(p.sourceFacility));
+            if (sourceRows) html += '<div class="acp-body">' + sourceRows + '</div>';
 
-            var csRaw = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
-            if (csRaw && airline) {
-                html += '<div class="meta"><a href="https://flightaware.com/live/flight/' + htmlEscape(csRaw) + '" target="_blank" rel="noopener" style="color:#8af">FA: ' + htmlEscape(csRaw) + '</a></div>';
-            }
-
+            html += '<div class="acp-actions">';
             if (flightId) {
-                html += '<br><span class="follow-link" onclick="startFollow(\'' + flightId + '\')">Follow aircraft</span>';
+                html += '<span class="acp-action primary" onclick="startFollow(\\'' + flightId + '\\')">Follow</span>';
             }
+            if (icao) {
+                html += '<a class="acp-action" href="https://globe.adsbexchange.com/?icao=' + htmlEscape(icao.toLowerCase()) + '" target="_blank" rel="noopener">ADSBx</a>';
+            }
+            if (csRaw && airline) {
+                html += '<a class="acp-action" href="https://flightaware.com/live/flight/' + htmlEscape(csRaw) + '" target="_blank" rel="noopener">FlightAware</a>';
+            }
+            html += '</div>';
 
             html += '</div>';
             return html;
@@ -1604,45 +1807,231 @@
 
         setInterval(cleanStalePlanes, 15000);
 
-        document.getElementById('search-btn').addEventListener('click', doSearch);
-        document.getElementById('search-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') doSearch();
+        var searchSuggestions = [];
+        var activeSearchIndex = -1;
+        var searchDebounce = null;
+
+        document.getElementById('search-btn').addEventListener('click', function() {
+            runSearch(true);
         });
 
-        function doSearch() {
+        document.getElementById('search-input').addEventListener('input', function() {
+            clearTimeout(searchDebounce);
+            var q = this.value.trim();
+            if (!q) {
+                hideSearchResults();
+                return;
+            }
+            searchDebounce = setTimeout(function() { runSearch(false); }, 180);
+        });
+
+        document.getElementById('search-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (searchSuggestions.length) selectSuggestion(Math.max(activeSearchIndex, 0));
+                else runSearch(true);
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveSearchSelection(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveSearchSelection(-1);
+            } else if (e.key === 'Escape') {
+                hideSearchResults();
+            }
+        });
+
+        function hideSearchResults() {
+            document.getElementById('search-results').style.display = 'none';
+            searchSuggestions = [];
+            activeSearchIndex = -1;
+        }
+
+        function buildLocalAirportSuggestions(q) {
+            var out = [];
+            var uq = q.toUpperCase();
+            var lq = q.toLowerCase();
+            var seen = {};
+
+            if (!airportData || !airportData.length) return out;
+
+            for (var i = 0; i < airportData.length; i++) {
+                var a = airportData[i];
+                var codes = [a.ident, a.icao, a.gps_code, a.iata_code, a.local_code]
+                    .filter(Boolean)
+                    .map(function(x) { return String(x).toUpperCase(); });
+
+                var name = String(a.name || '');
+                var nameMatch = name.toLowerCase().indexOf(lq) >= 0;
+                var codeMatch = codes.some(function(c) { return c === uq || c.indexOf(uq) === 0; });
+
+                if (!nameMatch && !codeMatch) continue;
+
+                var code = codes.find(function(c) { return c === uq; }) || codes[0];
+                if (!code || seen[code]) continue;
+                seen[code] = true;
+
+                out.push({
+                    kind: 'airport',
+                    code: code,
+                    title: code,
+                    subtitle: code + (name ? ' — ' + name : '') + (a.region ? ' · ' + a.region : ''),
+                    priority: code === uq ? 0 : 20
+                });
+
+                if (out.length >= 8) break;
+            }
+
+            return out.sort(function(a, b) {
+                return a.priority - b.priority || a.title.localeCompare(b.title);
+            });
+        }
+
+        function buildLocalAircraftSuggestions(q) {
+            var out = [];
+            var lq = q.toLowerCase();
+
+            for (var id in planeData) {
+                var p = planeData[id];
+                if (!p) continue;
+
+                var fields = [
+                    p.callsign, p.registration, p.icaoHex, p.flightId, p.operator,
+                    p.dep, p.arr, formatRoute(p)
+                ].filter(Boolean).join(' ').toLowerCase();
+
+                if (fields.indexOf(lq) < 0) continue;
+
+                out.push({
+                    kind: 'aircraft',
+                    id: id,
+                    title: displayName(p),
+                    subtitle: formatRoute(p),
+                    priority: 50
+                });
+
+                if (out.length >= 12) break;
+            }
+
+            return out;
+        }
+
+        function renderSearchSuggestions(suggestions) {
+            searchSuggestions = suggestions.slice(0, 20);
+            activeSearchIndex = searchSuggestions.length ? 0 : -1;
+
+            var container = document.getElementById('search-results');
+            if (!searchSuggestions.length) {
+                container.innerHTML = '<div class="search-result">No results found</div>';
+                container.style.display = 'block';
+                return;
+            }
+
+            var html = '';
+            var lastKind = '';
+
+            searchSuggestions.forEach(function(r, idx) {
+                if (r.kind !== lastKind) {
+                    lastKind = r.kind;
+                    html += '<div class="search-section-label">' + (r.kind === 'airport' ? 'Airports' : 'Aircraft') + '</div>';
+                }
+
+                html += '<div class="search-result ' + (idx === activeSearchIndex ? 'active' : '') + '" onclick="selectSuggestion(' + idx + ')">' +
+                    '<span class="sr-call">' + htmlEscape(r.title || '') + '</span>' +
+                    '<span class="sr-kind">' + htmlEscape(r.kind || '') + '</span>' +
+                    '<div class="sr-route">' + htmlEscape(r.subtitle || '') + '</div>' +
+                    '</div>';
+            });
+
+            container.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        function moveSearchSelection(delta) {
+            if (!searchSuggestions.length) return;
+            activeSearchIndex += delta;
+            if (activeSearchIndex < 0) activeSearchIndex = searchSuggestions.length - 1;
+            if (activeSearchIndex >= searchSuggestions.length) activeSearchIndex = 0;
+            renderSearchSuggestions(searchSuggestions);
+        }
+
+        function runSearch(forceApi) {
             var q = document.getElementById('search-input').value.trim();
             if (!q) return;
+
+            var local = buildLocalAirportSuggestions(q).concat(buildLocalAircraftSuggestions(q));
+            renderSearchSuggestions(local);
+
+            if (!forceApi && local.length >= 6) return;
 
             fetch('/api/?action=Search&q=' + encodeURIComponent(q))
                 .then(function(res) { return res.json(); })
                 .then(function(json) {
                     var results = json.response && json.response.data ? json.response.data.results || [] : [];
-                    var container = document.getElementById('search-results');
-                    
-                    if (results.length === 0) {
-                        container.innerHTML = '<div class="search-result">No results found</div>';
-                    } else {
-                        container.innerHTML = results.slice(0, 20).map(function(r) {
-                            return '<div class="search-result" onclick="selectSearchResult(\'' + 
-                                r.flightId.replace(/'/g, "\\'") + '\')">' +
-                                '<span class="sr-call">' + (r.callsign || r.flightId) + '</span> ' +
-                                (r.operator ? '(' + r.operator + ')' : '') +
-                                '<div class="sr-route">' + htmlEscape(formatRoute(r)) + '</div>' +
-                                '</div>';
-                        }).join('');
-                    }
-                    container.style.display = 'block';
+                    var extra = [];
+
+                    results.slice(0, 10).forEach(function(r) {
+                        var fid = r.flightId || '';
+                        if (!fid) return;
+
+                        extra.push({
+                            kind: 'aircraft',
+                            id: fid,
+                            title: r.callsign || r.flightId,
+                            subtitle: formatRoute(r),
+                            priority: 70
+                        });
+                    });
+
+                    var merged = local.slice();
+                    var seen = {};
+                    merged.forEach(function(x) {
+                        seen[(x.kind || '') + ':' + (x.code || x.id || x.title)] = true;
+                    });
+                    extra.forEach(function(x) {
+                        var key = (x.kind || '') + ':' + (x.code || x.id || x.title);
+                        if (!seen[key]) merged.push(x);
+                    });
+
+                    renderSearchSuggestions(merged);
+                })
+                .catch(function() {
+                    // Local results are already shown.
                 });
         }
 
-        function selectSearchResult(flightId) {
-            document.getElementById('search-results').style.display = 'none';
+        function doSearch() {
+            runSearch(true);
+        }
+
+        function selectSuggestion(index) {
+            var r = searchSuggestions[index];
+            if (!r) return;
+
+            hideSearchResults();
             document.getElementById('search-input').value = '';
-            
+
+            if (r.kind === 'airport') {
+                applyAirportDeepLink(r.code);
+                return;
+            }
+
+            if (r.kind === 'aircraft') {
+                selectSearchResult(r.id);
+            }
+        }
+
+        function selectSearchResult(flightId) {
+            hideSearchResults();
+            document.getElementById('search-input').value = '';
+
             if (planeData[flightId]) {
                 var p = planeData[flightId];
                 map.setView([p.lat, p.lon], 12);
+                if (!planeMarkers[flightId]) addMarker(flightId);
+                if (planeMarkers[flightId]) planeMarkers[flightId].openPopup();
             }
+
             startFollow(flightId);
         }
 
@@ -1755,9 +2144,12 @@
 
             // Airport deep-link — center map; does not require aircraft data
             if (airportParam) {
+                showStatusHUD('Finding airport ' + airportParam + '…', 'info');
                 applyAirportDeepLink(airportParam);
                 return;
             }
+
+            showStatusHUD('Finding aircraft ' + (icaoParam || callParam) + '…', 'info');
 
             // Aircraft deep-link with retry — aircraft may arrive via SSE after initial load
             var attempts = 0;
