@@ -837,16 +837,19 @@ function toggleDetail(id) {
 /* ── Fetch & render ── */
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
     try {
         const [planesRes, healthRes] = await Promise.all([
-            fetch('/api/?action=Planes'),
+            fetch('/api/?action=Planes&view=alerts&_=' + Date.now()),
             fetch('/api/?action=Health'),
         ]);
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
 
         const planesJson = planesRes.ok ? await planesRes.json() : null;
         const healthJson = healthRes.ok ? await healthRes.json() : null;
 
         const planes = planesJson?.response?.data?.planes || [];
+        const total  = planesJson?.response?.data?.total  || 0;
         const health = healthJson?.response?.data || healthJson;
 
         allAlerts = buildAlerts(planes, health);
@@ -854,7 +857,8 @@ async function doRefresh() {
         renderTable(allAlerts);
 
         document.getElementById('last-update').textContent =
-            'Updated ' + new Date().toLocaleTimeString();
+            'Updated ' + new Date().toLocaleTimeString() +
+            ' · ' + elapsed + 's · ' + total.toLocaleString() + ' aircraft';
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         document.getElementById('alerts-content').innerHTML =

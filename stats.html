@@ -441,88 +441,39 @@
         return '<div class="section"><h2>' + esc(title) + '</h2>' + tbl + '</div>';
     }
 
-    function computeAndRender(planes, total) {
-        // Airborne / ground
-        var airborne = 0, taxiing = 0, parked = 0;
-        planes.forEach(function(p) {
-            if (String(p.airborne) === '1') {
-                airborne++;
-            } else {
-                if ((parseFloat(p.speed) || 0) > 5) taxiing++;
-                else parked++;
-            }
-        });
-        var onGround = taxiing + parked;
+    function renderFromSummary(data) {
+        var total       = data.total       || 0;
+        var airborne    = data.airborne    || 0;
+        var onGround    = data.onGround    || 0;
+        var groundSweep = data.groundSweep || 0;
+        var classCounts   = data.classCounts   || {};
+        var routeCoverage = data.routeCoverage || {};
+        var airlineCounts = data.airlineCounts || {};
+        var originCounts  = data.originCounts  || {};
+        var destCounts    = data.destCounts    || {};
+        var rawSources    = data.sources       || {};
 
-        // Ground sweep
-        var groundSweep = planes.filter(function(p) {
-            return p.source === 'adsblol-ground-sweep' || p.positionSource === 'adsblol-ground-sweep';
-        }).length;
-
-        // Source counts (per-plane resolved source)
         var sourceCounts = {};
-        planes.forEach(function(p) {
-            var s = friendlySource(p.source || 'unknown');
-            sourceCounts[s] = (sourceCounts[s] || 0) + 1;
+        Object.keys(rawSources).forEach(function(k) {
+            var label = friendlySource(k);
+            sourceCounts[label] = (sourceCounts[label] || 0) + rawSources[k];
         });
 
-        // Aircraft class (backend provides aircraftClass per plane)
-        var classCounts = {};
-        planes.forEach(function(p) {
-            var c = String(p.aircraftClass || 'unknown');
-            classCounts[c] = (classCounts[c] || 0) + 1;
-        });
-
-        // Route coverage
-        var fullRoute = 0, depOnly = 0, arrOnly = 0, noRoute = 0;
-        planes.forEach(function(p) {
-            var d = !!(p.dep && String(p.dep).trim());
-            var a = !!(p.arr && String(p.arr).trim());
-            if (d && a) fullRoute++;
-            else if (d) depOnly++;
-            else if (a) arrOnly++;
-            else noRoute++;
-        });
-
-        // Airlines (operator 3-letter prefix)
-        var airlineCounts = {};
-        planes.forEach(function(p) {
-            var op = String(p.operator || '').trim().toUpperCase();
-            if (/^[A-Z]{3}$/.test(op)) {
-                airlineCounts[op] = (airlineCounts[op] || 0) + 1;
-            }
-        });
-
-        // Origins / destinations
-        var originCounts = {}, destCounts = {};
-        planes.forEach(function(p) {
-            if (p.dep && String(p.dep).trim()) {
-                var d = String(p.dep).trim().toUpperCase();
-                originCounts[d] = (originCounts[d] || 0) + 1;
-            }
-            if (p.arr && String(p.arr).trim()) {
-                var a = String(p.arr).trim().toUpperCase();
-                destCounts[a] = (destCounts[a] || 0) + 1;
-            }
-        });
-
-        // ── Summary cards ──
         var commercial = classCounts.commercial || 0;
         var priv       = classCounts.private    || 0;
         var military   = classCounts.military   || 0;
         var heli       = classCounts.helicopter || 0;
 
         document.getElementById('cards-row').innerHTML =
-            card(total.toLocaleString(),     'Total Aircraft') +
-            card(airborne.toLocaleString(),  'Airborne') +
-            card(onGround.toLocaleString(),  'On Ground') +
-            card(commercial.toLocaleString(),'Commercial') +
-            card(priv.toLocaleString(),      'Private') +
-            card(military.toLocaleString(),  'Military', military === 0) +
-            card(heli.toLocaleString(),      'Helicopter', heli === 0) +
-            card(groundSweep.toLocaleString(),'Ground Sweep', groundSweep === 0);
+            card(total.toLocaleString(),       'Total Aircraft') +
+            card(airborne.toLocaleString(),    'Airborne') +
+            card(onGround.toLocaleString(),    'On Ground') +
+            card(commercial.toLocaleString(),  'Commercial') +
+            card(priv.toLocaleString(),        'Private') +
+            card(military.toLocaleString(),    'Military', military === 0) +
+            card(heli.toLocaleString(),        'Helicopter', heli === 0) +
+            card(groundSweep.toLocaleString(), 'Ground Sweep', groundSweep === 0);
 
-        // ── Sources ──
         var srcRows = sortedDesc(sourceCounts).map(function(e) {
             return [
                 {v: e[0], cls: 'name'},
@@ -531,9 +482,8 @@
             ];
         });
 
-        // ── Aircraft classes ──
-        var classOrder = ['commercial','private','military','helicopter','unknown'];
-        var classLabel = {commercial:'Commercial',private:'Private',military:'Military',helicopter:'Helicopter',unknown:'Unknown'};
+        var classOrder = ['commercial','private','military','helicopter','ground','unknown'];
+        var classLabel = {commercial:'Commercial',private:'Private',military:'Military',helicopter:'Helicopter',ground:'Ground Sweep',unknown:'Unknown'};
         var classRows = classOrder
             .filter(function(k){ return classCounts[k]; })
             .map(function(k) {
@@ -544,12 +494,11 @@
                 ];
             });
 
-        // ── Route coverage ──
+        var withRoute = routeCoverage.withRoute || 0;
+        var noRoute   = routeCoverage.none      || 0;
         var routeRows = [
-            {label: 'Full route (dep + arr)', n: fullRoute},
-            {label: 'Departure known only',  n: depOnly},
-            {label: 'Arrival known only',    n: arrOnly},
-            {label: 'No route data',         n: noRoute}
+            {label: 'Has route data', n: withRoute},
+            {label: 'No route data',  n: noRoute}
         ].map(function(r) {
             return [
                 {v: r.label, cls: 'name'},
@@ -558,7 +507,6 @@
             ];
         });
 
-        // ── Airlines ──
         var airlineRows = sortedDesc(airlineCounts).slice(0, 20).map(function(e) {
             return [
                 {v: e[0], cls: 'code'},
@@ -567,34 +515,30 @@
             ];
         });
 
-        // ── Origins ──
         var originRows = sortedDesc(originCounts).slice(0, 15).map(function(e) {
-            var name = airportName(e[0]);
             return [
                 {v: e[0], cls: 'code'},
-                {v: name, cls: 'name'},
+                {v: airportName(e[0]), cls: 'name'},
                 {v: e[1].toLocaleString(), cls: 'num'}
             ];
         });
 
-        // ── Destinations ──
         var destRows = sortedDesc(destCounts).slice(0, 15).map(function(e) {
-            var name = airportName(e[0]);
             return [
                 {v: e[0], cls: 'code'},
-                {v: name, cls: 'name'},
+                {v: airportName(e[0]), cls: 'name'},
                 {v: e[1].toLocaleString(), cls: 'num'}
             ];
         });
 
         var hdr3 = [{label:'Source'},{label:'Count',r:true},{label:'%',r:true}];
         document.getElementById('section-grid').innerHTML =
-            section('Data Sources',    tableHtml(hdr3, srcRows)) +
-            section('Aircraft Classes',tableHtml(hdr3, classRows)) +
-            section('Route Coverage',  tableHtml(hdr3, routeRows)) +
-            section('Top Airlines',    tableHtml([{label:'Code'},{label:'Airline'},{label:'Flights',r:true}], airlineRows)) +
-            section('Top Origins',     tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], originRows)) +
-            section('Top Destinations',tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], destRows));
+            section('Data Sources',     tableHtml(hdr3, srcRows)) +
+            section('Aircraft Classes', tableHtml(hdr3, classRows)) +
+            section('Route Coverage',   tableHtml(hdr3, routeRows)) +
+            section('Top Airlines',     tableHtml([{label:'Code'},{label:'Airline'},{label:'Flights',r:true}], airlineRows)) +
+            section('Top Origins',      tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], originRows)) +
+            section('Top Destinations', tableHtml([{label:'ICAO'},{label:'Airport'},{label:'Count',r:true}], destRows));
 
         document.getElementById('section-grid').style.display = 'grid';
 
@@ -607,15 +551,14 @@
 
     function loadStats() {
         document.getElementById('last-update').textContent = 'Refreshing…';
-        fetch('/api/?action=Planes&_=' + Date.now())
+        fetch('/api/?action=Planes&view=summary&_=' + Date.now())
             .then(function(r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 return r.json();
             })
             .then(function(json) {
                 var data = (json.response && json.response.data) ? json.response.data : {};
-                var planes = data.planes || [];
-                computeAndRender(planes, data.count || planes.length);
+                renderFromSummary(data);
             })
             .catch(function(err) {
                 document.getElementById('cards-row').innerHTML =

@@ -551,81 +551,43 @@ function toggleAirportDetail(id) {
     if (row) row.classList.toggle('hidden');
 }
 
-/* ── Main data processing ── */
-function processPlanes(planes) {
-    const depCounts  = new Map(); // code → count
-    const arrCounts  = new Map(); // code → count
-    const unresCodes = new Map(); // raw_code → count
+/* ── Data processing from summary endpoint ── */
+function processFromSummary(data) {
+    const rawOrigins = data.originCounts || {};
+    const rawDests   = data.destCounts   || {};
 
-    let groundCount = 0;
-    let noRouteCount = 0;
-    let knownDepCount = 0;
-    let knownArrCount = 0;
-
-    for (const p of planes) {
-        const src = (p.source || '').toLowerCase();
-        if (src.includes('ground')) {
-            groundCount++;
-            continue;
-        }
-
-        const dep = (p.dep || '').trim().toUpperCase();
-        const arr = (p.arr || '').trim().toUpperCase();
-
-        const depOk = isValidCode(dep);
-        const arrOk = isValidCode(arr);
-
-        if (!dep && !arr) {
-            noRouteCount++;
-            continue;
-        }
-
-        // count valid codes
-        if (dep) {
-            if (depOk) {
-                depCounts.set(dep, (depCounts.get(dep) || 0) + 1);
-                knownDepCount++;
-            } else {
-                unresCodes.set(dep, (unresCodes.get(dep) || 0) + 1);
-            }
-        } else {
-            noRouteCount++;
-        }
-
-        if (arr) {
-            if (arrOk) {
-                arrCounts.set(arr, (arrCounts.get(arr) || 0) + 1);
-                knownArrCount++;
-            } else {
-                unresCodes.set(arr, (unresCodes.get(arr) || 0) + 1);
-            }
-        } else {
-            noRouteCount++;
-        }
+    const depCounts = {};
+    const arrCounts = {};
+    for (const [code, cnt] of Object.entries(rawOrigins)) {
+        if (isValidCode(code)) depCounts[code] = cnt;
+    }
+    for (const [code, cnt] of Object.entries(rawDests)) {
+        if (isValidCode(code)) arrCounts[code] = cnt;
     }
 
-    // Merge into unified airport activity map
-    const allCodes = new Set([...depCounts.keys(), ...arrCounts.keys()]);
+    const topOrigins = Object.entries(depCounts).sort((a,b) => b[1]-a[1]);
+    const topDests   = Object.entries(arrCounts).sort((a,b) => b[1]-a[1]);
+
+    const knownDepCount = Object.values(depCounts).reduce((s,v) => s+v, 0);
+    const knownArrCount = Object.values(arrCounts).reduce((s,v) => s+v, 0);
+
+    const allCodes = new Set([...Object.keys(depCounts), ...Object.keys(arrCounts)]);
     const airportActivity = [];
     for (const code of allCodes) {
-        const deps = depCounts.get(code) || 0;
-        const arrs = arrCounts.get(code) || 0;
+        const deps = depCounts[code] || 0;
+        const arrs = arrCounts[code] || 0;
         const info = airportInfo(code);
         airportActivity.push({ code, deps, arrs, total: deps + arrs, info });
     }
-    airportActivity.sort((a, b) => b.total - a.total);
-
-    // Top origins / destinations
-    const topOrigins = [...depCounts.entries()].sort((a,b) => b[1]-a[1]);
-    const topDests   = [...arrCounts.entries()].sort((a,b) => b[1]-a[1]);
+    airportActivity.sort((a,b) => b.total - a.total);
 
     return {
         airportActivity,
         topOrigins,
         topDests,
-        unresCodes: [...unresCodes.entries()].sort((a,b) => b[1]-a[1]),
-        groundCount,
-        noRouteCount,
+        unresCodes: [],
+        groundCount: data.groundSweep || 0,
+        noRouteCount: (data.routeCoverage || {}).none || 0,
         knownDepCount,
         knownArrCount,
         uniqueAirports: allCodes.size,
@@ -633,7 +595,7 @@ function processPlanes(planes) {
 }
 
 /* ── Render ── */
-function renderCards(s, planes) {
+function renderCards(s) {
     const busiestOrigin = s.topOrigins[0];
     const busiestDest   = s.topDests[0];
     const boInfo = busiestOrigin ? airportInfo(busiestOrigin[0]) : null;
@@ -805,25 +767,29 @@ function filterAirports() {
 /* ── Fetch & render ── */
 async function refresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes');
+        const r = await fetch('/api/?action=Planes&view=summary&_=' + Date.now());
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
-        const planes = (d.response?.data?.planes) || [];
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        const data = (d.response?.data) || {};
 
-        const s = processPlanes(planes);
+        const s = processFromSummary(data);
         lastProcessed = s;
 
-        renderCards(s, planes);
+        renderCards(s);
         renderTopList(s.topOrigins, 'origins-content', 'origins-count', 20);
         renderTopList(s.topDests,   'dests-content',   'dests-count',   20);
         renderAllAirports(s.airportActivity);
-        renderUnresolved(s.unresCodes);
+        document.getElementById('unresolved-section').style.display = 'none';
 
-        document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        document.getElementById('last-update').textContent =
+            'Updated ' + new Date().toLocaleTimeString() +
+            ' · ' + (data.total || 0).toLocaleString() + ' aircraft · ' + elapsed + 's';
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
-        ['origins-content','dests-content','all-airports-content','unresolved-content'].forEach(id => {
+        ['origins-content','dests-content','all-airports-content'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = '<div class="status-msg error">Unable to reach API</div>';
         });

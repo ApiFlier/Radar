@@ -606,6 +606,9 @@ function renderGroundTable(ground) {
             ${cluster ? `<div class="dp-field"><div class="dp-label">Cluster</div><div class="dp-value mono">${cluster}</div></div>` : ''}
             ${facility ? `<div class="dp-field"><div class="dp-label">Facility</div><div class="dp-value mono">${facility}</div></div>` : ''}
             <div class="dp-field"><div class="dp-label">Last Update</div><div class="dp-value">${age.txt}</div></div>
+            ${p.icaoHex ? `<div class="dp-actions" style="margin-top:8px;display:flex;gap:8px">
+                <a class="dp-action primary" href="/?icao=${(p.icaoHex||'').toUpperCase()}" title="Open on radar map" style="font-size:10px;font-weight:600;color:#00ffcc;border:1px solid rgba(0,255,204,0.3);border-radius:3px;padding:3px 10px;text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;background:rgba(0,255,204,0.04)">Open on Radar</a>
+            </div>` : ''}
         </div></td></tr>`;
     }
 
@@ -700,18 +703,15 @@ function renderClass(ground) {
 /* ── Main fetch ── */
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes');
+        const r = await fetch('/api/?action=Planes&view=ground&_=' + Date.now());
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
-        const planes = d?.response?.data?.planes || [];
-        const total  = planes.length;
-
-        // Ground = source or positionSource contains "ground"
-        const ground = planes.filter(p => {
-            const src = ((p.source || '') + (p.positionSource || '')).toLowerCase();
-            return src.includes('ground');
-        });
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        const data = d?.response?.data || {};
+        const ground = data.planes || [];
+        const total  = data.total  || 0;
 
         allGround = ground;
 
@@ -723,7 +723,8 @@ async function doRefresh() {
 
         document.getElementById('last-update').textContent =
             'Updated ' + new Date().toLocaleTimeString() +
-            (ground.length === 0 ? ' · No ground aircraft' : '');
+            ' · ' + elapsed + 's' +
+            (ground.length === 0 ? ' · No ground aircraft' : ' · ' + ground.length + ' ground');
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         ['ground-content','coverage-content','class-content'].forEach(id => {

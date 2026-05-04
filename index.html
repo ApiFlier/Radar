@@ -1547,6 +1547,7 @@
                 var planes = json.response && json.response.data ? json.response.data.planes || [] : [];
                 planes.forEach(processPlane);
                 syncVisiblePlanes();
+                applyDeepLink();
             });
 
         // SSE stream
@@ -1636,6 +1637,64 @@
                 document.getElementById('search-results').style.display = 'none';
             }
         });
+
+        /* ── Deep-link support: /?icao=HEX or /?callsign=CALL ── */
+        function applyDeepLink() {
+            var params = new URLSearchParams(window.location.search);
+            var icaoParam  = (params.get('icao')     || '').toUpperCase().trim();
+            var callParam  = (params.get('callsign') || '').toUpperCase().trim();
+            if (!icaoParam && !callParam) return;
+
+            var targetId = null;
+            for (var id in planeData) {
+                var pd = planeData[id];
+                if (icaoParam && (pd.icaoHex || '').toUpperCase() === icaoParam) {
+                    targetId = id; break;
+                }
+                if (callParam && (pd.callsign || '').toUpperCase() === callParam) {
+                    targetId = id; break;
+                }
+            }
+
+            if (!targetId) {
+                showDeepLinkHUD(icaoParam || callParam, false);
+                return;
+            }
+
+            var pd = planeData[targetId];
+            map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 12));
+
+            // Allow moveend / syncVisiblePlanes to run before opening popup
+            setTimeout(function() {
+                if (!planeMarkers[targetId]) addMarker(targetId);
+                var marker = planeMarkers[targetId];
+                if (marker) {
+                    marker.openPopup();
+                    startFollow(targetId);
+                }
+            }, 350);
+        }
+
+        function showDeepLinkHUD(label, found) {
+            var hud = document.getElementById('deeplink-hud');
+            if (!hud) {
+                hud = document.createElement('div');
+                hud.id = 'deeplink-hud';
+                hud.style.cssText = [
+                    'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
+                    'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(255,153,119,0.35)',
+                    'border-radius:6px', 'padding:9px 18px', 'font-size:12px',
+                    'font-family:"Segoe UI",sans-serif', 'color:#f97',
+                    'z-index:9999', 'cursor:pointer', 'white-space:nowrap',
+                    'box-shadow:0 2px 12px rgba(0,0,0,0.5)'
+                ].join(';');
+                hud.onclick = function() { this.style.display = 'none'; };
+                document.body.appendChild(hud);
+            }
+            hud.textContent = 'Aircraft “' + label + '” not found in current feed — click to dismiss';
+            hud.style.display = 'block';
+            setTimeout(function() { if (hud) hud.style.display = 'none'; }, 8000);
+        }
     </script>
 </body>
 </html>

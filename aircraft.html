@@ -217,6 +217,23 @@
         .state-ground { color: #555; }
         .state-stop   { color: #3a3a3a; }
 
+        /* ── Show-more button ── */
+        .show-more-btn {
+            font-size: 11px; font-weight: 600; color: #555;
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+            padding: 6px 20px; cursor: pointer; background: transparent;
+            font-family: inherit; letter-spacing: 0.3px; transition: all 0.12s;
+        }
+        .show-more-btn:hover { color: #888; border-color: rgba(255,255,255,0.22); }
+        .show-more-wrap {
+            text-align: center; padding: 12px 0 8px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+        }
+        .show-more-info {
+            font-size: 10px; color: #333; margin-top: 6px;
+            letter-spacing: 0.3px;
+        }
+
         /* ── Clickable rows + detail panel ── */
         .clickable-row { cursor: pointer; }
         .clickable-row:hover td { background: rgba(255,255,255,0.04) !important; }
@@ -360,6 +377,10 @@
             <div id="ac-content">
                 <div class="status-msg">Loading…</div>
             </div>
+            <div id="show-more-wrap" class="show-more-wrap" style="display:none">
+                <button class="show-more-btn" id="show-more-btn" onclick="loadMore()">Load more</button>
+                <div class="show-more-info" id="show-more-info"></div>
+            </div>
         </div>
 
         <div class="footer">Auto-refreshes every 30 seconds</div>
@@ -369,6 +390,7 @@
 <script>
 /* ── Constants ── */
 const VALID_CODE_RE = /^[A-Z]{3,4}$/;
+const PAGE_SIZE = 500;
 
 const SOURCE_LABELS = {
     'adsblol-ground-sweep': 'Ground Sweep',
@@ -386,10 +408,13 @@ const SOURCE_LABELS = {
 };
 
 /* ── State ── */
-let allPlanes   = [];
-let classFilter = 'all';
-let sortCol     = 'lastUpdate';
-let sortDir     = 'desc';
+let allPlanes    = [];
+let classFilter  = 'all';
+let sortCol      = 'lastUpdate';
+let sortDir      = 'desc';
+let currentSorted = [];
+let renderedCount = 0;
+const planeMap   = new Map(); // detailId → plane object
 
 /* ── Helpers ── */
 function n(v) {
@@ -548,58 +573,111 @@ function renderCards(planes) {
     `;
 }
 
-/* ── Table rendering ── */
-function renderTable(planes) {
-    if (!planes.length) {
-        document.getElementById('ac-content').innerHTML = '<div class="status-msg">No aircraft data</div>';
-        document.getElementById('ac-count').textContent = '0 aircraft';
-        return;
+/* ── Row HTML builder (no pre-built detail rows) ── */
+function buildRowHtml(p, detailId) {
+    const noId = noFlightId(p);
+    const callText = noId ? (p.callsign || p.icaoHex || '—') : (p.callsign || p.flightId || '—');
+    const callCls  = noId ? 'callsign no-id' : 'callsign';
+    const route = routeDisplay(p.dep, p.arr);
+    const alt   = fmtAlt(p.alt);
+    const spd   = fmtSpeed(p.speed);
+    const st    = stateInfo(p);
+    const srch  = [
+        callText, p.registration || '', p.icaoHex || '',
+        p.dep || '', p.arr || '', p.source || '', p.positionSource || '',
+        p.aircraftType || '', p.operator || ''
+    ].join(' ').toLowerCase();
+
+    return `<tr class="clickable-row"
+        data-class="${p.aircraftClass || 'unknown'}"
+        data-ground="${isGroundPlane(p) ? '1' : '0'}"
+        data-route="${route.full ? '1' : '0'}"
+        data-noid="${noIdentity(p) ? '1' : '0'}"
+        data-srch="${srch}"
+        data-detail-id="${detailId}"
+        onclick="toggleDetail('${detailId}')">
+        <td class="${callCls}">${callText}</td>
+        <td class="reg">${p.registration || '—'}</td>
+        <td class="hex">${p.icaoHex || '—'}</td>
+        <td class="actype">${p.aircraftType || '<span style="color:#2a2a2a">—</span>'}</td>
+        <td class="td-tags">${tagsHtml(p)}</td>
+        <td class="route">${route.html}</td>
+        <td class="num alt ${alt.ground ? 'ground' : ''}">${alt.txt}</td>
+        <td class="num spd ${spd.cls}">${spd.txt}</td>
+        <td class="state"><span class="dot ${st.dotCls}"></span><span class="${st.lblCls}">${st.label}</span></td>
+        <td class="src-cell">${friendlySource(p.source || p.positionSource || '')}</td>
+    </tr>`;
+}
+
+/* ── Detail panel (built on demand) ── */
+function buildDetailHtml(p, id) {
+    const route = routeDisplay(p.dep, p.arr);
+    const alt   = fmtAlt(p.alt);
+    const spd   = fmtSpeed(p.speed);
+    const st    = stateInfo(p);
+    const tags  = tagsHtml(p);
+    const icao  = (p.icaoHex || '').toUpperCase();
+    const assignedAlt = p.assignedAlt ? Math.round(n(p.assignedAlt) || 0).toLocaleString() + ' ft' : '';
+    const vr    = p.verticalRate ? (n(p.verticalRate) > 0 ? '+' : '') + Math.round(n(p.verticalRate) || 0) + ' fpm' : '';
+
+    function field(label, val, cls='') {
+        if (!val && val !== 0) return '';
+        return `<div class="dp-field"><div class="dp-label">${label}</div><div class="dp-value ${cls}">${val}</div></div>`;
     }
 
-    const sorted = sortedPlanes(planes);
-    let rows = '';
-    let idx  = 0;
+    return `<div class="detail-panel">
+        <div class="detail-grid">
+            ${field('Callsign / ID', p.callsign || p.flightId || '—', 'mono accent')}
+            ${p.registration ? field('Registration', p.registration, 'mono') : ''}
+            ${icao ? field('ICAO Hex', icao, 'mono') : ''}
+            ${p.aircraftType ? field('Aircraft Type', p.aircraftType) : ''}
+            ${field('Class', p.aircraftClass || 'unknown')}
+            ${tags ? `<div class="dp-field"><div class="dp-label">Tags</div><div class="dp-value">${tags}</div></div>` : ''}
+        </div>
+        <div class="dp-sep"></div>
+        <div class="detail-grid">
+            <div class="dp-field"><div class="dp-label">Route</div><div class="dp-value">${route.html}</div></div>
+            ${p.dep && isValidCode(p.dep.trim().toUpperCase()) ? field('Departure', p.dep.trim().toUpperCase(), 'mono') : ''}
+            ${p.arr && isValidCode(p.arr.trim().toUpperCase()) ? field('Arrival', p.arr.trim().toUpperCase(), 'mono') : ''}
+            ${p.depTime ? field('Dep Time', p.depTime) : ''}
+            ${p.eta     ? field('ETA',      p.eta)     : ''}
+            ${p.flightStatus ? field('Status', p.flightStatus) : ''}
+        </div>
+        <div class="dp-sep"></div>
+        <div class="detail-grid">
+            ${field('Altitude', alt.ground ? 'Ground' : alt.txt, alt.ground ? '' : 'accent')}
+            ${assignedAlt ? field('Assigned Alt', assignedAlt) : ''}
+            ${field('Speed', spd.txt !== '—' ? spd.txt : '')}
+            ${field('Heading', fmtHeading(p.heading))}
+            ${vr ? field('Vert Rate', vr, n(p.verticalRate) > 0 ? '' : 'warn') : ''}
+            <div class="dp-field"><div class="dp-label">State</div><div class="dp-value ${st.lblCls}">${st.label}</div></div>
+        </div>
+        <div class="dp-sep"></div>
+        <div class="detail-grid">
+            ${field('Position Source', friendlySource(p.positionSource || p.source || ''))}
+            ${p.enrichmentSource ? field('Enrichment', friendlySource(p.enrichmentSource)) : ''}
+            ${p.sourceFacility ? field('Facility', p.sourceFacility, 'mono') : ''}
+            ${p.source ? field('Raw Source', p.source, 'mono') : ''}
+            ${field('Last Update', fmtAge(p.lastUpdate))}
+            ${p.squawk && p.squawk !== '0' ? field('Squawk', p.squawk, 'mono') : ''}
+        </div>
+        <div class="dp-actions">
+            <a class="dp-action primary" href="/?icao=${icao}" title="Open on radar map">Open on Radar</a>
+        </div>
+    </div>`;
+}
 
-    for (const p of sorted) {
-        const detailId = `ac-detail-${idx++}`;
-        const noId = noFlightId(p);
-        const callText = noId ? (p.callsign || p.icaoHex || '—') : (p.callsign || p.flightId || '—');
-        const callCls  = noId ? 'callsign no-id' : 'callsign';
-        const reg  = p.registration || '—';
-        const hex  = p.icaoHex || '—';
-        const type = p.aircraftType || '';
-        const tags = tagsHtml(p);
-        const route = routeDisplay(p.dep, p.arr);
-        const alt  = fmtAlt(p.alt);
-        const spd  = fmtSpeed(p.speed);
-        const st   = stateInfo(p);
-        const srcL = friendlySource(p.source || p.positionSource || '');
-        const cls  = classBadgeLabel(p);
+/* ── Table rendering — paginated ── */
+function renderTable(planes) {
+    currentSorted = sortedPlanes(planes);
+    renderedCount = 0;
+    planeMap.clear();
 
-        const srch = [
-            callText, p.registration || '', p.icaoHex || '',
-            p.dep || '', p.arr || '', p.source || '', p.positionSource || '',
-            p.aircraftType || '', p.operator || ''
-        ].join(' ').toLowerCase();
-
-        rows += `<tr class="clickable-row"
-            data-class="${p.aircraftClass || 'unknown'}"
-            data-ground="${isGroundPlane(p) ? '1' : '0'}"
-            data-route="${route.full ? '1' : '0'}"
-            data-noid="${noIdentity(p) ? '1' : '0'}"
-            data-srch="${srch}"
-            onclick="toggleDetail('${detailId}')">
-            <td class="${callCls}">${callText}</td>
-            <td class="reg">${reg}</td>
-            <td class="hex">${hex}</td>
-            <td class="actype">${type || '<span style="color:#2a2a2a">—</span>'}</td>
-            <td class="td-tags">${tags}</td>
-            <td class="route">${route.html}</td>
-            <td class="num alt ${alt.ground ? 'ground' : ''}">${alt.txt}</td>
-            <td class="num spd ${spd.cls}">${spd.txt}</td>
-            <td class="state"><span class="dot ${st.dotCls}"></span><span class="${st.lblCls}">${st.label}</span></td>
-            <td class="src-cell">${srcL}</td>
-        </tr>${detailRow(p, detailId)}`;
+    if (!currentSorted.length) {
+        document.getElementById('ac-content').innerHTML = '<div class="status-msg">No aircraft data</div>';
+        document.getElementById('ac-count').textContent = '0 aircraft';
+        document.getElementById('show-more-wrap').style.display = 'none';
+        return;
     }
 
     document.getElementById('ac-content').innerHTML = `
@@ -617,71 +695,49 @@ function renderTable(planes) {
                 <th>State</th>
                 <th>Source</th>
             </tr></thead>
-            <tbody>${rows}</tbody>
+            <tbody id="ac-tbody"></tbody>
         </table>
         </div>`;
 
+    appendBatch(PAGE_SIZE);
+    updateShowMore();
     applyFilters();
 }
 
-function detailRow(p, id) {
-    const route = routeDisplay(p.dep, p.arr);
-    const alt   = fmtAlt(p.alt);
-    const spd   = fmtSpeed(p.speed);
-    const st    = stateInfo(p);
-    const tags  = tagsHtml(p);
-    const assignedAlt = p.assignedAlt ? Math.round(n(p.assignedAlt) || 0).toLocaleString() + ' ft' : '';
-    const vr    = p.verticalRate ? (n(p.verticalRate) > 0 ? '+' : '') + Math.round(n(p.verticalRate) || 0) + ' fpm' : '';
-
-    function field(label, val, cls='') {
-        if (!val && val !== 0) return '';
-        return `<div class="dp-field"><div class="dp-label">${label}</div><div class="dp-value ${cls}">${val}</div></div>`;
+function appendBatch(count) {
+    const tbody = document.getElementById('ac-tbody');
+    if (!tbody) return;
+    const end = Math.min(renderedCount + count, currentSorted.length);
+    let html = '';
+    for (let idx = renderedCount; idx < end; idx++) {
+        const p = currentSorted[idx];
+        const detailId = `ac-detail-${idx}`;
+        planeMap.set(detailId, p);
+        html += buildRowHtml(p, detailId);
     }
+    renderedCount = end;
+    tbody.insertAdjacentHTML('beforeend', html);
+}
 
-    const icao = (p.icaoHex || '').toUpperCase();
+function loadMore() {
+    appendBatch(PAGE_SIZE);
+    updateShowMore();
+    applyFilters();
+}
 
-    return `<tr class="detail-row hidden" id="${id}"><td colspan="10"><div class="detail-panel">
-        <div class="detail-grid">
-            ${field('Callsign / ID', p.callsign || p.flightId || '—', 'mono accent')}
-            ${p.registration ? field('Registration', p.registration, 'mono') : ''}
-            ${icao ? field('ICAO Hex', icao, 'mono') : ''}
-            ${p.aircraftType ? field('Aircraft Type', p.aircraftType) : ''}
-            ${field('Class', (p.aircraftClass || 'unknown'), '')}
-            ${tags ? `<div class="dp-field"><div class="dp-label">Tags</div><div class="dp-value">${tags}</div></div>` : ''}
-        </div>
-        <div class="dp-sep"></div>
-        <div class="detail-grid">
-            <div class="dp-field"><div class="dp-label">Route</div><div class="dp-value">${route.html}</div></div>
-            ${p.dep && isValidCode(p.dep.trim().toUpperCase()) ? field('Departure', p.dep.trim().toUpperCase(), 'mono') : ''}
-            ${p.arr && isValidCode(p.arr.trim().toUpperCase()) ? field('Arrival', p.arr.trim().toUpperCase(), 'mono') : ''}
-            ${p.depTime ? field('Dep Time', p.depTime) : ''}
-            ${p.eta     ? field('ETA',      p.eta)     : ''}
-            ${p.flightStatus ? field('Status', p.flightStatus) : ''}
-        </div>
-        <div class="dp-sep"></div>
-        <div class="detail-grid">
-            ${field('Altitude', alt.ground ? 'Ground' : alt.txt, alt.ground ? '' : 'accent')}
-            ${assignedAlt ? field('Assigned Alt', assignedAlt) : ''}
-            ${field('Speed', spd.txt !== '—' ? spd.txt : '', '')}
-            ${field('Heading', fmtHeading(p.heading))}
-            ${vr ? field('Vert Rate', vr, n(p.verticalRate) > 0 ? '' : 'warn') : ''}
-            <div class="dp-field"><div class="dp-label">State</div><div class="dp-value ${st.lblCls}">${st.label}</div></div>
-        </div>
-        <div class="dp-sep"></div>
-        <div class="detail-grid">
-            ${field('Position Source', friendlySource(p.positionSource || p.source || ''))}
-            ${p.enrichmentSource ? field('Enrichment', friendlySource(p.enrichmentSource)) : ''}
-            ${p.sourceFacility ? field('Facility', p.sourceFacility, 'mono') : ''}
-            ${p.source ? field('Raw Source', p.source, 'mono') : ''}
-            ${p.gufi    ? field('GUFI',      p.gufi,    'mono') : ''}
-            ${p.trackKey ? field('Track Key', p.trackKey, 'mono') : ''}
-            ${field('Last Update', fmtAge(p.lastUpdate))}
-            ${p.squawk && p.squawk !== '0' ? field('Squawk', p.squawk, 'mono') : ''}
-        </div>
-        <div class="dp-actions">
-            <a class="dp-action primary" href="/?icao=${icao}" title="Open on radar map">Open on Radar</a>
-        </div>
-    </div></td></tr>`;
+function updateShowMore() {
+    const wrap = document.getElementById('show-more-wrap');
+    const btn  = document.getElementById('show-more-btn');
+    const info = document.getElementById('show-more-info');
+    if (!wrap) return;
+    if (renderedCount >= currentSorted.length) {
+        wrap.style.display = 'none';
+    } else {
+        const remaining = currentSorted.length - renderedCount;
+        btn.textContent = `Show ${Math.min(PAGE_SIZE, remaining).toLocaleString()} more`;
+        info.textContent = `Showing ${renderedCount.toLocaleString()} of ${currentSorted.length.toLocaleString()} aircraft · search applies to rendered rows`;
+        wrap.style.display = 'block';
+    }
 }
 
 /* ── Filter / Search ── */
@@ -729,36 +785,57 @@ function applyFilters() {
         if (show) vis++;
     }
 
+    const hasFilter = q || classFilter !== 'all' || routeOnly || noIdOnly;
     document.getElementById('ac-count').textContent =
-        (q || classFilter !== 'all' || routeOnly || noIdOnly)
-            ? `${vis} of ${total}`
-            : `${total} aircraft`;
+        hasFilter
+            ? `${vis} of ${total} rendered`
+            : renderedCount < allPlanes.length
+                ? `${total} rendered of ${allPlanes.length.toLocaleString()} total`
+                : `${total} aircraft`;
 }
 
 function toggleDetail(id) {
-    const row = document.getElementById(id);
-    if (row) row.classList.toggle('hidden');
+    const existing = document.getElementById(id);
+    if (existing) {
+        existing.classList.toggle('hidden');
+        return;
+    }
+    const p = planeMap.get(id);
+    if (!p) return;
+    const ownerRow = document.querySelector(`[data-detail-id="${id}"]`);
+    if (!ownerRow) return;
+    const tr = document.createElement('tr');
+    tr.id = id;
+    tr.className = 'detail-row';
+    tr.innerHTML = `<td colspan="10">${buildDetailHtml(p, id)}</td>`;
+    ownerRow.insertAdjacentElement('afterend', tr);
 }
 
 /* ── Fetch & render ── */
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes');
+        const r = await fetch('/api/?action=Planes&view=table&_=' + Date.now());
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
-        const planes = d?.response?.data?.planes || [];
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        const data = d?.response?.data || {};
+        const planes = data.planes || [];
+        const total  = data.total  || planes.length;
 
         allPlanes = planes;
         renderCards(planes);
         renderTable(planes);
 
         document.getElementById('last-update').textContent =
-            'Updated ' + new Date().toLocaleTimeString();
+            'Updated ' + new Date().toLocaleTimeString() +
+            ' · ' + elapsed + 's · ' + total.toLocaleString() + ' aircraft';
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         document.getElementById('ac-content').innerHTML =
             '<div class="status-msg error">Unable to reach API</div>';
+        document.getElementById('show-more-wrap').style.display = 'none';
     }
 }
 

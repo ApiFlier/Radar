@@ -42,6 +42,17 @@ class ApiPlanes(ApiBase):
             "description": "Airport code to filter planes near (e.g., PIT, JFK)",
             "required": False,
             "type": "string"
+        },
+        "view": {
+            "description": "Response shape: summary (aggregated counts), ground (ground sweep only), alerts (alert fields), table (lookup table). Omit for full response.",
+            "required": False,
+            "type": "string"
+        },
+        "limit": {
+            "description": "Cap the number of planes returned (e.g., 500). Applied after filters and sort.",
+            "required": False,
+            "type": "integer",
+            "default": 0
         }
     }
 
@@ -125,8 +136,31 @@ class ApiPlanes(ApiBase):
 
         self.debugMessage("execute", f"Found {len(planes)} planes")
 
+        view = (self.params.get("view") or "").strip().lower()
+        limit = self.safeInt(self.params.get("limit", 0), 0)
+
+        if view == "summary":
+            self.responseData = self._buildSummary(planes, sourceCounts, adsbHealthy, redis)
+            self.sendResponse(self.SUCCESS)
+            return
+
+        total_count = len(planes)
+
+        if view == "ground":
+            planes = [p for p in planes if self._isGroundPlane(p)]
+            planes = self._pickFields(planes, "ground")
+        elif view == "alerts":
+            planes = self._pickFields(planes, "alerts")
+        elif view == "table":
+            if limit > 0:
+                planes = planes[:limit]
+            planes = self._pickFields(planes, "table")
+        elif limit > 0:
+            planes = planes[:limit]
+
         self.responseData = {
             "count": len(planes),
+            "total": total_count,
             "sources": sourceCounts,
             "adsbLolHealthy": adsbHealthy,
             "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
@@ -375,6 +409,102 @@ class ApiPlanes(ApiBase):
             "isPia": is_pia,
             "isLadd": is_ladd,
             "isHelicopter": is_helicopter,
+        }
+
+    _GROUND_FIELDS = frozenset({
+        "flightId", "callsign", "icaoHex", "registration", "aircraftType",
+        "lat", "lon", "speed", "heading", "alt", "lastUpdate",
+        "source", "positionSource", "sourceFacility", "groundCluster",
+        "aircraftClass", "aircraftRole", "iconType",
+        "isMilitary", "isPia", "isLadd", "isHelicopter",
+    })
+
+    _ALERTS_FIELDS = frozenset({
+        "flightId", "callsign", "icaoHex", "registration", "aircraftType",
+        "lat", "lon", "speed", "heading", "alt", "lastUpdate",
+        "source", "positionSource", "enrichmentSource", "sourceFacility", "groundCluster",
+        "airborne", "squawk", "emergency", "dep", "arr", "operator", "dbFlags",
+        "aircraftClass", "aircraftRole", "iconType",
+        "isMilitary", "isPia", "isLadd", "isHelicopter",
+    })
+
+    _TABLE_FIELDS = frozenset({
+        "flightId", "callsign", "icaoHex", "registration", "aircraftType",
+        "lat", "lon", "speed", "heading", "alt", "lastUpdate",
+        "source", "positionSource", "enrichmentSource", "sourceFacility", "groundCluster",
+        "airborne", "squawk", "emergency", "dep", "arr", "operator", "dbFlags",
+        "aircraftClass", "aircraftRole", "iconType",
+        "isMilitary", "isPia", "isLadd", "isHelicopter",
+        "depTime", "eta", "flightStatus", "assignedAlt", "verticalRate",
+    })
+
+    def _isGroundPlane(self, plane: dict) -> bool:
+        return bool(plane.get("groundCluster"))
+
+    def _pickFields(self, planes: list, view: str) -> list:
+        if view == "ground":
+            fields = self._GROUND_FIELDS
+        elif view == "alerts":
+            fields = self._ALERTS_FIELDS
+        else:
+            fields = self._TABLE_FIELDS
+        return [{k: v for k, v in p.items() if k in fields} for p in planes]
+
+    def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+        airborne = 0
+        on_ground = 0
+        ground_sweep = 0
+        class_counts = {"commercial": 0, "private": 0, "military": 0, "helicopter": 0, "ground": 0, "unknown": 0}
+        route_coverage = {"withRoute": 0, "none": 0}
+        airline_counts = {}
+        origin_counts = {}
+        dest_counts = {}
+
+        for p in planes:
+            if self._isGroundPlane(p):
+                ground_sweep += 1
+                class_counts["ground"] += 1
+            else:
+                ac = p.get("aircraftClass", "unknown")
+                class_counts[ac] = class_counts.get(ac, 0) + 1
+                if p.get("airborne") == "1" or self.safeFloat(p.get("speed", 0)) >= 40:
+                    airborne += 1
+                else:
+                    on_ground += 1
+
+            dep = (p.get("dep") or "").strip().upper()
+            arr = (p.get("arr") or "").strip().upper()
+            if dep or arr:
+                route_coverage["withRoute"] += 1
+            else:
+                route_coverage["none"] += 1
+
+            op = (p.get("operator") or "").strip().upper()
+            if op and p.get("aircraftClass") == "commercial":
+                airline_counts[op] = airline_counts.get(op, 0) + 1
+
+            if dep:
+                origin_counts[dep] = origin_counts.get(dep, 0) + 1
+            if arr:
+                dest_counts[arr] = dest_counts.get(arr, 0) + 1
+
+        airline_counts = dict(sorted(airline_counts.items(), key=lambda x: x[1], reverse=True)[:50])
+        origin_counts = dict(sorted(origin_counts.items(), key=lambda x: x[1], reverse=True)[:100])
+        dest_counts = dict(sorted(dest_counts.items(), key=lambda x: x[1], reverse=True)[:100])
+
+        return {
+            "total": len(planes),
+            "airborne": airborne,
+            "onGround": on_ground,
+            "groundSweep": ground_sweep,
+            "classCounts": class_counts,
+            "routeCoverage": route_coverage,
+            "airlineCounts": airline_counts,
+            "originCounts": origin_counts,
+            "destCounts": dest_counts,
+            "sources": sourceCounts,
+            "adsbLolHealthy": adsbHealthy,
+            "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
         }
 
     def isHelicopterType(self, aircraft_type: str) -> bool:
