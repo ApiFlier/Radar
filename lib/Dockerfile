@@ -14,6 +14,7 @@ COPY airports.html /app/templates/airports.html
 COPY ground.html /app/templates/ground.html
 COPY aircraft.html /app/templates/aircraft.html
 COPY alerts.html /app/templates/alerts.html
+COPY settings.html /app/templates/settings.html
 COPY data/airports.json /app/static/airports.json
 
 EXPOSE 8080

@@ -294,7 +294,7 @@
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,9 4,9 6.5,4 9,13.5 11,6.5 13.5,9 17,9"/></svg>
             <span>Health</span>
         </a>
-        <a class="nav-item soon" href="/settings" title="Settings">
+        <a class="nav-item" href="/settings" title="Settings">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="2.5"/><path d="M9 1.5 L9 4.5 M9 13.5 L9 16.5 M1.5 9 L4.5 9 M13.5 9 L16.5 9 M3.7 3.7 L5.8 5.8 M12.2 12.2 L14.3 14.3 M3.7 14.3 L5.8 12.2 M12.2 5.8 L14.3 3.7"/></svg>
             <span>Settings</span>
         </a>
@@ -318,7 +318,7 @@
             <div class="card dim"><div class="value">—</div><div class="label">Military</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Helicopter</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Ground</div></div>
-            <div class="card dim"><div class="value">—</div><div class="label">Data Issues</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Data Quality Notes</div><div class="sub">Non-operational</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Source Health</div></div>
         </div>
 
@@ -332,7 +332,7 @@
                     <button class="filter-btn"        data-f="military"      onclick="setCatFilter('military')">Military</button>
                     <button class="filter-btn"        data-f="helicopter"    onclick="setCatFilter('helicopter')">Helicopter</button>
                     <button class="filter-btn"        data-f="ground"        onclick="setCatFilter('ground')">Ground</button>
-                    <button class="filter-btn"        data-f="data-quality"  onclick="setCatFilter('data-quality')">Data Quality</button>
+                    <button class="filter-btn"        data-f="data-quality"  onclick="setCatFilter('data-quality')">Data Quality Notes</button>
                     <button class="filter-btn"        data-f="source-health" onclick="setCatFilter('source-health')">Source Health</button>
                 </div>
                 <div class="search-wrap">
@@ -658,8 +658,8 @@ function renderCards(alerts) {
         </div>
         <div class="card ${dqTotal > 0 ? 'warn' : 'dim'}">
             <div class="value">${dqTotal.toLocaleString()}</div>
-            <div class="label">Data Issues</div>
-            <div class="sub" style="font-size:10px;color:#555">${dqTotal > 0 ? 'See Data Quality tab' : ''}</div>
+            <div class="label">Data Quality Notes</div>
+            <div class="sub" style="font-size:10px;color:#555">${dqTotal > 0 ? 'Non-operational completeness notes' : ''}</div>
         </div>
         <div class="card ${sh > 0 ? 'warn' : 'dim'}">
             <div class="value">${sh.toLocaleString()}</div>
@@ -790,7 +790,7 @@ function renderTable(alerts) {
             <div class="empty-state">
                 <div class="icon">✓</div>
                 <div class="msg">No operational alerts detected.</div>
-                <div class="sub">Emergency, military, helicopter, and ground alerts appear here. Use the Data Quality tab for source and route issues.</div>
+                <div class="sub">Emergency, military, helicopter, and ground notices appear here. Data Quality Notes are non-operational completeness and normalization notes.</div>
             </div>`;
         document.getElementById('alert-count').textContent = '0 alerts';
         return;

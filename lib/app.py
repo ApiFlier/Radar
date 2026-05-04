@@ -56,7 +56,7 @@ def alerts():
 
 @app.route("/settings")
 def settings():
-    return render_template_string(_SOON, title="Settings")
+    return render_template("settings.html")
 
 
 @app.route("/health")

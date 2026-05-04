@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Radar — Settings</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #111;
+            color: #ccc;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        .page-content { margin-left: 56px; }
+
+        #sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0; width: 56px;
+            z-index: 1100; background: rgba(8,8,8,0.97);
+            border-right: 1px solid rgba(0,255,204,0.1);
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .sidebar-logo {
+            width: 100%; height: 48px; display: flex; align-items: center; justify-content: center;
+            border-bottom: 1px solid rgba(255,255,255,0.06); color: #00ffcc; flex-shrink: 0;
+        }
+        .sidebar-logo svg { width: 20px; height: 20px; }
+        .sidebar-nav {
+            flex: 1; width: 100%; padding: 6px 0; display: flex; flex-direction: column;
+            align-items: center; gap: 1px; overflow-y: auto; overflow-x: hidden;
+        }
+        .sidebar-bottom {
+            width: 100%; padding: 6px 0 8px; border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0;
+        }
+        .nav-item {
+            width: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 3px; padding: 8px 0 7px; border-radius: 6px; text-decoration: none;
+            color: #686868; font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+        }
+        .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+        .nav-item:hover { color: #b0b0b0; background: rgba(255,255,255,0.06); }
+        .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
+        .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
+        .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
+
+        .page-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 24px; background: rgba(0,0,0,0.75);
+            border-bottom: 1px solid rgba(0,255,204,0.15);
+            position: sticky; top: 0; z-index: 100;
+        }
+        .page-header h1 { font-size: 16px; font-weight: 600; color: #00ffcc; letter-spacing: 0.6px; }
+        .header-note { color: #555; font-size: 11px; }
+
+        .main { max-width: 1180px; margin: 0 auto; padding: 24px 20px 48px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+        .section {
+            background: rgba(0,0,0,0.45);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .section h2 {
+            font-size: 11px; font-weight: 600; color: #00ffcc;
+            text-transform: uppercase; letter-spacing: 1px;
+            padding: 11px 16px 9px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .section-body { padding: 14px 16px 16px; }
+
+        .setting {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 14px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .setting:last-child { border-bottom: none; }
+        .setting-title { color: #bbb; font-size: 13px; font-weight: 600; }
+        .setting-desc { color: #555; font-size: 11px; margin-top: 2px; max-width: 540px; }
+        .future { color: #777; font-size: 10px; border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; padding: 1px 5px; margin-left: 6px; }
+
+        input[type="text"], input[type="number"], select {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 4px;
+            color: #ccc;
+            font-size: 12px;
+            padding: 6px 8px;
+            min-width: 130px;
+            outline: none;
+            font-family: inherit;
+        }
+        input:focus, select:focus { border-color: rgba(0,255,204,0.35); }
+        select option { background: #111; color: #ccc; }
+
+        .toggle {
+            display: flex; align-items: center; gap: 8px; color: #888; font-size: 12px; cursor: pointer;
+        }
+        .toggle input { accent-color: #00ffcc; }
+
+        .actions {
+            display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px;
+        }
+        button {
+            font-size: 11px; font-weight: 600; color: #00ffcc;
+            background: rgba(0,255,204,0.07);
+            border: 1px solid rgba(0,255,204,0.22);
+            border-radius: 4px; padding: 7px 14px;
+            cursor: pointer; letter-spacing: 0.3px; font-family: inherit;
+        }
+        button:hover { background: rgba(0,255,204,0.14); }
+        button.secondary {
+            color: #888;
+            background: rgba(255,255,255,0.03);
+            border-color: rgba(255,255,255,0.12);
+        }
+        button.danger {
+            color: #f5a623;
+            background: rgba(245,166,35,0.04);
+            border-color: rgba(245,166,35,0.2);
+        }
+
+        .status {
+            margin-top: 14px;
+            color: #00ffcc;
+            font-size: 12px;
+            min-height: 18px;
+        }
+        .note {
+            margin-bottom: 16px;
+            color: #666;
+            font-size: 12px;
+            background: rgba(0,255,204,0.03);
+            border: 1px solid rgba(0,255,204,0.1);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+    </style>
+</head>
+<body>
+
+<nav id="sidebar">
+    <div class="sidebar-logo">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="9" cy="9" r="7"></circle>
+            <circle cx="9" cy="9" r="1.5" fill="currentColor" stroke="none"></circle>
+            <line x1="9" y1="9" x2="14.2" y2="4.2" stroke-opacity="0.55"></line>
+        </svg>
+    </div>
+    <div class="sidebar-nav">
+        <a class="nav-item" href="/" title="Radar">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="7"></circle><circle cx="9" cy="9" r="2.5"></circle><line x1="9" y1="1" x2="9" y2="5.5"></line><line x1="9" y1="12.5" x2="9" y2="17"></line><line x1="1" y1="9" x2="5.5" y2="9"></line><line x1="12.5" y1="9" x2="17" y2="9"></line></svg>
+            <span>Radar</span>
+        </a>
+        <a class="nav-item" href="/stats" title="Stats">
+            <svg viewBox="0 0 18 18" fill="currentColor"><rect x="2" y="10" width="3.5" height="6" rx="0.5"></rect><rect x="7.25" y="6" width="3.5" height="10" rx="0.5"></rect><rect x="12.5" y="3" width="3.5" height="13" rx="0.5"></rect></svg>
+            <span>Stats</span>
+        </a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" href="/airports" title="Airports"><span>Airports</span></a>
+        <a class="nav-item" href="/aircraft" title="Aircraft"><span>Aircraft</span></a>
+        <a class="nav-item" href="/ground" title="Ground Ops"><span>Ground</span></a>
+        <a class="nav-item" href="/alerts" title="Alerts"><span>Alerts</span></a>
+    </div>
+    <div class="sidebar-bottom">
+        <a class="nav-item" href="/health" title="Health"><span>Health</span></a>
+        <a class="nav-item active" href="/settings" title="Settings"><span>Settings</span></a>
+    </div>
+</nav>
+
+<div class="page-content">
+    <header class="page-header">
+        <h1>Settings</h1>
+        <div class="header-note">Stored locally in this browser</div>
+    </header>
+
+    <main class="main">
+        <div class="note">
+            These settings are local browser preferences. They do not change backend ingestion, Docker, FAA/SWIM, ADSB.lol, Redis, or deployment configuration.
+        </div>
+
+        <div class="grid">
+            <section class="section">
+                <h2>Radar Preferences</h2>
+                <div class="section-body">
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default airport</div>
+                            <div class="setting-desc">Used by future radar startup behavior and airport-focused views.</div>
+                        </div>
+                        <input id="defaultAirport" type="text" maxlength="4" placeholder="KPIT">
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default map zoom</div>
+                            <div class="setting-desc">Saved preference. Wiring into radar startup is a future pass.</div>
+                        </div>
+                        <input id="defaultZoom" type="number" min="3" max="16" step="1">
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default center latitude</div>
+                            <div class="setting-desc">Optional saved center point for future radar startup behavior.</div>
+                        </div>
+                        <input id="defaultLat" type="text" placeholder="40.491389">
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default center longitude</div>
+                            <div class="setting-desc">Optional saved center point for future radar startup behavior.</div>
+                        </div>
+                        <input id="defaultLon" type="text" placeholder="-80.232778">
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Display Preferences</h2>
+                <div class="section-body">
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Show aircraft labels <span class="future">future wiring</span></div>
+                            <div class="setting-desc">Saved now; radar label behavior can read this later.</div>
+                        </div>
+                        <label class="toggle"><input id="showLabels" type="checkbox"> Enabled</label>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Show trails <span class="future">future wiring</span></div>
+                            <div class="setting-desc">Saved now; trail rendering can read this later.</div>
+                        </div>
+                        <label class="toggle"><input id="showTrails" type="checkbox"> Enabled</label>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Compact tables</div>
+                            <div class="setting-desc">Saved preference for dashboard table density.</div>
+                        </div>
+                        <label class="toggle"><input id="compactTables" type="checkbox"> Enabled</label>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Show raw source keys</div>
+                            <div class="setting-desc">Useful for debugging source normalization.</div>
+                        </div>
+                        <label class="toggle"><input id="showRawSources" type="checkbox"> Enabled</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Dashboard Preferences</h2>
+                <div class="section-body">
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default Alerts tab</div>
+                            <div class="setting-desc">Alerts can read this in a future wiring pass. Operational is recommended.</div>
+                        </div>
+                        <select id="defaultAlertsTab">
+                            <option value="operational">Operational</option>
+                            <option value="emergency">Emergency</option>
+                            <option value="military">Military</option>
+                            <option value="helicopter">Helicopter</option>
+                            <option value="ground">Ground</option>
+                            <option value="source-health">Source Health</option>
+                            <option value="data-quality">Data Quality Notes</option>
+                            <option value="all">All</option>
+                        </select>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Aircraft page size</div>
+                            <div class="setting-desc">Saved preference for aircraft table batch size.</div>
+                        </div>
+                        <select id="aircraftPageSize">
+                            <option value="250">250</option>
+                            <option value="500">500</option>
+                            <option value="1000">1000</option>
+                        </select>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Show Data Quality summary on Alerts</div>
+                            <div class="setting-desc">Saved preference. Data Quality Notes are non-operational.</div>
+                        </div>
+                        <label class="toggle"><input id="showDQSummary" type="checkbox"> Enabled</label>
+                    </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Show inferred warnings</div>
+                            <div class="setting-desc">Controls whether inferred observations should be highlighted in future UI passes.</div>
+                        </div>
+                        <label class="toggle"><input id="showInferredWarnings" type="checkbox"> Enabled</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Local Data</h2>
+                <div class="section-body">
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Storage location</div>
+                            <div class="setting-desc">Radar settings are stored in localStorage under <code>radar.settings</code>.</div>
+                        </div>
+                        <div style="color:#666;font-size:12px">Browser only</div>
+                    </div>
+                    <div class="actions">
+                        <button onclick="saveSettings()">Save Settings</button>
+                        <button class="secondary" onclick="resetDefaults()">Reset Defaults</button>
+                        <button class="danger" onclick="clearSettings()">Clear Local Settings</button>
+                    </div>
+                    <div class="status" id="status"></div>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<script>
+const KEY = 'radar.settings';
+
+const DEFAULTS = {
+    defaultAirport: 'KPIT',
+    defaultZoom: '9',
+    defaultLat: '40.491389',
+    defaultLon: '-80.232778',
+    showLabels: true,
+    showTrails: false,
+    compactTables: false,
+    showRawSources: true,
+    defaultAlertsTab: 'operational',
+    aircraftPageSize: '500',
+    showDQSummary: true,
+    showInferredWarnings: true,
+};
+
+function loadStored() {
+    try {
+        return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || '{}'));
+    } catch {
+        return Object.assign({}, DEFAULTS);
+    }
+}
+
+function setStatus(msg) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    clearTimeout(setStatus._t);
+    setStatus._t = setTimeout(() => { el.textContent = ''; }, 3500);
+}
+
+function applyToForm(settings) {
+    for (const [k, v] of Object.entries(settings)) {
+        const el = document.getElementById(k);
+        if (!el) continue;
+        if (el.type === 'checkbox') el.checked = !!v;
+        else el.value = v ?? '';
+    }
+}
+
+function readForm() {
+    const out = {};
+    for (const k of Object.keys(DEFAULTS)) {
+        const el = document.getElementById(k);
+        if (!el) continue;
+        out[k] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+    out.defaultAirport = String(out.defaultAirport || '').trim().toUpperCase();
+    return out;
+}
+
+function saveSettings() {
+    const settings = readForm();
+    localStorage.setItem(KEY, JSON.stringify(settings));
+    setStatus('Settings saved locally.');
+}
+
+function resetDefaults() {
+    applyToForm(DEFAULTS);
+    localStorage.setItem(KEY, JSON.stringify(DEFAULTS));
+    setStatus('Defaults restored.');
+}
+
+function clearSettings() {
+    localStorage.removeItem(KEY);
+    applyToForm(DEFAULTS);
+    setStatus('Local Radar settings cleared.');
+}
+
+applyToForm(loadStored());
+</script>
+</body>
+</html>
