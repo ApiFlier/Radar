@@ -2638,14 +2638,14 @@
                     'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
                     'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(255,153,119,0.35)',
                     'border-radius:6px', 'padding:9px 18px', 'font-size:12px',
-                    'font-family:”Segoe UI”,sans-serif', 'color:#f97',
+                    'font-family:"Segoe UI",sans-serif', 'color:#f97',
                     'z-index:9999', 'cursor:pointer', 'white-space:nowrap',
                     'box-shadow:0 2px 12px rgba(0,0,0,0.5)'
                 ].join(';');
                 hud.onclick = function() { this.style.display = 'none'; };
                 document.body.appendChild(hud);
             }
-            hud.textContent = 'Aircraft “' + label + '” not found in current feed — click to dismiss';
+            hud.textContent = 'Aircraft "' + label + '" not found in current feed — click to dismiss';
             hud.style.display = 'block';
             setTimeout(function() { if (hud) hud.style.display = 'none'; }, 8000);
         }
@@ -2692,8 +2692,8 @@
 
         function buildAircraftPanelHTML(p, flightId) {
             if (!p) {
-                return '<div class=”dp-stale”>Not in current feed — data unavailable</div>' +
-                       '<div class=”dp-empty”>Aircraft may have landed or left range.</div>';
+                return '<div class="dp-stale">Not in current feed — data unavailable</div>' +
+                       '<div class="dp-empty">Aircraft may have landed or left range.</div>';
             }
 
             var name         = displayName(p);
@@ -2716,33 +2716,33 @@
 
             var html = '';
 
-            html += '<div class=”dp-ac-head”>';
-            html += '<div class=”dp-ac-name”>' + htmlEscape(name) + '</div>';
-            if (subtitle) html += '<div class=”dp-ac-sub”>' + htmlEscape(subtitle) + '</div>';
-            if (stateLbl) html += '<div class=”dp-badge”>' + htmlEscape(stateLbl) + '</div>';
+            html += '<div class="dp-ac-head">';
+            html += '<div class="dp-ac-name">' + htmlEscape(name) + '</div>';
+            if (subtitle) html += '<div class="dp-ac-sub">' + htmlEscape(subtitle) + '</div>';
+            if (stateLbl) html += '<div class="dp-badge">' + htmlEscape(stateLbl) + '</div>';
             html += '</div>';
 
             if (route !== 'Route unavailable') {
-                html += '<div class=”dp-route”>' + htmlEscape(route) + '</div>';
+                html += '<div class="dp-route">' + htmlEscape(route) + '</div>';
             }
 
             function fmtAlt(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n).toLocaleString() + ' ft'; }
             function fmtSpd(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + ' kt'; }
             function fmtHdg(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + '°'; }
 
-            html += '<div class=”dp-grid-3”>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Altitude</div><div class=”dp-cell-value accent”>' + htmlEscape(fmtAlt(p.alt)) + '</div></div>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Speed</div><div class=”dp-cell-value”>' + htmlEscape(fmtSpd(p.speed)) + '</div></div>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Heading</div><div class=”dp-cell-value”>' + htmlEscape(fmtHdg(p.heading)) + '</div></div>';
+            html += '<div class="dp-grid-3">';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Altitude</div><div class="dp-cell-value accent">' + htmlEscape(fmtAlt(p.alt)) + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Speed</div><div class="dp-cell-value">' + htmlEscape(fmtSpd(p.speed)) + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Heading</div><div class="dp-cell-value">' + htmlEscape(fmtHdg(p.heading)) + '</div></div>';
             html += '</div>';
 
             function dpRow(label, value) {
                 if (value === null || value === undefined || value === '') return '';
-                return '<div class=”dp-row”><span class=”dp-row-label”>' + htmlEscape(label) +
-                       '</span><span class=”dp-row-value”>' + value + '</span></div>';
+                return '<div class="dp-row"><span class="dp-row-label">' + htmlEscape(label) +
+                       '</span><span class="dp-row-value">' + value + '</span></div>';
             }
 
-            html += '<div class=”dp-section”>';
+            html += '<div class="dp-section">';
             var vr = parseFloat(p.verticalRate);
             if (!isNaN(vr) && Math.abs(vr) >= 100) {
                 html += dpRow('V/S', htmlEscape((vr > 0 ? '+' : '') + Math.round(vr).toLocaleString() + ' fpm'));
@@ -2754,21 +2754,21 @@
             if (airline) html += dpRow('Airline', htmlEscape(airline.airline));
             if (p.registration) {
                 html += dpRow('Registration',
-                    '<span style=”font-family:Consolas,Menlo,monospace”>' + htmlEscape(p.registration) + '</span>');
+                    '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(p.registration) + '</span>');
             }
             if (p.aircraftType) html += dpRow('Type', htmlEscape(p.aircraftType));
             html += dpRow('Class', htmlEscape(acClass));
             if (tags.length) html += dpRow('Tags', htmlEscape(tags.join(' · ')));
             if (icao) {
                 html += dpRow('ICAO',
-                    '<span style=”font-family:Consolas,Menlo,monospace”>' + htmlEscape(icao) + '</span>');
+                    '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(icao) + '</span>');
             }
             var sq = String(p.squawk || '').trim();
             if (sq && sq !== '0') {
                 var sqHtml = htmlEscape(sq);
-                if (sq === '7500') sqHtml += ' <span style=”color:#ff6060;font-weight:700”>HIJACK</span>';
-                else if (sq === '7600') sqHtml += ' <span style=”color:#f5a623;font-weight:700”>RADIO FAIL</span>';
-                else if (sq === '7700') sqHtml += ' <span style=”color:#ff6060;font-weight:700”>EMERGENCY</span>';
+                if (sq === '7500') sqHtml += ' <span style="color:#ff6060;font-weight:700">HIJACK</span>';
+                else if (sq === '7600') sqHtml += ' <span style="color:#f5a623;font-weight:700">RADIO FAIL</span>';
+                else if (sq === '7700') sqHtml += ' <span style="color:#ff6060;font-weight:700">EMERGENCY</span>';
                 html += dpRow('Squawk', sqHtml);
             }
             html += '</div>';
@@ -2776,32 +2776,32 @@
             var posLabel   = friendlySource(p.positionSource || p.source);
             var routeLabel = friendlySource(p.enrichmentSource);
             if (posLabel || routeLabel || p.sourceFacility) {
-                html += '<div class=”dp-section dp-section-dim”>';
+                html += '<div class="dp-section dp-section-dim">';
                 if (posLabel) html += dpRow('Position', htmlEscape(posLabel));
                 if (routeLabel && routeLabel !== posLabel) html += dpRow('Route data', htmlEscape(routeLabel));
                 if (p.sourceFacility) html += dpRow('Facility', htmlEscape(p.sourceFacility));
                 html += '</div>';
             }
 
-            var fid = String(flightId || '').replace(/\\/g, '\\\\').replace(/'/g, “\\'”);
-            html += '<div class=”dp-actions”>';
+            var fid = String(flightId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            html += '<div class="dp-actions">';
             if (isFollowing) {
-                html += '<button class=”dp-action primary” onclick=”stopFollow();renderAircraftPanel()”>Stop Follow</button>';
+                html += '<button class="dp-action primary" onclick="stopFollow();renderAircraftPanel()">Stop Follow</button>';
             } else {
-                html += '<button class=”dp-action primary” onclick=”startFollow(\'' + fid + '\');renderAircraftPanel()”>Follow</button>';
+                html += '<button class="dp-action primary" onclick="startFollow(\'' + fid + '\');renderAircraftPanel()">Follow</button>';
             }
             if (icao) {
-                html += '<a class=”dp-action” href=”https://globe.adsbexchange.com/?icao=' +
-                        htmlEscape(icao.toLowerCase()) + '” target=”_blank” rel=”noopener”>ADSBx</a>';
+                html += '<a class="dp-action" href="https://globe.adsbexchange.com/?icao=' +
+                        htmlEscape(icao.toLowerCase()) + '" target="_blank" rel="noopener">ADSBx</a>';
             }
             if (csRaw && airline) {
-                html += '<a class=”dp-action” href=”https://flightaware.com/live/flight/' +
-                        htmlEscape(csRaw) + '” target=”_blank” rel=”noopener”>FlightAware</a>';
+                html += '<a class="dp-action" href="https://flightaware.com/live/flight/' +
+                        htmlEscape(csRaw) + '" target="_blank" rel="noopener">FlightAware</a>';
             }
             var copyVal = icao || csRaw;
             if (copyVal && navigator && navigator.clipboard) {
-                html += '<button class=”dp-action” onclick=”navigator.clipboard.writeText(\'' +
-                        htmlEscape(copyVal) + '\')”>Copy</button>';
+                html += '<button class="dp-action" onclick="navigator.clipboard.writeText(\'' +
+                        htmlEscape(copyVal) + '\')">Copy</button>';
             }
             html += '</div>';
 
@@ -2839,9 +2839,9 @@
             var html = '';
 
             if (!a) {
-                html += '<div class=”dp-apt-head”><div class=”dp-apt-code”>' + esc(code) + '</div></div>';
-                html += '<div class=”dp-flights-box” id=”dp-flights-' + esc(code) +
-                        '”><div class=”dp-flights-loading”>Loading…</div></div>';
+                html += '<div class="dp-apt-head"><div class="dp-apt-code">' + esc(code) + '</div></div>';
+                html += '<div class="dp-flights-box" id="dp-flights-' + esc(code) +
+                        '"><div class="dp-flights-loading">Loading…</div></div>';
                 return html;
             }
 
@@ -2859,28 +2859,28 @@
             var wiki     = clean(a.wikipedia_link);
             var loc      = [muni, region || country].filter(Boolean).join(' · ');
 
-            html += '<div class=”dp-apt-head”>';
-            html += '<div class=”dp-apt-code”>' + esc(code) + '</div>';
-            html += '<div class=”dp-apt-name”>' + esc(name) + '</div>';
-            if (loc) html += '<div class=”dp-apt-region”>' + esc(loc) + '</div>';
+            html += '<div class="dp-apt-head">';
+            html += '<div class="dp-apt-code">' + esc(code) + '</div>';
+            html += '<div class="dp-apt-name">' + esc(name) + '</div>';
+            if (loc) html += '<div class="dp-apt-region">' + esc(loc) + '</div>';
             html += '</div>';
 
-            html += '<div class=”dp-grid-3”>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>IATA</div>' +
-                    '<div class=”dp-cell-value' + (iata ? ' accent' : '') + '”>' + esc(iata || '—') + '</div></div>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>ICAO</div>' +
-                    '<div class=”dp-cell-value' + (icao ? ' accent' : '') + '”>' + esc(icao || code || '—') + '</div></div>';
-            html += '<div class=”dp-cell”><div class=”dp-cell-label”>Elevation</div>' +
-                    '<div class=”dp-cell-value”>' + esc(elev ? elev + ' ft' : '—') + '</div></div>';
+            html += '<div class="dp-grid-3">';
+            html += '<div class="dp-cell"><div class="dp-cell-label">IATA</div>' +
+                    '<div class="dp-cell-value' + (iata ? ' accent' : '') + '">' + esc(iata || '—') + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">ICAO</div>' +
+                    '<div class="dp-cell-value' + (icao ? ' accent' : '') + '">' + esc(icao || code || '—') + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Elevation</div>' +
+                    '<div class="dp-cell-value">' + esc(elev ? elev + ' ft' : '—') + '</div></div>';
             html += '</div>';
 
             function dpRow(label, val) {
                 if (!val) return '';
-                return '<div class=”dp-row”><span class=”dp-row-label”>' + esc(label) +
-                       '</span><span class=”dp-row-value”>' + esc(val) + '</span></div>';
+                return '<div class="dp-row"><span class="dp-row-label">' + esc(label) +
+                       '</span><span class="dp-row-value">' + esc(val) + '</span></div>';
             }
 
-            html += '<div class=”dp-section”>';
+            html += '<div class="dp-section">';
             if (type) html += dpRow('Type', type.replace(/\b\w/g, function(c) { return c.toUpperCase(); }));
             if (local) html += dpRow('Local', local);
             if (gps && gps !== icao) html += dpRow('GPS', gps);
@@ -2889,36 +2889,36 @@
 
             var freqs = Array.isArray(a.frequencies) ? a.frequencies : [];
             if (freqs.length) {
-                html += '<div class=”dp-section”>';
-                html += '<div class=”dp-section-title”>Frequencies</div>';
+                html += '<div class="dp-section">';
+                html += '<div class="dp-section-title">Frequencies</div>';
                 freqs.slice(0, 8).forEach(function(f) {
                     var fType = clean(f.type || f.frequency_type || f.name).toUpperCase();
                     var mhz   = clean(f.frequency_mhz || f.mhz || f.freq || f.frequency);
                     var desc  = clean(f.description || f.desc || f.use || f.name);
-                    html += '<div class=”dp-freq”>';
-                    html += '<span class=”dp-freq-type”>' + esc(fType || '—') + '</span>';
-                    html += '<span class=”dp-freq-mhz”>' + esc(mhz ? mhz + ' MHz' : '—') + '</span>';
-                    html += '<span class=”dp-freq-desc”>' + esc(desc || '') + '</span>';
+                    html += '<div class="dp-freq">';
+                    html += '<span class="dp-freq-type">' + esc(fType || '—') + '</span>';
+                    html += '<span class="dp-freq-mhz">' + esc(mhz ? mhz + ' MHz' : '—') + '</span>';
+                    html += '<span class="dp-freq-desc">' + esc(desc || '') + '</span>';
                     html += '</div>';
                 });
                 if (freqs.length > 8) {
-                    html += '<div style=”font-size:10px;color:#444;margin-top:4px”>+' +
+                    html += '<div style="font-size:10px;color:#444;margin-top:4px">+' +
                             esc(String(freqs.length - 8)) + ' more</div>';
                 }
                 html += '</div>';
             }
 
             var aptCode = icao || code;
-            html += '<div class=”dp-actions”>';
-            html += '<button class=”dp-action primary” onclick=”applyAirportDeepLink(\'' +
-                    htmlEscape(aptCode) + '\')”>Center Map</button>';
-            html += '<a class=”dp-action” href=”/airports”>Airports</a>';
-            if (website) html += '<a class=”dp-action” href=”' + esc(website) + '” target=”_blank” rel=”noopener”>Website</a>';
-            if (wiki)    html += '<a class=”dp-action” href=”' + esc(wiki) + '” target=”_blank” rel=”noopener”>Wikipedia</a>';
+            html += '<div class="dp-actions">';
+            html += '<button class="dp-action primary" onclick="applyAirportDeepLink(\'' +
+                    htmlEscape(aptCode) + '\')">Center Map</button>';
+            html += '<a class="dp-action" href="/airports">Airports</a>';
+            if (website) html += '<a class="dp-action" href="' + esc(website) + '" target="_blank" rel="noopener">Website</a>';
+            if (wiki)    html += '<a class="dp-action" href="' + esc(wiki) + '" target="_blank" rel="noopener">Wikipedia</a>';
             html += '</div>';
 
-            html += '<div class=”dp-flights-box” id=”dp-flights-' + esc(code) +
-                    '”><div class=”dp-flights-loading”>Loading aircraft…</div></div>';
+            html += '<div class="dp-flights-box" id="dp-flights-' + esc(code) +
+                    '"><div class="dp-flights-loading">Loading aircraft…</div></div>';
 
             return html;
         }
@@ -2945,7 +2945,7 @@
                 })
                 .catch(function() {
                     var box = document.getElementById('dp-flights-' + code);
-                    if (box) box.innerHTML = '<div class=”dp-flights-loading” style=”color:#555”>Aircraft data unavailable</div>';
+                    if (box) box.innerHTML = '<div class="dp-flights-loading" style="color:#555">Aircraft data unavailable</div>';
                 });
         }
 
@@ -2954,16 +2954,16 @@
             if (!box) return;
 
             if (!inbound.length && !outbound.length) {
-                box.innerHTML = '<div class=”dp-flights-loading” style=”color:#555”>No active aircraft for ' +
+                box.innerHTML = '<div class="dp-flights-loading" style="color:#555">No active aircraft for ' +
                                 htmlEscape(code) + '</div>';
                 return;
             }
 
             function groupHtml(list, label) {
                 if (!list.length) return '';
-                var h = '<div class=”dp-flights-group”>';
-                h += '<div class=”dp-flights-group-title”>' + htmlEscape(label) +
-                     ' <span style=”color:#444;font-weight:400”>(' + list.length + ')</span></div>';
+                var h = '<div class="dp-flights-group">';
+                h += '<div class="dp-flights-group-title">' + htmlEscape(label) +
+                     ' <span style="color:#444;font-weight:400">(' + list.length + ')</span></div>';
                 list.slice(0, 10).forEach(function(p) {
                     var icaoHex = (p.icaoHex || '').toUpperCase();
                     var cs      = (p.callsign || '').trim();
@@ -2977,26 +2977,26 @@
                     var altStr  = (!isNaN(altN) && altN > 0) ?
                                   Math.round(altN).toLocaleString() + ' ft' : '';
                     var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
-                    h += '<div class=”dp-flight-row”>';
-                    h += '<span class=”dp-flight-call”>'  + htmlEscape(call)   + '</span>';
-                    h += '<span class=”dp-flight-route”>' + htmlEscape(rt)     + '</span>';
-                    h += '<span class=”dp-flight-alt”>'   + htmlEscape(altStr) + '</span>';
-                    h += link ? '<a class=”dp-flight-link” href=”' + htmlEscape(link) + '”>Radar</a>'
+                    h += '<div class="dp-flight-row">';
+                    h += '<span class="dp-flight-call">'  + htmlEscape(call)   + '</span>';
+                    h += '<span class="dp-flight-route">' + htmlEscape(rt)     + '</span>';
+                    h += '<span class="dp-flight-alt">'   + htmlEscape(altStr) + '</span>';
+                    h += link ? '<a class="dp-flight-link" href="' + htmlEscape(link) + '">Radar</a>'
                               : '<span></span>';
                     h += '</div>';
                 });
                 if (list.length > 10) {
-                    h += '<div style=”font-size:10px;color:#444;padding:4px 0”>+' +
+                    h += '<div style="font-size:10px;color:#444;padding:4px 0">+' +
                          (list.length - 10) + ' more</div>';
                 }
                 h += '</div>';
                 return h;
             }
 
-            var html = '<div class=”dp-flights-counts”>';
-            html += '<span style=”color:#aaa”>' + inbound.length  + ' inbound</span>';
-            html += '<span style=”color:#444”>·</span>';
-            html += '<span style=”color:#aaa”>' + outbound.length + ' outbound</span>';
+            var html = '<div class="dp-flights-counts">';
+            html += '<span style="color:#aaa">' + inbound.length  + ' inbound</span>';
+            html += '<span style="color:#444">·</span>';
+            html += '<span style="color:#aaa">' + outbound.length + ' outbound</span>';
             html += '</div>';
             html += groupHtml(inbound,  'Inbound to '    + code);
             html += groupHtml(outbound, 'Outbound from ' + code);
