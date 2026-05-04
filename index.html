@@ -2733,9 +2733,12 @@
             var csRaw        = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
             var isFollowing  = (followFlightId === flightId);
 
+            var acClassLower = acClass.toLowerCase();
+            var acClassDisplay = acClass.charAt(0).toUpperCase() + acClass.slice(1);
+
             var tags = [];
-            if (boolField(p.isMilitary))  tags.push('Military');
-            if (boolField(p.isHelicopter)) tags.push('Helicopter');
+            if (boolField(p.isMilitary)  && acClassLower !== 'military')  tags.push('Military');
+            if (boolField(p.isHelicopter) && acClassLower !== 'helicopter') tags.push('Helicopter');
             if (boolField(p.isPia))        tags.push('PIA');
             if (boolField(p.isLadd))       tags.push('LADD');
 
@@ -2784,7 +2787,7 @@
                     '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(p.registration) + '</span>');
             }
             if (p.aircraftType) html += dpRow('Type', htmlEscape(p.aircraftType));
-            html += dpRow('Class', htmlEscape(acClass));
+            html += dpRow('Class', htmlEscape(acClassDisplay));
             if (tags.length) html += dpRow('Tags', htmlEscape(tags.join(' · ')));
             if (icao) {
                 html += dpRow('ICAO',
@@ -2826,10 +2829,16 @@
                 html += '<a class="dp-action" href="https://flightaware.com/live/flight/' +
                         htmlEscape(csRaw) + '" target="_blank" rel="noopener">FlightAware</a>';
             }
-            var copyVal = icao || csRaw;
-            if (copyVal && navigator && navigator.clipboard) {
-                html += '<button class="dp-action" onclick="navigator.clipboard.writeText(\'' +
-                        htmlEscape(copyVal) + '\')">Copy</button>';
+            if (navigator && navigator.clipboard) {
+                if (icao) {
+                    html += '<button class="dp-action" onclick="var b=this;navigator.clipboard.writeText(\'' +
+                            htmlEscape(icao) + '\').then(function(){b.textContent=\'Copied\';' +
+                            'setTimeout(function(){b.textContent=\'Copy ICAO\';},1500)})">Copy ICAO</button>';
+                } else if (csRaw) {
+                    html += '<button class="dp-action" onclick="var b=this;navigator.clipboard.writeText(\'' +
+                            htmlEscape(csRaw) + '\').then(function(){b.textContent=\'Copied\';' +
+                            'setTimeout(function(){b.textContent=\'Copy Callsign\';},1500)})">Copy Callsign</button>';
+                }
             }
             html += '</div>';
 
