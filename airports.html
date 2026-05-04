@@ -345,6 +345,16 @@
         .dp-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #444; }
         .dp-value { color: #bbb; font-size: 13px; }
         .dp-value.accent { color: #00ffcc; font-weight: 600; }
+        .dp-actions { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+        .dp-action {
+            font-size: 10px; font-weight: 600; color: #444;
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 3px;
+            padding: 3px 10px; text-decoration: none; letter-spacing: 0.3px;
+            text-transform: uppercase; font-family: inherit;
+        }
+        .dp-action:hover { color: #888; border-color: rgba(255,255,255,0.2); }
+        .dp-action.primary { color: #00ffcc; border-color: rgba(0,255,204,0.3); background: rgba(0,255,204,0.04); }
+        .dp-action.primary:hover { background: rgba(0,255,204,0.09); }
         .detail-row.hidden { display: none; }
 
         /* ── Footer ── */
@@ -660,6 +670,9 @@ function airportRow(code, deps, arrs, total, rank) {
         <div class="dp-field"><div class="dp-label">Departures</div><div class="dp-value accent">${deps.toLocaleString()}</div></div>
         <div class="dp-field"><div class="dp-label">Arrivals</div><div class="dp-value accent">${arrs.toLocaleString()}</div></div>
         <div class="dp-field"><div class="dp-label">Total Flights</div><div class="dp-value accent">${total.toLocaleString()}</div></div>
+        <div class="dp-actions">
+            <a class="dp-action primary" href="/?airport=${code}">Open on Radar</a>
+        </div>
     </div></td></tr>`;
 }
 

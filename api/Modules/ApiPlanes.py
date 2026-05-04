@@ -180,6 +180,9 @@ class ApiPlanes(ApiBase):
         plane.update(profile)
         plane.update(state)
 
+        _state_src   = state.get("source", "")
+        _profile_src = profile.get("source", "")
+
         normalized = {
             "flightId": plane.get("flight_id", flightId),
             "callsign": plane.get("callsign", ""),
@@ -193,9 +196,9 @@ class ApiPlanes(ApiBase):
             "faaTs": plane.get("faa_ts", ""),
             "flightStatus": plane.get("flight_status", ""),
             "icaoHex": plane.get("icao_hex", ""),
-            "source": plane.get("source", ""),
-            "positionSource": state.get("source", plane.get("source", "")),
-            "enrichmentSource": profile.get("source", ""),
+            "source": _state_src or _profile_src,
+            "positionSource": _state_src or _profile_src,
+            "enrichmentSource": _profile_src,
             "sourceFacility": plane.get("source_facility", ""),
             "trackKey": plane.get("track_key", ""),
             "gufi": plane.get("gufi", ""),

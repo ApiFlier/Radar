@@ -1715,67 +1715,114 @@
                 });
         }
 
-        function showStatusHUD(message) {
+        function showStatusHUD(message, type) {
             var hud = document.getElementById('status-hud');
             if (!hud) {
                 hud = document.createElement('div');
                 hud.id = 'status-hud';
                 hud.style.cssText = [
                     'position:fixed', 'bottom:64px', 'left:50%', 'transform:translateX(-50%)',
-                    'background:rgba(0,0,0,0.85)', 'border:1px solid rgba(255,170,85,0.35)',
+                    'background:rgba(0,0,0,0.85)',
                     'border-radius:6px', 'padding:9px 18px', 'font-size:12px',
-                    'font-family:"Segoe UI",sans-serif', 'color:#fa5',
+                    'font-family:"Segoe UI",sans-serif',
                     'z-index:9999', 'cursor:pointer', 'white-space:nowrap',
                     'box-shadow:0 2px 12px rgba(0,0,0,0.5)'
                 ].join(';');
                 hud.onclick = function() { this.style.display = 'none'; };
                 document.body.appendChild(hud);
             }
+            var isInfo = type === 'info';
+            hud.style.color  = isInfo ? '#00ffcc' : '#fa5';
+            hud.style.border = '1px solid ' + (isInfo ? 'rgba(0,255,204,0.3)' : 'rgba(255,170,85,0.35)');
             hud.textContent = message;
             hud.style.display = 'block';
             if (hud._timer) clearTimeout(hud._timer);
-            hud._timer = setTimeout(function() { hud.style.display = 'none'; }, 10000);
+            hud._timer = setTimeout(function() { hud.style.display = 'none'; }, 8000);
         }
 
-        /* ── Deep-link support: /?icao=HEX or /?callsign=CALL ── */
+        /* ── Deep-link support: /?icao=HEX, /?callsign=CALL, /?airport=CODE ── */
         function applyDeepLink() {
-            // Guard: run at most once per page load regardless of how many refreshes fire
+            // Guard: runs at most once per page load regardless of how many refreshes fire
             if (deepLinkApplied) return;
             deepLinkApplied = true;
 
-            var params = new URLSearchParams(window.location.search);
-            var icaoParam  = (params.get('icao')     || '').toUpperCase().trim();
-            var callParam  = (params.get('callsign') || '').toUpperCase().trim();
-            if (!icaoParam && !callParam) return;
+            var params       = new URLSearchParams(window.location.search);
+            var icaoParam    = (params.get('icao')     || '').toUpperCase().trim();
+            var callParam    = (params.get('callsign') || '').toUpperCase().trim();
+            var airportParam = (params.get('airport')  || '').toUpperCase().trim();
 
-            var targetId = null;
-            for (var id in planeData) {
-                var pd = planeData[id];
-                if (icaoParam && (pd.icaoHex || '').toUpperCase() === icaoParam) {
-                    targetId = id; break;
-                }
-                if (callParam && (pd.callsign || '').toUpperCase() === callParam) {
-                    targetId = id; break;
-                }
-            }
+            if (!icaoParam && !callParam && !airportParam) return;
 
-            if (!targetId) {
-                showDeepLinkHUD(icaoParam || callParam, false);
+            // Airport deep-link — center map; does not require aircraft data
+            if (airportParam) {
+                applyAirportDeepLink(airportParam);
                 return;
             }
 
-            var pd = planeData[targetId];
-            map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 12));
-
-            // Allow moveend / syncVisiblePlanes to run before opening popup
-            setTimeout(function() {
-                if (!planeMarkers[targetId]) addMarker(targetId);
-                var marker = planeMarkers[targetId];
-                if (marker) {
-                    marker.openPopup();
-                    startFollow(targetId);
+            // Aircraft deep-link with retry — aircraft may arrive via SSE after initial load
+            var attempts = 0;
+            var maxAttempts = 5;
+            function findAndFocus() {
+                var targetId = null;
+                for (var id in planeData) {
+                    var pd = planeData[id];
+                    if (icaoParam && (pd.icaoHex || '').toUpperCase() === icaoParam) { targetId = id; break; }
+                    if (callParam && (pd.callsign || '').toUpperCase() === callParam) { targetId = id; break; }
                 }
-            }, 350);
+                if (targetId) {
+                    var pd = planeData[targetId];
+                    map.setView([pd.lat, pd.lon], Math.max(map.getZoom(), 12));
+                    // Allow moveend / syncVisiblePlanes to run before opening popup
+                    setTimeout(function() {
+                        if (!planeMarkers[targetId]) addMarker(targetId);
+                        var marker = planeMarkers[targetId];
+                        if (marker) { marker.openPopup(); startFollow(targetId); }
+                    }, 350);
+                    return;
+                }
+                if (++attempts < maxAttempts) {
+                    setTimeout(findAndFocus, 1500);
+                } else {
+                    showDeepLinkHUD(icaoParam || callParam, false);
+                }
+            }
+            findAndFocus();
+        }
+
+        function applyAirportDeepLink(code) {
+            function doCenter() {
+                var a = lookupAirport(code);
+                if (!a) return false;
+                var lat = parseFloat(a.lat || a.latitude || a.latitude_deg);
+                var lon = parseFloat(a.lon || a.longitude || a.longitude_deg);
+                if (isNaN(lat) || isNaN(lon)) return false;
+                var zoom = (a.type === 'large_airport' || a.type === 'medium_airport') ? 11 : 12;
+                map.setView([lat, lon], zoom);
+                var label = code + (a.name ? ' — ' + a.name : '');
+                showStatusHUD('Centered on ' + label, 'info');
+                return true;
+            }
+
+            // If airport data already loaded, apply immediately
+            if (airportData.length > 0) {
+                if (!doCenter()) showDeepLinkHUD('Airport ' + code + ' not found', false);
+                return;
+            }
+
+            // Airport JSON is still loading — retry up to 10 times at 400 ms
+            var retries = 0;
+            function tryLater() {
+                if (airportData.length > 0) {
+                    if (!doCenter()) showDeepLinkHUD('Airport ' + code + ' not found', false);
+                    return;
+                }
+                if (++retries < 10) {
+                    setTimeout(tryLater, 400);
+                } else {
+                    showDeepLinkHUD('Airport ' + code + ' — data unavailable', false);
+                }
+            }
+            setTimeout(tryLater, 400);
         }
 
         function showDeepLinkHUD(label, found) {

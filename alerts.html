@@ -326,7 +326,8 @@
             <div class="section-head">
                 <h2>Alert Feed</h2>
                 <div class="filter-tabs" id="cat-filter-tabs">
-                    <button class="filter-btn active" data-f="all"           onclick="setCatFilter('all')">All</button>
+                    <button class="filter-btn active" data-f="operational"   onclick="setCatFilter('operational')">Operational</button>
+                    <button class="filter-btn"        data-f="all"           onclick="setCatFilter('all')">All</button>
                     <button class="filter-btn"        data-f="emergency"     onclick="setCatFilter('emergency')">Emergency</button>
                     <button class="filter-btn"        data-f="military"      onclick="setCatFilter('military')">Military</button>
                     <button class="filter-btn"        data-f="helicopter"    onclick="setCatFilter('helicopter')">Helicopter</button>
@@ -357,8 +358,13 @@ const STALE_SECS    = 180;   // 3 min — flag as potentially stale
 const HB_STALE_SECS = 90;    // ADSB.lol heartbeat stale threshold
 
 /* ── State ── */
-let allAlerts   = [];
-let catFilter   = 'all';
+let allAlerts   = [];   // operational alerts only (emergency/military/helicopter/ground/source-health)
+let dqAlerts    = [];   // data-quality alerts (built lazily on first DQ tab click)
+let dqSummary   = { noId: 0, noRoute: 0, unknownSrc: 0, stale: 0 };
+let dqLoaded    = false;
+let lastPlanes  = [];   // stored for lazy DQ generation
+let catFilter   = 'operational';  // default: operational view excludes data-quality noise
+const DQ_CAP    = 150;  // max per-type DQ rows to avoid DOM overload
 
 /* ── Helpers ── */
 function n(v) { const f = parseFloat(v); return isNaN(f) ? null : f; }
@@ -469,10 +475,13 @@ function makeSystemAlert(severity, category, title, detail) {
     return { id: `alert-${_idx++}`, severity, category, plane: null, icao: '', call: '', title, detail, route: '', source: 'System', srch };
 }
 
-/* ── Alert detection ── */
+/* ── Alert detection — operational only ── */
 function buildAlerts(planes, health) {
     _idx = 0;
     const alerts = [];
+
+    // Reset DQ summary counts (used for the cards; rows are lazy-loaded)
+    dqSummary = { noId: 0, noRoute: 0, unknownSrc: 0, stale: 0 };
 
     for (const p of planes) {
         const squawk = String(p.squawk || '').trim();
@@ -508,34 +517,14 @@ function buildAlerts(planes, health) {
                 'Ground Aircraft', 'Detected via ADSB.lol airport surface sweep'));
         }
 
-        /* Missing identity — Notice */
-        if (noIdentity(p)) {
-            alerts.push(makeAircraftAlert('notice', 'data-quality', p,
-                'No Identity', 'No callsign or registration — aircraft identity unknown'));
-        }
-
-        /* Commercial with no route — Warning */
-        if (p.aircraftClass === 'commercial' && !isGroundPlane(p) && !hasRoute(p)) {
-            alerts.push(makeAircraftAlert('warning', 'data-quality', p,
-                'Missing Route', 'Commercial flight has no departure or arrival data'));
-        }
-
-        /* Unknown source — Warning */
+        /* Count DQ issues for cards without generating per-aircraft rows.
+           Rows are generated lazily in buildDQAlerts() when the tab is clicked. */
+        if (noIdentity(p)) dqSummary.noId++;
+        if (p.aircraftClass === 'commercial' && !isGroundPlane(p) && !hasRoute(p)) dqSummary.noRoute++;
         const rawSrc = (p.source || p.positionSource || '').toLowerCase().trim();
-        if (!rawSrc || rawSrc === 'unknown') {
-            alerts.push(makeAircraftAlert('warning', 'data-quality', p,
-                'Unknown Source', 'Data source is unidentified — provenance unknown'));
-        }
-
-        /* Stale position data — Warning (inferred) */
+        if (!rawSrc || rawSrc === 'unknown') dqSummary.unknownSrc++;
         const lu = n(p.lastUpdate);
-        if (lu && lu > 1e9) {
-            const age = Date.now() / 1000 - lu;
-            if (age > STALE_SECS) {
-                alerts.push(makeAircraftAlert('warning', 'data-quality', p,
-                    'Stale Position', `Position last updated ${fmtAge(lu)} — may be outdated (inferred)`));
-            }
-        }
+        if (lu && lu > 1e9 && (Date.now() / 1000 - lu) > STALE_SECS) dqSummary.stale++;
     }
 
     /* Source health alerts */
@@ -592,6 +581,48 @@ function buildAlerts(planes, health) {
     return alerts;
 }
 
+/* ── Data Quality alerts — built lazily on first DQ tab click ── */
+function buildDQAlerts(planes) {
+    const out = [];
+    let noIdN = 0, noRouteN = 0, unknownSrcN = 0, staleN = 0;
+    for (const p of planes) {
+        if (noIdentity(p) && noIdN < DQ_CAP) {
+            out.push(makeAircraftAlert('notice', 'data-quality', p,
+                'No Identity', 'No callsign or registration — aircraft identity unknown'));
+            noIdN++;
+        }
+        if (p.aircraftClass === 'commercial' && !isGroundPlane(p) && !hasRoute(p) && noRouteN < DQ_CAP) {
+            out.push(makeAircraftAlert('notice', 'data-quality', p,
+                'Missing Route', 'Commercial flight has no departure or arrival data'));
+            noRouteN++;
+        }
+        const rawSrc = (p.source || p.positionSource || '').toLowerCase().trim();
+        if ((!rawSrc || rawSrc === 'unknown') && unknownSrcN < DQ_CAP) {
+            out.push(makeAircraftAlert('notice', 'data-quality', p,
+                'Untagged Source', 'Source field is empty or unnormalized — not an operational danger'));
+            unknownSrcN++;
+        }
+        const lu = n(p.lastUpdate);
+        if (lu && lu > 1e9 && (Date.now() / 1000 - lu) > STALE_SECS && staleN < DQ_CAP) {
+            out.push(makeAircraftAlert('notice', 'data-quality', p,
+                'Stale Position', `Position last updated ${fmtAge(lu)} — may be inferred`));
+            staleN++;
+        }
+    }
+    return out;
+}
+
+function loadDQIfNeeded() {
+    if (dqLoaded || !lastPlanes.length) return;
+    dqAlerts = buildDQAlerts(lastPlanes);
+    dqLoaded = true;
+    const tbody = document.querySelector('#alerts-table tbody');
+    if (!tbody) return;
+    let html = '';
+    for (const alert of dqAlerts) html += buildAlertRow(alert);
+    tbody.insertAdjacentHTML('beforeend', html);
+}
+
 /* ── Cards ── */
 function renderCards(alerts) {
     const total   = alerts.length;
@@ -599,8 +630,8 @@ function renderCards(alerts) {
     const mil     = alerts.filter(a => a.category === 'military').length;
     const heli    = alerts.filter(a => a.category === 'helicopter').length;
     const ground  = alerts.filter(a => a.category === 'ground').length;
-    const dq      = alerts.filter(a => a.category === 'data-quality').length;
     const sh      = alerts.filter(a => a.category === 'source-health').length;
+    const dqTotal = dqSummary.noId + dqSummary.noRoute + dqSummary.unknownSrc + dqSummary.stale;
     const hasCrit = alerts.some(a => a.severity === 'critical');
     const hasWarn = !hasCrit && alerts.some(a => a.severity === 'warning');
 
@@ -625,9 +656,10 @@ function renderCards(alerts) {
             <div class="value">${ground.toLocaleString()}</div>
             <div class="label">Ground</div>
         </div>
-        <div class="card ${dq > 0 ? 'warn' : 'dim'}">
-            <div class="value">${dq.toLocaleString()}</div>
+        <div class="card ${dqTotal > 0 ? 'warn' : 'dim'}">
+            <div class="value">${dqTotal.toLocaleString()}</div>
             <div class="label">Data Issues</div>
+            <div class="sub" style="font-size:10px;color:#555">${dqTotal > 0 ? 'See Data Quality tab' : ''}</div>
         </div>
         <div class="card ${sh > 0 ? 'warn' : 'dim'}">
             <div class="value">${sh.toLocaleString()}</div>
@@ -725,50 +757,47 @@ function buildDetailPanel(alert) {
     return `<div class="detail-panel ${sev}">${body}</div>`;
 }
 
+/* ── Row builder (shared by renderTable and loadDQIfNeeded) ── */
+function buildAlertRow(alert) {
+    const p = alert.plane;
+    const isNoId = p ? noFlightId(p) : false;
+    const callHtml = p
+        ? `<div class="ac-call ${isNoId ? 'dim' : ''}">${alert.call || '—'}</div>
+           ${p.registration ? `<div class="ac-reg">${p.registration}</div>` : ''}
+           ${alert.icao ? `<div class="ac-hex">${alert.icao}</div>` : ''}`
+        : `<div class="ac-system">System</div>`;
+    const titleCls = alert.severity === 'critical' ? 'critical' : alert.severity === 'warning' ? 'warning' : '';
+    return `<tr class="clickable-row sev-${alert.severity}"
+        data-cat="${alert.category}"
+        data-srch="${alert.srch}"
+        onclick="toggleDetail('${alert.id}')">
+        <td class="sev-cell"><span class="sev-dot ${alert.severity}"></span></td>
+        <td class="ac-cell">${callHtml}</td>
+        <td>${catBadge(alert.category)}</td>
+        <td class="alert-title ${titleCls}">${alert.title}</td>
+        <td class="alert-detail">${alert.detail}</td>
+        <td style="color:#3a3a3a;font-size:11px;white-space:nowrap">${alert.source}</td>
+        <td class="alert-age">${p ? fmtAge(p.lastUpdate) : '—'}</td>
+    </tr><tr class="detail-row hidden" id="${alert.id}">
+        <td colspan="7">${buildDetailPanel(alert)}</td>
+    </tr>`;
+}
+
 /* ── Table rendering ── */
 function renderTable(alerts) {
     if (!alerts.length) {
         document.getElementById('alerts-content').innerHTML = `
             <div class="empty-state">
                 <div class="icon">✓</div>
-                <div class="msg">No active alerts detected.</div>
-                <div class="sub">The system is monitoring continuously. Alerts appear here when conditions are met.</div>
+                <div class="msg">No operational alerts detected.</div>
+                <div class="sub">Emergency, military, helicopter, and ground alerts appear here. Use the Data Quality tab for source and route issues.</div>
             </div>`;
         document.getElementById('alert-count').textContent = '0 alerts';
         return;
     }
 
     let rows = '';
-    for (const alert of alerts) {
-        const p = alert.plane;
-        const isNoId = p ? noFlightId(p) : false;
-        const callHtml = alert.plane
-            ? `<div class="ac-call ${isNoId ? 'dim' : ''}">${alert.call || '—'}</div>
-               ${p.registration ? `<div class="ac-reg">${p.registration}</div>` : ''}
-               ${alert.icao ? `<div class="ac-hex">${alert.icao}</div>` : ''}`
-            : `<div class="ac-system">System</div>`;
-
-        const contextHtml = alert.route
-            ? `<span style="color:#555;font-family:monospace;font-size:11px">${alert.route}</span>`
-            : `<span style="color:#2a2a2a;font-size:11px">—</span>`;
-
-        const titleCls = alert.severity === 'critical' ? 'critical' : alert.severity === 'warning' ? 'warning' : '';
-
-        rows += `<tr class="clickable-row sev-${alert.severity}"
-            data-cat="${alert.category}"
-            data-srch="${alert.srch}"
-            onclick="toggleDetail('${alert.id}')">
-            <td class="sev-cell"><span class="sev-dot ${alert.severity}"></span></td>
-            <td class="ac-cell">${callHtml}</td>
-            <td>${catBadge(alert.category)}</td>
-            <td class="alert-title ${titleCls}">${alert.title}</td>
-            <td class="alert-detail">${alert.detail}</td>
-            <td style="color:#3a3a3a;font-size:11px;white-space:nowrap">${alert.source}</td>
-            <td class="alert-age">${p ? fmtAge(p.lastUpdate) : '—'}</td>
-        </tr><tr class="detail-row hidden" id="${alert.id}">
-            <td colspan="7">${buildDetailPanel(alert)}</td>
-        </tr>`;
-    }
+    for (const alert of alerts) rows += buildAlertRow(alert);
 
     document.getElementById('alerts-content').innerHTML = `
         <div style="overflow-x:auto">
@@ -796,6 +825,8 @@ function setCatFilter(cat) {
     document.querySelectorAll('#cat-filter-tabs .filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === cat);
     });
+    // Data Quality rows are built lazily — generate and append on first access
+    if (cat === 'all' || cat === 'data-quality') loadDQIfNeeded();
     applyFilters();
 }
 
@@ -810,9 +841,16 @@ function applyFilters() {
         const cat  = row.dataset.cat  || '';
         const srch = row.dataset.srch || '';
 
-        const catMatch = catFilter === 'all' || cat === catFilter;
-        const qMatch   = !q || srch.includes(q);
-        const show     = catMatch && qMatch;
+        let catMatch;
+        if (catFilter === 'operational') {
+            catMatch = cat !== 'data-quality';
+        } else if (catFilter === 'all') {
+            catMatch = true;
+        } else {
+            catMatch = cat === catFilter;
+        }
+        const qMatch = !q || srch.includes(q);
+        const show   = catMatch && qMatch;
 
         row.classList.toggle('hidden-row', !show);
         const detail = row.nextElementSibling;
@@ -824,7 +862,7 @@ function applyFilters() {
     }
 
     document.getElementById('alert-count').textContent =
-        (q || catFilter !== 'all')
+        (q || catFilter !== 'operational')
             ? `${vis} of ${total} alert${total === 1 ? '' : 's'}`
             : `${total} alert${total === 1 ? '' : 's'}`;
 }
@@ -852,9 +890,15 @@ async function doRefresh() {
         const total  = planesJson?.response?.data?.total  || 0;
         const health = healthJson?.response?.data || healthJson;
 
+        lastPlanes = planes;     // store for lazy DQ generation
+        dqLoaded   = false;      // reset so DQ rows are rebuilt on next access
+
         allAlerts = buildAlerts(planes, health);
         renderCards(allAlerts);
         renderTable(allAlerts);
+
+        // If current filter already needs DQ rows, load them immediately after re-render
+        if (catFilter === 'all' || catFilter === 'data-quality') loadDQIfNeeded();
 
         document.getElementById('last-update').textContent =
             'Updated ' + new Date().toLocaleTimeString() +
