@@ -680,6 +680,30 @@
         }
         #focus-airport-badge .fbadge-exit:hover { color: #ccc; background: rgba(255,255,255,0.06); }
 
+        #focus-alert-list {
+            position: fixed; top: 97px; left: 50%; transform: translateX(-50%);
+            z-index: 998; display: none; flex-direction: column; gap: 4px;
+            min-width: 280px; max-width: 520px; max-height: 240px; overflow-y: auto;
+            pointer-events: auto;
+        }
+        .fal-clear {
+            align-self: flex-end; font-size: 10px; font-weight: 700; color: #555;
+            background: rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 3px; padding: 2px 8px; cursor: pointer;
+            font-family: inherit; text-transform: uppercase; letter-spacing: 0.4px;
+        }
+        .fal-clear:hover { color: #aaa; background: rgba(255,255,255,0.06); }
+        .fal-item {
+            display: flex; align-items: flex-start; gap: 8px;
+            background: rgba(0,0,0,0.88); border-left: 3px solid #00a8cc;
+            border-radius: 4px; padding: 6px 10px; font-size: 11px; line-height: 1.45;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.45);
+        }
+        .fal-item.fal-emergency { border-left-color: #f5a623; }
+        .fal-item .fal-msg { flex: 1; color: #999; }
+        .fal-item .fal-msg b { color: #00e8ff; font-weight: 700; }
+        .fal-item.fal-emergency .fal-msg b { color: #f5a623; }
+
         .dp-freq {
             display: grid; grid-template-columns: 44px 80px 1fr;
             gap: 8px; font-size: 11px; padding: 3px 0;
@@ -825,7 +849,8 @@
             var D = { defaultAirport:'KPIT', defaultZoom:'9', defaultLat:'', defaultLon:'',
                       showLabels:true, showTrails:false, compactTables:false, showRawSources:true,
                       defaultAlertsTab:'operational', aircraftPageSize:'500',
-                      showDQSummary:true, showInferredWarnings:true };
+                      showDQSummary:true, showInferredWarnings:true,
+                      focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true };
             try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
             catch(e) { return Object.assign({}, D); }
         })();
@@ -2940,6 +2965,11 @@
         var focusAirportCode = null;  // ICAO/IATA code, or null when not focused
         var focusRings       = [];    // Leaflet circle layers for radius rings
         var focusBadgeEl     = null;  // DOM element for the focus HUD badge
+        var focusAptLat      = NaN;   // focused airport lat (for alert distance calcs)
+        var focusAptLon      = NaN;   // focused airport lon
+        var focusAlerts      = [];    // [{type, id, callsign, text, ts}] — session-only
+        var _focusSeenIn     = {};    // id -> true: aircraft already seen inside inbound radius
+        var _focusSeenEmg    = {};    // id -> emgKey: suppress repeat emergency alerts
 
         function openPanel() {
             document.getElementById('detail-panel').classList.add('open');
@@ -3401,9 +3431,108 @@
             }
         }
 
+        function _getFocusRadius() {
+            return Math.max(5, Math.min(200, parseFloat(_RS.focusRadiusNm) || 50));
+        }
+
+        function evaluateFocusAlerts() {
+            if (!focusAirportCode || isNaN(focusAptLat) || isNaN(focusAptLon)) return;
+            var radius = _getFocusRadius();
+            var buffer = Math.max(5, radius * 0.1);
+            var code   = focusAirportCode;
+            var now    = Date.now();
+
+            for (var id in planeData) {
+                var p = planeData[id];
+                if (!p) continue;
+                var pLat = parseFloat(p.lat), pLon = parseFloat(p.lon);
+                if (isNaN(pLat) || isNaN(pLon) || (pLat === 0 && pLon === 0)) continue;
+
+                var dist  = distanceNm(pLat, pLon, focusAptLat, focusAptLon);
+                var arrC  = (p.arr || '').trim().toUpperCase();
+                var cs    = String(p.callsign || id).trim();
+
+                // Inbound radius alert
+                if (_RS.focusInboundAlerts !== false) {
+                    var isInbound = arrC === code && isAirbornePlane(p);
+                    if (isInbound && dist <= radius) {
+                        if (!_focusSeenIn[id]) {
+                            _focusSeenIn[id] = true;
+                            var spd = parseFloat(p.speed) || 0;
+                            var etaMin = (spd > 10) ? Math.round(dist / spd * 60) : null;
+                            var txt = cs + ' inbound to ' + code
+                                + ' entered ' + Math.round(radius) + ' NM'
+                                + (etaMin !== null ? ' · ETA est. ' + etaMin + ' min' : '');
+                            focusAlerts.unshift({type: 'inbound', id: id, callsign: cs, text: txt, ts: now});
+                            if (focusAlerts.length > 20) focusAlerts.length = 20;
+                        }
+                    } else if (!isInbound || dist > radius + buffer) {
+                        _focusSeenIn[id] = false;
+                    }
+                }
+
+                // Emergency alert
+                if (_RS.focusEmergencyAlerts !== false) {
+                    var inRange = dist <= radius || arrC === code;
+                    if (inRange && isEmergencySquawk(p)) {
+                        var emgKey = String(p.squawk || '') + '|' + String(p.emergency || '');
+                        if (_focusSeenEmg[id] !== emgKey) {
+                            _focusSeenEmg[id] = emgKey;
+                            var sq = p.squawk || p.emergency || '?';
+                            var emgTxt = 'Emergency squawk ' + sq + ': ' + cs
+                                + ' near ' + code + ' · ' + Math.round(dist) + ' NM';
+                            focusAlerts.unshift({type: 'emergency', id: id, callsign: cs, text: emgTxt, ts: now});
+                            if (focusAlerts.length > 20) focusAlerts.length = 20;
+                        }
+                    } else if (!inRange) {
+                        delete _focusSeenEmg[id];
+                    }
+                }
+            }
+
+            renderFocusAlertList();
+        }
+
+        function renderFocusAlertList() {
+            var el = document.getElementById('focus-alert-list');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'focus-alert-list';
+                document.body.appendChild(el);
+            }
+            if (!focusAirportCode || focusAlerts.length === 0) {
+                el.style.display = 'none';
+                return;
+            }
+            el.innerHTML = '';
+            var clearBtn = document.createElement('button');
+            clearBtn.className = 'fal-clear';
+            clearBtn.textContent = 'Clear alerts';
+            clearBtn.onclick = function() {
+                focusAlerts = [];
+                renderFocusAlertList();
+                updateFocusBadge();
+            };
+            el.appendChild(clearBtn);
+            var shown = focusAlerts.slice(0, 8);
+            for (var i = 0; i < shown.length; i++) {
+                var a = shown[i];
+                var item = document.createElement('div');
+                item.className = 'fal-item' + (a.type === 'emergency' ? ' fal-emergency' : '');
+                var msg = document.createElement('div');
+                msg.className = 'fal-msg';
+                var words = a.text.split(' ');
+                msg.innerHTML = '<b>' + htmlEscape(words[0]) + '</b> ' + htmlEscape(words.slice(1).join(' '));
+                item.appendChild(msg);
+                el.appendChild(item);
+            }
+            el.style.display = 'flex';
+        }
+
         function updateFocusBadge() {
             if (!focusAirportCode) {
                 if (focusBadgeEl) focusBadgeEl.style.display = 'none';
+                renderFocusAlertList();
                 return;
             }
             var code = focusAirportCode;
@@ -3416,6 +3545,8 @@
                 if (depC === code) outCount++;
             }
 
+            evaluateFocusAlerts();
+
             if (!focusBadgeEl) {
                 focusBadgeEl = document.createElement('div');
                 focusBadgeEl.id = 'focus-airport-badge';
@@ -3424,6 +3555,9 @@
 
             var infoText = 'Airport Focus: ' + code;
             var chipsText = 'Inbound ' + inCount + ' · Outbound ' + outCount;
+            if (focusAlerts.length > 0) {
+                chipsText += ' · ' + focusAlerts.length + ' alert' + (focusAlerts.length === 1 ? '' : 's');
+            }
 
             focusBadgeEl.innerHTML = '';
             var infoSpan = document.createElement('span');
@@ -3441,6 +3575,24 @@
             focusBadgeEl.style.display = 'flex';
         }
 
+        function _preseedFocusAlertState(aLat, aLon, radius, code) {
+            // Pre-seed seen dicts so aircraft already inside on focus-enter don't spam alerts
+            for (var id in planeData) {
+                var p = planeData[id];
+                if (!p) continue;
+                var pLat = parseFloat(p.lat), pLon = parseFloat(p.lon);
+                if (isNaN(pLat) || isNaN(pLon)) continue;
+                var dist = distanceNm(pLat, pLon, aLat, aLon);
+                var arrC = (p.arr || '').trim().toUpperCase();
+                if (arrC === code && isAirbornePlane(p) && dist <= radius) {
+                    _focusSeenIn[id] = true;
+                }
+                if (isEmergencySquawk(p) && (dist <= radius || arrC === code)) {
+                    _focusSeenEmg[id] = String(p.squawk || '') + '|' + String(p.emergency || '');
+                }
+            }
+        }
+
         function enterAirportFocus(code) {
             code = (code || '').toUpperCase().trim();
             if (!code) return;
@@ -3448,6 +3600,13 @@
             // Remove existing rings from any prior focus session
             focusRings.forEach(function(r) { try { map.removeLayer(r); } catch(e) {} });
             focusRings = [];
+
+            // Reset alert state for new focus session
+            focusAlerts    = [];
+            _focusSeenIn   = {};
+            _focusSeenEmg  = {};
+            focusAptLat    = NaN;
+            focusAptLon    = NaN;
 
             focusAirportCode = code;
 
@@ -3458,26 +3617,31 @@
                 renderAirportPanel();
             }
 
-            // Draw radius rings at 25 / 50 / 100 NM
+            // Draw radius rings: radius/2, radius, radius*2
             var a = selectedAptObj || lookupAirport(code) || null;
             if (a) {
                 var aLat = parseFloat(a.lat || a.latitude || a.latitude_deg);
                 var aLon = parseFloat(a.lon || a.longitude || a.longitude_deg);
                 if (!isNaN(aLat) && !isNaN(aLon)) {
-                    var NM = 1852; // metres per nautical mile
+                    var NM = 1852;
+                    var r  = _getFocusRadius();
+                    focusAptLat = aLat;
+                    focusAptLon = aLon;
                     focusRings.push(L.circle([aLat, aLon], {
-                        radius: 25 * NM, color: '#00ffcc', weight: 1.5, opacity: 0.35,
+                        radius: (r / 2) * NM, color: '#00ffcc', weight: 1.5, opacity: 0.4,
                         fillOpacity: 0, interactive: false
                     }).addTo(map));
                     focusRings.push(L.circle([aLat, aLon], {
-                        radius: 50 * NM, color: '#00ffcc', weight: 1, opacity: 0.22,
+                        radius: r * NM, color: '#00ffcc', weight: 1.5, opacity: 0.28,
                         fillOpacity: 0, interactive: false
                     }).addTo(map));
                     focusRings.push(L.circle([aLat, aLon], {
-                        radius: 100 * NM, color: '#00ffcc', weight: 1, opacity: 0.13,
+                        radius: (r * 2) * NM, color: '#00ffcc', weight: 1, opacity: 0.14,
                         fillOpacity: 0, interactive: false
                     }).addTo(map));
                     map.panTo([aLat, aLon]);
+                    // Pre-seed: don't alert for aircraft already inside on entry
+                    _preseedFocusAlertState(aLat, aLon, r, code);
                 }
             }
 
@@ -3490,13 +3654,21 @@
 
         function exitAirportFocus() {
             focusAirportCode = null;
+            focusAptLat      = NaN;
+            focusAptLon      = NaN;
 
             // Remove radius rings
             focusRings.forEach(function(r) { try { map.removeLayer(r); } catch(e) {} });
             focusRings = [];
 
-            // Hide badge
+            // Clear alert state
+            focusAlerts   = [];
+            _focusSeenIn  = {};
+            _focusSeenEmg = {};
+
+            // Hide badge and alert list
             if (focusBadgeEl) focusBadgeEl.style.display = 'none';
+            renderFocusAlertList();
 
             // Restore all marker opacities to natural stale-based values
             applyFocusOverlay();
