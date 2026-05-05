@@ -56,7 +56,7 @@ class ApiPlanes(ApiBase):
             "type": "string"
         },
         "view": {
-            "description": "Response shape: radar (map-optimised bounds filter), target (single aircraft lookup), summary, ground, alerts, table. Omit for full response.",
+            "description": "Response shape: radar, target, summary, airports (alias for summary), ground, alerts, table. Omit for full response.",
             "required": False,
             "type": "string"
         },
@@ -130,6 +130,19 @@ class ApiPlanes(ApiBase):
 
     def execute(self):
         self.debugMessage("execute", "Starting Planes request")
+
+        view = (self.params.get("view") or "").strip().lower()
+
+        # Fast path for summary/airports: return cached result without scanning Redis.
+        # The cache is populated on the first scan; subsequent calls within the TTL are
+        # nearly instant, which prevents the Redis scan from serialising concurrent requests.
+        if view in ("summary", "airports"):
+            with _summary_cache_lock:
+                _now = time.time()
+                if _summary_cache is not None and (_now - _summary_cache_ts) < _SUMMARY_CACHE_TTL:
+                    self.responseData = _summary_cache
+                    self.sendResponse(self.SUCCESS)
+                    return
 
         redis = getRedis()
 
@@ -208,10 +221,9 @@ class ApiPlanes(ApiBase):
 
         self.debugMessage("execute", f"Found {len(planes)} planes")
 
-        view = (self.params.get("view") or "").strip().lower()
         limit = self.safeInt(self.params.get("limit", 0), 0)
 
-        if view == "summary":
+        if view in ("summary", "airports"):
             self.responseData = self._buildSummary(planes, sourceCounts, adsbHealthy, redis)
             self.sendResponse(self.SUCCESS)
             return

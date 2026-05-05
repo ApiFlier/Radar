@@ -213,7 +213,9 @@
                     <div class="setting">
                         <div>
                             <div class="setting-title">Default airport</div>
-                            <div class="setting-desc">Radar centers on this airport at startup when no URL deep link is present. Leave blank for lat/lon-based center.</div>
+                            <div class="setting-desc">Radar opens at this airport on startup (no URL deep link). Coordinates are resolved and cached when you save.<br>
+                                <span id="airport-resolved" style="color:#00ffcc;font-size:11px"></span>
+                            </div>
                         </div>
                         <input id="defaultAirport" type="text" maxlength="4" placeholder="KPIT">
                     </div>
@@ -374,7 +376,12 @@ function setStatus(msg) {
     const el = document.getElementById('status');
     el.textContent = msg;
     clearTimeout(setStatus._t);
-    setStatus._t = setTimeout(() => { el.textContent = ''; }, 3500);
+    setStatus._t = setTimeout(() => { el.textContent = ''; }, 5000);
+}
+
+function showAirportResolved(name) {
+    const el = document.getElementById('airport-resolved');
+    if (el) el.textContent = name ? ('Resolved: ' + name) : '';
 }
 
 function applyToForm(settings) {
@@ -397,25 +404,83 @@ function readForm() {
     return out;
 }
 
-function saveSettings() {
+async function resolveAirportCoords(code) {
+    const r = await fetch('/static/airports.json');
+    if (!r.ok) return null;
+    const d = await r.json();
+    const c = code.trim().toUpperCase();
+    return (d.airports || []).find(function(a) {
+        return (a.ident  || '').toUpperCase() === c ||
+               (a.icao   || '').toUpperCase() === c ||
+               (a.iata   || '').toUpperCase() === c ||
+               (a.gps    || '').toUpperCase() === c ||
+               (a.local  || '').toUpperCase() === c;
+    }) || null;
+}
+
+async function saveSettings() {
+    const btn = document.querySelector('button[onclick="saveSettings()"]');
+    if (btn) btn.disabled = true;
+    setStatus('Saving…');
+
     const settings = readForm();
+
+    if (settings.defaultAirport) {
+        try {
+            const apt = await resolveAirportCoords(settings.defaultAirport);
+            if (apt && apt.lat != null && apt.lon != null) {
+                settings.defaultAirportLat  = apt.lat;
+                settings.defaultAirportLon  = apt.lon;
+                settings.defaultAirportName = apt.name || settings.defaultAirport;
+                showAirportResolved(settings.defaultAirportName);
+                setStatus('Settings saved. Default airport: ' + settings.defaultAirportName + '.');
+            } else {
+                settings.defaultAirportLat  = '';
+                settings.defaultAirportLon  = '';
+                settings.defaultAirportName = '';
+                showAirportResolved(null);
+                setStatus('Settings saved. Airport ' + settings.defaultAirport + ' not found — radar will use lat/lon fallback.');
+            }
+        } catch (e) {
+            settings.defaultAirportLat  = '';
+            settings.defaultAirportLon  = '';
+            settings.defaultAirportName = '';
+            showAirportResolved(null);
+            setStatus('Settings saved (airport lookup unavailable).');
+        }
+    } else {
+        settings.defaultAirportLat  = '';
+        settings.defaultAirportLon  = '';
+        settings.defaultAirportName = '';
+        showAirportResolved(null);
+        setStatus('Settings saved.');
+    }
+
     localStorage.setItem(KEY, JSON.stringify(settings));
-    setStatus('Settings saved locally.');
+    if (btn) btn.disabled = false;
 }
 
 function resetDefaults() {
     applyToForm(DEFAULTS);
-    localStorage.setItem(KEY, JSON.stringify(DEFAULTS));
-    setStatus('Defaults restored.');
+    const d = Object.assign({}, DEFAULTS);
+    d.defaultAirportLat  = '';
+    d.defaultAirportLon  = '';
+    d.defaultAirportName = '';
+    localStorage.setItem(KEY, JSON.stringify(d));
+    showAirportResolved(null);
+    setStatus('Defaults restored. Save to re-resolve airport coordinates.');
 }
 
 function clearSettings() {
     localStorage.removeItem(KEY);
     applyToForm(DEFAULTS);
+    showAirportResolved(null);
     setStatus('Local Radar settings cleared.');
 }
 
-applyToForm(loadStored());
+const _stored = loadStored();
+applyToForm(_stored);
+if (_stored.defaultAirportName) showAirportResolved(_stored.defaultAirportName);
 </script>
 </body>
 </html>

@@ -791,12 +791,20 @@
         var _hasDeepLink = !!(_initParams.get('icao') || _initParams.get('callsign') || _initParams.get('airport'));
         var _initLat = 40.49, _initLon = -79.84, _initZoom = 10;
         if (!_hasDeepLink) {
-            var _sLat = parseFloat(_RS.defaultLat), _sLon = parseFloat(_RS.defaultLon);
             var _sZoom = parseInt(_RS.defaultZoom, 10);
-            if (!isNaN(_sLat) && !isNaN(_sLon) && Math.abs(_sLat) <= 90 && Math.abs(_sLon) <= 180) {
-                _initLat = _sLat; _initLon = _sLon;
-            }
             if (!isNaN(_sZoom) && _sZoom >= 3 && _sZoom <= 16) _initZoom = _sZoom;
+            // Priority 1: resolved airport coordinates cached when settings were last saved
+            var _aptLat = parseFloat(_RS.defaultAirportLat), _aptLon = parseFloat(_RS.defaultAirportLon);
+            if (!isNaN(_aptLat) && !isNaN(_aptLon) && Math.abs(_aptLat) <= 90 && Math.abs(_aptLon) <= 180) {
+                _initLat = _aptLat; _initLon = _aptLon;
+            } else {
+                // Priority 2: explicit lat/lon from settings
+                var _sLat = parseFloat(_RS.defaultLat), _sLon = parseFloat(_RS.defaultLon);
+                if (!isNaN(_sLat) && !isNaN(_sLon) && Math.abs(_sLat) <= 90 && Math.abs(_sLon) <= 180) {
+                    _initLat = _sLat; _initLon = _sLon;
+                }
+                // Priority 3: Pittsburgh fallback (already set above)
+            }
         }
         var map = L.map('map').setView([_initLat, _initLon], _initZoom);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -2170,11 +2178,13 @@
                 syncAirportMarkers();
                 syncVisiblePlanes();
 
-                // Apply saved default airport as startup center (no panel, no HUD)
-                // Only when no URL deep link is present and defaultAirport is set
+                // Apply saved default airport as startup center (no panel, no HUD).
+                // Skip when coords were already cached from settings (map started there),
+                // or when a URL deep link is present.
                 if (!_hasDeepLink) {
                     var defApt = String(_RS.defaultAirport || '').trim().toUpperCase();
-                    if (defApt) {
+                    var _aptCached = !isNaN(parseFloat(_RS.defaultAirportLat)) && !isNaN(parseFloat(_RS.defaultAirportLon));
+                    if (defApt && !_aptCached) {
                         var _da = lookupAirport(defApt);
                         if (_da) {
                             var _daLat = parseFloat(_da.lat || _da.latitude || _da.latitude_deg);

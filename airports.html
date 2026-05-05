@@ -928,34 +928,42 @@ function filterAirports() {
 }
 
 /* ── Fetch & render ── */
+async function fetchSummaryJson() {
+    const r = await fetch('/api/?action=Planes&view=summary&_=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+}
+
+function applySummaryJson(d, elapsed) {
+    const data = (d.response?.data) || {};
+    const s = processFromSummary(data);
+    lastProcessed = s;
+    renderCards(s);
+    renderTopList(s.topOrigins, 'origins-content', 'origins-count', 20);
+    renderTopList(s.topDests,   'dests-content',   'dests-count',   20);
+    renderAllAirports(s.airportActivity);
+    document.getElementById('unresolved-section').style.display = 'none';
+    document.getElementById('last-update').textContent =
+        'Updated ' + new Date().toLocaleTimeString() +
+        ' · ' + (data.total || 0).toLocaleString() + ' aircraft · ' + elapsed + 's';
+}
+
+function showRefreshError(e) {
+    document.getElementById('last-update').textContent = 'Error: ' + e.message;
+    ['origins-content','dests-content','all-airports-content'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+    });
+}
+
 async function refresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
     const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes&view=summary&_=' + Date.now());
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.json();
-        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-        const data = (d.response?.data) || {};
-
-        const s = processFromSummary(data);
-        lastProcessed = s;
-
-        renderCards(s);
-        renderTopList(s.topOrigins, 'origins-content', 'origins-count', 20);
-        renderTopList(s.topDests,   'dests-content',   'dests-count',   20);
-        renderAllAirports(s.airportActivity);
-        document.getElementById('unresolved-section').style.display = 'none';
-
-        document.getElementById('last-update').textContent =
-            'Updated ' + new Date().toLocaleTimeString() +
-            ' · ' + (data.total || 0).toLocaleString() + ' aircraft · ' + elapsed + 's';
+        const d = await fetchSummaryJson();
+        applySummaryJson(d, ((Date.now() - t0) / 1000).toFixed(2));
     } catch (e) {
-        document.getElementById('last-update').textContent = 'Error: ' + e.message;
-        ['origins-content','dests-content','all-airports-content'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = '<div class="status-msg error">Unable to reach API</div>';
-        });
+        showRefreshError(e);
     }
 }
 
@@ -965,8 +973,18 @@ function scheduleRefresh() {
     timer = setTimeout(() => { refresh().then(scheduleRefresh); }, 60000);
 }
 
-/* ── Init: load airports then data ── */
-loadAirports().then(() => refresh().then(scheduleRefresh));
+/* ── Init: load airports and fetch summary in parallel ── */
+(async function init() {
+    document.getElementById('last-update').textContent = 'Loading…';
+    const t0 = Date.now();
+    try {
+        const [, d] = await Promise.all([loadAirports(), fetchSummaryJson()]);
+        applySummaryJson(d, ((Date.now() - t0) / 1000).toFixed(2));
+        scheduleRefresh();
+    } catch (e) {
+        showRefreshError(e);
+    }
+})();
 </script>
 </body>
 </html>
