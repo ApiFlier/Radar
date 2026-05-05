@@ -4,7 +4,16 @@ import threading
 from Classes.ApiBase import ApiBase
 from Classes.Redis import getRedis
 
-# ── In-process summary cache (15 s TTL) ──────────────────────────────────────
+# ── Planes snapshot cache (3 s TTL) ──────────────────────────────────────────
+# Stores the full normalized+classified plane list so radar/table/alerts/ground/
+# airport views all share one Redis scan per TTL window instead of one each.
+_planes_cache_lock = threading.Lock()
+_planes_cache      = None   # dict: {planes, sourceCounts, adsbHealthy, adsbHeartbeat, ts}
+_planes_cache_ts   = 0.0
+_PLANES_CACHE_TTL  = 3.0    # seconds — short enough that live radar stays fresh
+
+# ── Summary cache (15 s TTL) ─────────────────────────────────────────────────
+# Pre-computed aggregation for view=summary/airports; refreshed from snapshot.
 _summary_cache_lock = threading.Lock()
 _summary_cache      = None
 _summary_cache_ts   = 0.0
@@ -133,9 +142,8 @@ class ApiPlanes(ApiBase):
 
         view = (self.params.get("view") or "").strip().lower()
 
-        # Fast path for summary/airports: return cached result without scanning Redis.
-        # The cache is populated on the first scan; subsequent calls within the TTL are
-        # nearly instant, which prevents the Redis scan from serialising concurrent requests.
+        # Fast path for summary/airports: return pre-computed aggregation without
+        # touching Redis or the planes snapshot.
         if view in ("summary", "airports"):
             with _summary_cache_lock:
                 _now = time.time()
@@ -144,101 +152,43 @@ class ApiPlanes(ApiBase):
                     self.sendResponse(self.SUCCESS)
                     return
 
-        redis = getRedis()
-
-        if not redis.ping():
+        # Get normalized plane list (cached or fresh Redis scan).
+        snap = self._getSnapshot()
+        if snap is None:
             self.dieError(self.SERVICE_UNAVAILABLE, "Redis connection failed")
             return
 
-        sourceCounts = {}
-        planesByKey = {}
-        icaoIndex = {}
+        planes        = snap["planes"]
+        sourceCounts  = snap["sourceCounts"]
+        adsbHealthy   = snap["adsbHealthy"]
+        adsbHeartbeat = snap["adsbHeartbeat"]
+        cache_age     = round(time.time() - snap["ts"], 2)
 
-        # Load existing FAA/SWIM/OpenSky state first.
-        for key in redis.scan_iter(match="state:*", count=1000):
-            flightId = key.split("state:", 1)[1]
-            plane = self.loadPlane(redis, flightId)
+        # Apply per-request legacy filters (airline / source / near / alt / airborne).
+        # Standard UI views never set these; only legacy API callers do.
+        if self._hasLegacyFilters():
+            planes = [p for p in planes if self.filterPlane(p)]
 
-            if not plane:
-                continue
+        self.debugMessage("execute", f"Found {len(planes)} planes (cache_age={cache_age}s)")
 
-            source = plane.get("source", "unknown") or "unknown"
-            sourceCounts[source] = sourceCounts.get(source, 0) + 1
-
-            planeKey = plane.get("flightId") or flightId
-            planesByKey[planeKey] = plane
-
-            icao = (plane.get("icaoHex") or "").upper()
-            if icao:
-                icaoIndex[icao] = planeKey
-
-        adsbHealthy = self.adsbLolHealthy(redis)
-
-        # Load ADSB.lol state second. If healthy, it wins for live position.
-        if adsbHealthy:
-            for key in redis.scan_iter(match="adsblol:state:icao:*", count=1000):
-                adsbPlane = self.loadAdsbLolPlane(redis, key)
-
-                if not adsbPlane:
-                    continue
-
-                source = adsbPlane.get("source", "adsb-lol-reapi")
-                sourceCounts[source] = sourceCounts.get(source, 0) + 1
-
-                icao = (adsbPlane.get("icaoHex") or "").upper()
-
-                if icao and icao in icaoIndex:
-                    existingKey = icaoIndex[icao]
-                    merged = self.mergeAdsbPrimary(planesByKey[existingKey], adsbPlane)
-                    planesByKey[existingKey] = merged
-
-                    # Persist stable identity fields to the FAA profile so they survive
-                    # the ADSB.lol TTL (catches cases where ingestor ran before FAA correlation existed).
-                    aircraft_type = (merged.get("aircraftType") or "").strip()
-                    registration = (merged.get("registration") or "").strip()
-                    db_flags = (str(merged.get("dbFlags") or "")).strip()
-                    rc = redis.client
-                    if aircraft_type:
-                        rc.hsetnx(f"profile:{existingKey}", "aircraft_type", aircraft_type)
-                    if registration:
-                        rc.hsetnx(f"profile:{existingKey}", "registration", registration)
-                    if db_flags:
-                        rc.hset(f"profile:{existingKey}", "db_flags", db_flags)
-                else:
-                    newKey = adsbPlane.get("flightId") or f"adsblol:{icao}"
-                    planesByKey[newKey] = adsbPlane
-                    if icao:
-                        icaoIndex[icao] = newKey
-
-        planes = []
-
-        for plane in planesByKey.values():
-            if self.filterPlane(plane):
-                plane.update(self.classifyAircraft(plane))
-                planes.append(plane)
-
-        planes.sort(key=lambda p: float(p.get("lastUpdate", 0)), reverse=True)
-
-        self.debugMessage("execute", f"Found {len(planes)} planes")
-
-        limit = self.safeInt(self.params.get("limit", 0), 0)
+        limit       = self.safeInt(self.params.get("limit", 0), 0)
+        total_count = len(planes)
 
         if view in ("summary", "airports"):
-            self.responseData = self._buildSummary(planes, sourceCounts, adsbHealthy, redis)
+            self.responseData = self._buildSummary(planes, sourceCounts, adsbHealthy, adsbHeartbeat)
             self.sendResponse(self.SUCCESS)
             return
 
-        total_count = len(planes)
-
         if view == "table":
-            self.responseData = self._buildTableView(planes, total_count, sourceCounts, adsbHealthy, redis)
+            self.responseData = self._buildTableView(
+                planes, total_count, sourceCounts, adsbHealthy, adsbHeartbeat, cache_age)
             self.sendResponse(self.SUCCESS)
             return
 
         if view == "alerts":
             cat = (self.params.get("category") or "").strip().lower()
             if cat == "operational":
-                self.responseData = self._buildAlertsOperational(planes, total_count)
+                self.responseData = self._buildAlertsOperational(planes, total_count, cache_age)
                 self.sendResponse(self.SUCCESS)
                 return
 
@@ -254,8 +204,9 @@ class ApiPlanes(ApiBase):
             max_lat = self.params.get("maxLat")
             min_lon = self.params.get("minLon")
             max_lon = self.params.get("maxLon")
-            scope = (self.params.get("scope") or "").strip().lower()
-            self.responseData = self._buildRadarView(planes, min_lat, max_lat, min_lon, max_lon, total_count, scope)
+            scope   = (self.params.get("scope") or "").strip().lower()
+            self.responseData = self._buildRadarView(
+                planes, min_lat, max_lat, min_lon, max_lon, total_count, scope, cache_age)
             self.sendResponse(self.SUCCESS)
             return
 
@@ -275,15 +226,113 @@ class ApiPlanes(ApiBase):
             planes = planes[:limit]
 
         self.responseData = {
-            "count": len(planes),
-            "total": total_count,
-            "sources": sourceCounts,
-            "adsbLolHealthy": adsbHealthy,
-            "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
-            "planes": planes
+            "count":            len(planes),
+            "total":            total_count,
+            "sources":          sourceCounts,
+            "adsbLolHealthy":   adsbHealthy,
+            "adsbLolHeartbeat": adsbHeartbeat,
+            "planes":           planes
         }
 
         self.sendResponse(self.SUCCESS)
+
+    # ── Snapshot cache helpers ────────────────────────────────────────────────
+
+    def _getSnapshot(self) -> dict | None:
+        """Return cached normalized plane list, scanning Redis only when stale."""
+        global _planes_cache, _planes_cache_ts
+        now = time.time()
+        with _planes_cache_lock:
+            if _planes_cache is not None and (now - _planes_cache_ts) < _PLANES_CACHE_TTL:
+                return _planes_cache
+
+        redis = getRedis()
+        if not redis.ping():
+            return None
+
+        snap = self._scanRedis(redis)
+
+        with _planes_cache_lock:
+            _planes_cache    = snap
+            _planes_cache_ts = snap["ts"]
+
+        return snap
+
+    def _scanRedis(self, redis) -> dict:
+        """Full Redis scan: load, normalize, filter zombies, merge ADSB.lol, classify."""
+        sourceCounts = {}
+        planesByKey  = {}
+        icaoIndex    = {}
+
+        for key in redis.scan_iter(match="state:*", count=1000):
+            flightId = key.split("state:", 1)[1]
+            plane = self.loadPlane(redis, flightId)
+            if not plane:
+                continue
+            source = plane.get("source", "unknown") or "unknown"
+            sourceCounts[source] = sourceCounts.get(source, 0) + 1
+            planeKey = plane.get("flightId") or flightId
+            planesByKey[planeKey] = plane
+            icao = (plane.get("icaoHex") or "").upper()
+            if icao:
+                icaoIndex[icao] = planeKey
+
+        adsbHealthy = self.adsbLolHealthy(redis)
+
+        if adsbHealthy:
+            for key in redis.scan_iter(match="adsblol:state:icao:*", count=1000):
+                adsbPlane = self.loadAdsbLolPlane(redis, key)
+                if not adsbPlane:
+                    continue
+                source = adsbPlane.get("source", "adsb-lol-reapi")
+                sourceCounts[source] = sourceCounts.get(source, 0) + 1
+                icao = (adsbPlane.get("icaoHex") or "").upper()
+                if icao and icao in icaoIndex:
+                    existingKey = icaoIndex[icao]
+                    merged = self.mergeAdsbPrimary(planesByKey[existingKey], adsbPlane)
+                    planesByKey[existingKey] = merged
+                    # Persist stable identity fields so they survive the ADSB.lol TTL.
+                    aircraft_type = (merged.get("aircraftType") or "").strip()
+                    registration  = (merged.get("registration") or "").strip()
+                    db_flags      = (str(merged.get("dbFlags") or "")).strip()
+                    rc = redis.client
+                    if aircraft_type:
+                        rc.hsetnx(f"profile:{existingKey}", "aircraft_type", aircraft_type)
+                    if registration:
+                        rc.hsetnx(f"profile:{existingKey}", "registration", registration)
+                    if db_flags:
+                        rc.hset(f"profile:{existingKey}", "db_flags", db_flags)
+                else:
+                    newKey = adsbPlane.get("flightId") or f"adsblol:{icao}"
+                    planesByKey[newKey] = adsbPlane
+                    if icao:
+                        icaoIndex[icao] = newKey
+
+        planes = []
+        for plane in planesByKey.values():
+            plane.update(self.classifyAircraft(plane))
+            planes.append(plane)
+
+        planes.sort(key=lambda p: float(p.get("lastUpdate", 0)), reverse=True)
+
+        return {
+            "planes":        planes,
+            "sourceCounts":  sourceCounts,
+            "adsbHealthy":   adsbHealthy,
+            "adsbHeartbeat": redis.hgetall("adsblol:heartbeat"),
+            "ts":            time.time(),
+        }
+
+    def _hasLegacyFilters(self) -> bool:
+        """True when the request sets explicit per-request filters beyond view defaults."""
+        return bool(
+            self.params.get("airline") or
+            self.params.get("source") or
+            self.params.get("near") or
+            self.params.get("airborne") or
+            self.params.get("minAlt", 0) != 0 or
+            self.params.get("maxAlt", 100000) != 100000
+        )
 
     def loadPlane(self, redis, flightId: str) -> dict:
         profile = redis.hgetall(f"profile:{flightId}")
@@ -644,7 +693,8 @@ class ApiPlanes(ApiBase):
             "outbound": self._pickFields(outbound[:50], "table"),
         }
 
-    def _buildRadarView(self, planes: list, min_lat, max_lat, min_lon, max_lon, total_count: int, scope: str = "") -> dict:
+    def _buildRadarView(self, planes: list, min_lat, max_lat, min_lon, max_lon,
+                        total_count: int, scope: str = "", cache_age: float = 0.0) -> dict:
         """Return only fresh, positioned aircraft within optional bounds — optimized for map rendering.
         scope='global' skips bounds filtering to return all fresh aircraft nationwide."""
         now = time.time()
@@ -678,10 +728,11 @@ class ApiPlanes(ApiBase):
             "count": len(result),
             "total": total_count,
             "meta": {
-                "countReturned": len(result),
-                "totalAvailable": total_count,
-                "scope": scope or "local",
-                "padDeg": pad if has_bounds else None,
+                "countReturned":   len(result),
+                "totalAvailable":  total_count,
+                "scope":           scope or "local",
+                "padDeg":          pad if has_bounds else None,
+                "cacheAgeSeconds": cache_age,
                 "boundsUsed": {
                     "minLat": min_lat, "maxLat": max_lat,
                     "minLon": min_lon, "maxLon": max_lon,
@@ -699,7 +750,8 @@ class ApiPlanes(ApiBase):
                 return {"count": 1, "total": total_count, "planes": [p]}
         return {"count": 0, "total": total_count, "planes": []}
 
-    def _buildTableView(self, planes: list, total_count: int, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+    def _buildTableView(self, planes: list, total_count: int, sourceCounts: dict,
+                        adsbHealthy: bool, adsbHeartbeat: dict, cache_age: float = 0.0) -> dict:
         """Server-side filtered and paged table view for the aircraft page."""
         q          = (self.params.get("q") or "").strip().lower()
         ac_class   = (self.params.get("aircraftClass") or "").strip().lower()
@@ -735,8 +787,8 @@ class ApiPlanes(ApiBase):
         total_matching = len(filtered)
 
         if page_size > 0:
-            start  = (page - 1) * page_size
-            paged  = filtered[start:start + page_size]
+            start    = (page - 1) * page_size
+            paged    = filtered[start:start + page_size]
             has_more = (start + page_size) < total_matching
         elif limit > 0:
             paged    = filtered[:limit]
@@ -746,21 +798,22 @@ class ApiPlanes(ApiBase):
             has_more = False
 
         return {
-            "count":          len(paged),
-            "total":          total_count,
-            "totalMatching":  total_matching,
-            "page":           page,
-            "pageSize":       page_size,
-            "hasMore":        has_more,
-            "planes":         self._pickFields(paged, "table"),
-            "sources":        sourceCounts,
-            "adsbLolHealthy": adsbHealthy,
-            "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
+            "count":            len(paged),
+            "total":            total_count,
+            "totalMatching":    total_matching,
+            "page":             page,
+            "pageSize":         page_size,
+            "hasMore":          has_more,
+            "planes":           self._pickFields(paged, "table"),
+            "sources":          sourceCounts,
+            "adsbLolHealthy":   adsbHealthy,
+            "adsbLolHeartbeat": adsbHeartbeat,
+            "meta":             {"cacheAgeSeconds": cache_age},
         }
 
     _EMRG_SQUAWKS = frozenset({"7500", "7600", "7700"})
 
-    def _buildAlertsOperational(self, planes: list, total_count: int) -> dict:
+    def _buildAlertsOperational(self, planes: list, total_count: int, cache_age: float = 0.0) -> dict:
         """Return only operationally flagged aircraft and DQ summary counts as metadata.
         Reduces payload vs returning all aircraft for the full alerts scan."""
         now_ts = time.time()
@@ -805,16 +858,17 @@ class ApiPlanes(ApiBase):
             "total":      total_count,
             "dqSummary":  dq,
             "planes":     self._pickFields(op, "alerts"),
+            "meta":       {"cacheAgeSeconds": cache_age},
         }
 
-    def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+    def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, adsbHeartbeat: dict) -> dict:
         global _summary_cache, _summary_cache_ts
         now = time.time()
         with _summary_cache_lock:
             if _summary_cache is not None and (now - _summary_cache_ts) < _SUMMARY_CACHE_TTL:
                 return _summary_cache
 
-        result = self._computeSummary(planes, sourceCounts, adsbHealthy, redis)
+        result = self._computeSummary(planes, sourceCounts, adsbHealthy, adsbHeartbeat)
 
         with _summary_cache_lock:
             _summary_cache    = result
@@ -822,7 +876,7 @@ class ApiPlanes(ApiBase):
 
         return result
 
-    def _computeSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, redis) -> dict:
+    def _computeSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, adsbHeartbeat: dict) -> dict:
         airborne = 0
         on_ground = 0
         ground_sweep = 0
@@ -876,7 +930,7 @@ class ApiPlanes(ApiBase):
             "destCounts": dest_counts,
             "sources": sourceCounts,
             "adsbLolHealthy": adsbHealthy,
-            "adsbLolHeartbeat": redis.hgetall("adsblol:heartbeat"),
+            "adsbLolHeartbeat": adsbHeartbeat,
         }
 
     def isHelicopterType(self, aircraft_type: str) -> bool:
