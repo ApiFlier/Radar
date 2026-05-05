@@ -100,6 +100,10 @@
 
         .labels-hidden .aircraft-label { display: none; }
 
+        /* Density: medium zoom (7–8) — smaller icons */
+        .aircraft-icon-sm { width: 20px; height: 20px; }
+        .aircraft-icon-sm svg { width: 18px !important; height: 18px !important; }
+
         #hud {
             position: fixed; top: 12px; left: 100px; z-index: 1000;
             background: rgba(0,0,0,0.8); color: #00ffcc; padding: 10px 16px;
@@ -655,6 +659,26 @@
             color: #00ffcc; border-color: rgba(0,255,204,0.3); background: rgba(0,255,204,0.055);
         }
         .dp-action.primary:hover { background: rgba(0,255,204,0.11); }
+        .dp-action.focus-active { color: #00ffcc; border-color: rgba(0,255,204,0.4); background: rgba(0,255,204,0.06); }
+        .dp-action.focus-active:hover { background: rgba(0,255,204,0.13); }
+
+        #focus-airport-badge {
+            position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.84); border: 1px solid rgba(0,255,204,0.28);
+            border-radius: 6px; padding: 6px 14px 6px 16px;
+            font-size: 12px; font-family: 'Segoe UI', sans-serif;
+            color: #00ffcc; z-index: 1000; white-space: nowrap;
+            display: none; align-items: center; gap: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.5); pointer-events: auto;
+        }
+        #focus-airport-badge .fbadge-chips { color: #888; font-size: 11px; }
+        #focus-airport-badge .fbadge-exit {
+            color: #666; font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; cursor: pointer; font-family: inherit;
+            border: 1px solid rgba(255,255,255,0.15); border-radius: 3px;
+            padding: 2px 8px; background: none;
+        }
+        #focus-airport-badge .fbadge-exit:hover { color: #ccc; background: rgba(255,255,255,0.06); }
 
         .dp-freq {
             display: grid; grid-template-columns: 44px 80px 1fr;
@@ -699,6 +723,19 @@
         .dp-flight-top .dp-flight-route { flex: 1; }
         .dp-flight-bot { font-size: 10px; color: #555; margin-top: 2px; line-height: 1.4; }
         .dp-flights-disclaimer { font-size: 9px; color: #444; padding: 4px 14px 8px; line-height: 1.4; font-style: italic; }
+        .freshness-badge {
+            display: inline-block; font-size: 9px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; vertical-align: middle;
+        }
+        .fn-live    { color: #00ffcc; background: rgba(0,255,204,0.1); }
+        .fn-fresh   { color: #88dd88; background: rgba(136,221,136,0.1); }
+        .fn-aging   { color: #aaa;    background: rgba(255,255,255,0.06); }
+        .fn-stale   { color: #555;    background: rgba(255,255,255,0.04); }
+        .fn-unknown { color: #444;    background: rgba(255,255,255,0.03); }
+        .dp-data-line {
+            font-size: 10px; color: #555; padding: 3px 14px 5px;
+            display: flex; align-items: center; gap: 6px;
+        }
 
         .dp-stale {
             margin: 10px 14px; padding: 7px 10px;
@@ -838,6 +875,7 @@
 
         var planeData = {};
         var planeMarkers = {};
+        var _lastDensityMode = null;
         var activeTrail = null;
         var activeFlightId = null;
         var followFlightId = null;
@@ -905,6 +943,7 @@
             if (classCounts.private)    parts.push('<span>' + classCounts.private    + '</span> Private');
             if (classCounts.unknown)    parts.push('<span>' + classCounts.unknown    + '</span> Unknown');
             document.getElementById('airline-stats').innerHTML = parts.join(' &middot; ');
+            updateFocusBadge();
         }
 
         function startFollow(flightId) {
@@ -1067,14 +1106,30 @@
 
         function makePlaneIcon(id, heading, color, opacity) {
             var p = planeData[id] || {};
+            var safeOpacity = opacity === undefined ? 1 : opacity;
+            var densityMode = getMarkerDensityMode();
+            var isSpecial = isEmergencySquawk(p) || id === followFlightId || id === activeFlightId;
+
+            if (densityMode === 'low' && !isSpecial) {
+                var dotSize = isRelatedToFocus(id) ? 7 : 5;
+                var half = Math.ceil(dotSize / 2);
+                return L.divIcon({
+                    className: 'plane-container',
+                    html: '<div class="aircraft-dot" style="width:' + dotSize + 'px;height:' + dotSize + 'px;' +
+                          'border-radius:50%;background:' + color + ';opacity:' + safeOpacity + ';"></div>',
+                    iconSize: [dotSize, dotSize],
+                    iconAnchor: [half, half]
+                });
+            }
+
             var iconType = aircraftIconType(p);
             var state = aircraftDisplayState(p);
-            var safeOpacity = opacity === undefined ? 1 : opacity;
             var iconSvg = aircraftIconSvg(p);
             var badgeHtml = aircraftBadgeHtml(p);
 
             var groundClass = isGroundSweepPlane(p) ? ' aircraft-icon-ground-sweep' : '';
             var emergencyClass = isEmergencySquawk(p) ? ' aircraft-icon-emergency' : '';
+            var smClass = densityMode === 'medium' ? ' aircraft-icon-sm' : '';
 
             var labelText = '';
             if (iconType === 'commercial' || iconType === 'military') {
@@ -1085,7 +1140,7 @@
             return L.divIcon({
                 className: 'plane-container',
                 html: '<div id="icon-' + cssSafe(id) + '" ' +
-                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + groundClass + emergencyClass + '" ' +
+                      'class="aircraft-icon aircraft-icon-' + iconType + ' aircraft-icon-' + state + groundClass + emergencyClass + smClass + '" ' +
                       'style="transform:rotate(' + heading + 'deg); opacity:' + safeOpacity + '; color:' + color + ';">' +
                       iconSvg +
                       badgeHtml +
@@ -1388,6 +1443,35 @@
             return String(raw);
         }
 
+        function formatAge(p) {
+            var lu = parseFloat((p || {}).lastUpdate || (p || {}).last_update) || 0;
+            if (!lu) return 'unknown age';
+            var secs = Math.max(0, Date.now() / 1000 - lu);
+            if (secs < 60)   return Math.round(secs) + 's ago';
+            if (secs < 3600) return Math.round(secs / 60) + 'm ago';
+            return Math.round(secs / 3600) + 'h ago';
+        }
+
+        function freshnessLabel(p) {
+            var secs = getPlaneAgeSeconds(p);
+            if (secs >= 99999) return 'Unknown';
+            if (isAirbornePlane(p)) {
+                if (secs <= 15)  return 'Live';
+                if (secs <= 60)  return 'Fresh';
+                if (secs <= 120) return 'Aging';
+                return 'Stale';
+            }
+            if (secs <= 30)  return 'Live';
+            if (secs <= 120) return 'Fresh';
+            if (secs <= 300) return 'Aging';
+            return 'Stale';
+        }
+
+        function freshnessClass(label) {
+            var m = { 'Live': 'fn-live', 'Fresh': 'fn-fresh', 'Aging': 'fn-aging', 'Stale': 'fn-stale' };
+            return m[label] || 'fn-unknown';
+        }
+
         function stateLabel(state) {
             if (state === 'airborne')      return 'Airborne';
             if (state === 'ground_moving') return 'Taxiing';
@@ -1649,12 +1733,17 @@
             if (detailRows) html += '<div class="acp-body">' + detailRows + '</div>';
 
             var sourceRows = '';
-            var posLabel = friendlySource(p.positionSource || p.source);
+            var posLabel   = friendlySource(p.positionSource || p.source);
             var routeLabel = friendlySource(p.enrichmentSource);
-            if (posLabel) sourceRows += row('Position source', htmlEscape(posLabel));
-            if (routeLabel && routeLabel !== posLabel) sourceRows += row('Route source', htmlEscape(routeLabel));
+            var _pFnLabel  = freshnessLabel(p);
+            var _pFnCls    = freshnessClass(_pFnLabel);
+            var _pAgeStr   = formatAge(p);
+            var _pBadge    = '<span class="freshness-badge ' + _pFnCls + '">' + htmlEscape(_pFnLabel) + '</span> ' +
+                             htmlEscape((posLabel ? posLabel + ' · ' : '') + _pAgeStr);
+            sourceRows += row('Position', _pBadge);
+            if (routeLabel && routeLabel !== posLabel) sourceRows += row('Route', htmlEscape(routeLabel));
             if (p.sourceFacility) sourceRows += row('Facility', htmlEscape(p.sourceFacility));
-            if (sourceRows) html += '<div class="acp-body">' + sourceRows + '</div>';
+            html += '<div class="acp-body">' + sourceRows + '</div>';
 
             html += '<div class="acp-actions">';
             if (flightId) {
@@ -1698,6 +1787,7 @@
 
             planeMarkers[id] = marker;
             planeMarkers[id]._lastColor = color;
+            applyMarkerFocus(id);
         }
 
         function removeMarker(id) {
@@ -1969,6 +2059,7 @@
                     planeMarkers[id].setLatLng([pd.lat, pd.lon]);
                     planeMarkers[id].setIcon(makePlaneIcon(id, pd.heading, color, opacity));
                     planeMarkers[id]._lastColor = color;
+                    applyMarkerFocus(id);
 
                     if (followFlightId === id) {
                         map.panTo([pd.lat, pd.lon], {animate: true, duration: 1});
@@ -2246,7 +2337,7 @@
         map.on('zoomend', function() {
             syncVisiblePlanes();
             syncAirportMarkers();
-            updateLabelVisibility();
+            updateAllMarkerDensity();
             scheduleBoundsRefresh();
         });
 
@@ -2258,7 +2349,27 @@
                 mapEl.classList.add('labels-hidden');
             }
         }
-        updateLabelVisibility();
+
+        function getMarkerDensityMode() {
+            var zoom = map.getZoom();
+            if (zoom <= 6) return 'low';
+            if (zoom <= 8) return 'medium';
+            return 'high';
+        }
+
+        function updateAllMarkerDensity() {
+            updateLabelVisibility();
+            var mode = getMarkerDensityMode();
+            if (mode === _lastDensityMode) return;
+            _lastDensityMode = mode;
+            for (var id in planeMarkers) {
+                var p = planeData[id];
+                if (!p) continue;
+                var color = planeMarkers[id]._lastColor || altColor(p.alt, p.speed);
+                planeMarkers[id].setIcon(makePlaneIcon(id, parseFloat(p.heading || 0), color, staleOpacity(p)));
+            }
+        }
+        updateAllMarkerDensity();
 
         // Initial load — uses the hardened doFullRefresh (defined below)
         doFullRefresh();
@@ -2685,13 +2796,14 @@
             var icaoParam    = (params.get('icao')     || '').toUpperCase().trim();
             var callParam    = (params.get('callsign') || '').toUpperCase().trim();
             var airportParam = (params.get('airport')  || '').toUpperCase().trim();
+            var focusParam   = params.get('focus') === '1';
 
             if (!icaoParam && !callParam && !airportParam) return;
 
             // Airport deep-link — center map; does not require aircraft data
             if (airportParam) {
                 showStatusHUD('Finding airport ' + airportParam + '…', 'info');
-                applyAirportDeepLink(airportParam);
+                applyAirportDeepLink(airportParam, focusParam);
                 return;
             }
 
@@ -2740,7 +2852,7 @@
             findAndFocus();
         }
 
-        function applyAirportDeepLink(code) {
+        function applyAirportDeepLink(code, autoFocus) {
             function doCenter() {
                 var a = lookupAirport(code);
                 if (!a) return false;
@@ -2752,6 +2864,7 @@
                 var label = code + (a.name ? ' — ' + a.name : '');
                 showStatusHUD('Centered on ' + label, 'info');
                 openAirportPanel(code, a);
+                if (autoFocus) setTimeout(function() { enterAirportFocus(code); }, 200);
                 return true;
             }
 
@@ -2822,6 +2935,11 @@
         var panelMode       = null;   // 'aircraft' | 'airport' | null
         var aptFlightsCache = {};     // code → {ts, inbound, outbound}
         var APT_FLIGHTS_TTL = 45000;  // ms throttle between re-fetches
+
+        // Airport Focus / Ops Mode state
+        var focusAirportCode = null;  // ICAO/IATA code, or null when not focused
+        var focusRings       = [];    // Leaflet circle layers for radius rings
+        var focusBadgeEl     = null;  // DOM element for the focus HUD badge
 
         function openPanel() {
             document.getElementById('detail-panel').classList.add('open');
@@ -2954,6 +3072,15 @@
                 html += '</div>';
             }
 
+            var _fnLabel = freshnessLabel(p);
+            var _fnCls   = freshnessClass(_fnLabel);
+            var _posName = friendlySource(p.positionSource || p.source);
+            var _ageStr  = formatAge(p);
+            html += '<div class="dp-data-line">';
+            html += '<span class="freshness-badge ' + _fnCls + '">' + htmlEscape(_fnLabel) + '</span>';
+            html += '<span>' + htmlEscape((_posName ? _posName + ' · ' : '') + _ageStr) + '</span>';
+            html += '</div>';
+
             var fid = String(flightId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             html += '<div class="dp-actions">';
             if (isFollowing) {
@@ -3018,6 +3145,12 @@
 
             if (!a) {
                 html += '<div class="dp-apt-head"><div class="dp-apt-code">' + esc(code) + '</div></div>';
+                var _simFocused = focusAirportCode === code;
+                html += '<div class="dp-actions">';
+                html += _simFocused
+                    ? '<button class="dp-action focus-active" onclick="exitAirportFocus()">Exit Focus</button>'
+                    : '<button class="dp-action" onclick="enterAirportFocus(\'' + htmlEscape(code) + '\')">Focus Airport</button>';
+                html += '</div>';
                 html += '<div class="dp-flights-box" id="dp-flights-' + esc(code) +
                         '"><div class="dp-flights-loading">Loading…</div></div>';
                 return html;
@@ -3087,9 +3220,13 @@
             }
 
             var aptCode = icao || code;
+            var isFocused = focusAirportCode === aptCode || focusAirportCode === code;
             html += '<div class="dp-actions">';
             html += '<button class="dp-action primary" onclick="applyAirportDeepLink(\'' +
                     htmlEscape(aptCode) + '\')">Center Map</button>';
+            html += isFocused
+                ? '<button class="dp-action focus-active" onclick="exitAirportFocus()">Exit Focus</button>'
+                : '<button class="dp-action" onclick="enterAirportFocus(\'' + htmlEscape(aptCode) + '\')">Focus Airport</button>';
             html += '<button class="dp-action" onclick="openAirportPopup(\'' + htmlEscape(aptCode) + '\')">Popup</button>';
             html += '<a class="dp-action" href="/airports">Airports</a>';
             if (website) html += '<a class="dp-action" href="' + esc(website) + '" target="_blank" rel="noopener">Website</a>';
@@ -3184,18 +3321,19 @@
                 var dist    = calcDist(p);
                 var distStr = fmtNm(dist);
                 var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
+                var ageStr  = formatAge(p);
                 var meta;
                 if (isInbound) {
                     var spd = parseFloat(p.speed);
                     var eta = (isFinite(dist) && isFinite(spd) && spd >= 80) ? fmtEta(dist / spd * 60) : null;
                     meta = distStr + ' · ' + altStr + ' · ' + vTrend(p.verticalRate) +
-                           (eta ? ' · ETA est. ' + eta : '');
+                           (eta ? ' · ETA est. ' + eta : '') + (ageStr ? ' · ' + ageStr : '');
                 } else {
                     var isAir  = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
                     var spdN   = parseFloat(p.speed);
                     var spdStr = (!isNaN(spdN) && spdN > 0) ? Math.round(spdN) + ' kt' : '';
                     meta = distStr + ' · ' + (isAir ? 'Airborne · ' + vTrend(p.verticalRate) : 'Ground') +
-                           ' · ' + altStr + (spdStr ? ' · ' + spdStr : '');
+                           ' · ' + altStr + (spdStr ? ' · ' + spdStr : '') + (ageStr ? ' · ' + ageStr : '');
                 }
                 return '<div class="dp-flight-entry">' +
                        '<div class="dp-flight-top">' +
@@ -3234,6 +3372,139 @@
 
             box.innerHTML = html;
         }
+
+        /* ── Airport Focus / Ops Mode ─────────────────────────────────────────── */
+
+        function isRelatedToFocus(id) {
+            if (!focusAirportCode) return true;
+            var pd = planeData[id];
+            if (!pd) return false;
+            var dep = (pd.dep || '').trim().toUpperCase();
+            var arr = (pd.arr || '').trim().toUpperCase();
+            return dep === focusAirportCode || arr === focusAirportCode;
+        }
+
+        function applyMarkerFocus(id) {
+            var marker = planeMarkers[id];
+            if (!marker) return;
+            if (!focusAirportCode) {
+                var pd = planeData[id];
+                if (pd) marker.setOpacity(staleOpacity(pd));
+                return;
+            }
+            marker.setOpacity(isRelatedToFocus(id) ? 1.0 : 0.18);
+        }
+
+        function applyFocusOverlay() {
+            for (var id in planeMarkers) {
+                applyMarkerFocus(id);
+            }
+        }
+
+        function updateFocusBadge() {
+            if (!focusAirportCode) {
+                if (focusBadgeEl) focusBadgeEl.style.display = 'none';
+                return;
+            }
+            var code = focusAirportCode;
+            var inCount = 0, outCount = 0;
+            for (var id in planeData) {
+                var pd = planeData[id];
+                var depC = (pd.dep || '').trim().toUpperCase();
+                var arrC = (pd.arr || '').trim().toUpperCase();
+                if (arrC === code) inCount++;
+                if (depC === code) outCount++;
+            }
+
+            if (!focusBadgeEl) {
+                focusBadgeEl = document.createElement('div');
+                focusBadgeEl.id = 'focus-airport-badge';
+                document.body.appendChild(focusBadgeEl);
+            }
+
+            var infoText = 'Airport Focus: ' + code;
+            var chipsText = 'Inbound ' + inCount + ' · Outbound ' + outCount;
+
+            focusBadgeEl.innerHTML = '';
+            var infoSpan = document.createElement('span');
+            infoSpan.textContent = infoText;
+            var chipsSpan = document.createElement('span');
+            chipsSpan.className = 'fbadge-chips';
+            chipsSpan.textContent = chipsText;
+            var exitBtn = document.createElement('button');
+            exitBtn.className = 'fbadge-exit';
+            exitBtn.textContent = 'Exit Focus';
+            exitBtn.onclick = exitAirportFocus;
+            focusBadgeEl.appendChild(infoSpan);
+            focusBadgeEl.appendChild(chipsSpan);
+            focusBadgeEl.appendChild(exitBtn);
+            focusBadgeEl.style.display = 'flex';
+        }
+
+        function enterAirportFocus(code) {
+            code = (code || '').toUpperCase().trim();
+            if (!code) return;
+
+            // Remove existing rings from any prior focus session
+            focusRings.forEach(function(r) { try { map.removeLayer(r); } catch(e) {} });
+            focusRings = [];
+
+            focusAirportCode = code;
+
+            // Open/re-render airport panel
+            if (panelMode !== 'airport' || selectedAptCode !== code) {
+                openAirportPanel(code);
+            } else {
+                renderAirportPanel();
+            }
+
+            // Draw radius rings at 25 / 50 / 100 NM
+            var a = selectedAptObj || lookupAirport(code) || null;
+            if (a) {
+                var aLat = parseFloat(a.lat || a.latitude || a.latitude_deg);
+                var aLon = parseFloat(a.lon || a.longitude || a.longitude_deg);
+                if (!isNaN(aLat) && !isNaN(aLon)) {
+                    var NM = 1852; // metres per nautical mile
+                    focusRings.push(L.circle([aLat, aLon], {
+                        radius: 25 * NM, color: '#00ffcc', weight: 1.5, opacity: 0.35,
+                        fillOpacity: 0, interactive: false
+                    }).addTo(map));
+                    focusRings.push(L.circle([aLat, aLon], {
+                        radius: 50 * NM, color: '#00ffcc', weight: 1, opacity: 0.22,
+                        fillOpacity: 0, interactive: false
+                    }).addTo(map));
+                    focusRings.push(L.circle([aLat, aLon], {
+                        radius: 100 * NM, color: '#00ffcc', weight: 1, opacity: 0.13,
+                        fillOpacity: 0, interactive: false
+                    }).addTo(map));
+                    map.panTo([aLat, aLon]);
+                }
+            }
+
+            // Dim unrelated markers, highlight related
+            applyFocusOverlay();
+
+            // Show HUD badge
+            updateFocusBadge();
+        }
+
+        function exitAirportFocus() {
+            focusAirportCode = null;
+
+            // Remove radius rings
+            focusRings.forEach(function(r) { try { map.removeLayer(r); } catch(e) {} });
+            focusRings = [];
+
+            // Hide badge
+            if (focusBadgeEl) focusBadgeEl.style.display = 'none';
+
+            // Restore all marker opacities to natural stale-based values
+            applyFocusOverlay();
+
+            // Re-render airport panel to flip button back to "Focus Airport"
+            if (panelMode === 'airport') renderAirportPanel();
+        }
+
     </script>
 </body>
 </html>

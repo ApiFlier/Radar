@@ -871,6 +871,15 @@ function vertTrend(vr) {
     return '→ Level';
 }
 
+function formatAge(p) {
+    const lu = parseFloat((p || {}).lastUpdate) || 0;
+    if (!lu) return '';
+    const secs = Math.max(0, Date.now() / 1000 - lu);
+    if (secs < 60)   return Math.round(secs) + 's ago';
+    if (secs < 3600) return Math.round(secs / 60) + 'm ago';
+    return Math.round(secs / 3600) + 'h ago';
+}
+
 function renderAirportFlightTable(title, list, aptLat, aptLon, isInbound) {
     if (!list || list.length === 0) {
         return `<h3>${title}</h3><div class="status-msg">No active aircraft found.</div>`;
@@ -889,15 +898,18 @@ function renderAirportFlightTable(title, list, aptLat, aptLon, isInbound) {
         const link = icao ? `<a class="mini-link" href="/?icao=${icao}">Radar</a>` : '';
         const dist = calcDist(p);
         const distStr = fmtNm(dist);
+        const ageText = formatAge(p);
         let etaOrStatus;
         if (isInbound) {
             const spd = parseFloat(p.speed);
-            etaOrStatus = (isFinite(dist) && isFinite(spd) && spd >= 80)
+            const etaText = (isFinite(dist) && isFinite(spd) && spd >= 80)
                 ? 'ETA est. ' + fmtEtaMin(dist / spd * 60)
                 : '—';
+            etaOrStatus = etaText + (ageText ? ' · ' + ageText : '');
         } else {
             const isAirborne = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
-            etaOrStatus = isAirborne ? 'Airborne · ' + vertTrend(p.verticalRate) : 'Ground';
+            etaOrStatus = (isAirborne ? 'Airborne · ' + vertTrend(p.verticalRate) : 'Ground') +
+                          (ageText ? ' · ' + ageText : '');
         }
         return `<tr>
             <td class="call">${airportFlightCall(p)}</td>
