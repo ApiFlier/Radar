@@ -1820,6 +1820,7 @@
             var m = planeMarkers[id];
             if (m) {
                 if (m._moveAnim) {
+                    m._moveAnim.active = false;
                     cancelAnimationFrame(m._moveAnim.rafId);
                     m._moveAnim = null;
                 }
@@ -1844,6 +1845,7 @@
 
             // Cancel any in-flight animation
             if (marker._moveAnim) {
+                marker._moveAnim.active = false;
                 cancelAnimationFrame(marker._moveAnim.rafId);
                 marker._moveAnim = null;
             }
@@ -2188,11 +2190,13 @@
                     removeMarker(id);
                     delete planeData[id];
                 } else if (planeMarkers[id]) {
+                    var _sc = altColor(planeData[id].alt, planeData[id].speed);
+                    planeMarkers[id]._lastColor = _sc;
                     planeMarkers[id].setPopupContent(popupContent(planeData[id]));
                     planeMarkers[id].setIcon(makePlaneIcon(
                         id,
                         parseFloat(planeData[id].heading || 0),
-                        altColor(planeData[id].alt, planeData[id].speed),
+                        _sc,
                         staleOpacity(planeData[id])
                     ));
                 }
