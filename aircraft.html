@@ -820,8 +820,7 @@ function setClassFilter(cls) {
     document.querySelectorAll('#class-filter-tabs .filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === cls);
     });
-    // Re-fetch from API with new class filter
-    fetchTablePage(1, true);
+    fetchTablePage().catch(console.error);
 }
 
 function applyFilters() {
@@ -888,12 +887,10 @@ function buildTableQS(page) {
     return qs;
 }
 
-async function fetchTablePage(page, resetTable) {
-    if (resetTable) {
-        currentPage = 1;
-        loadedPlanes = [];
-    }
-    const qs = buildTableQS(page);
+async function fetchTablePage() {
+    currentPage = 1;
+    loadedPlanes = [];
+    const qs = buildTableQS(1);
     const r = await fetch('/api/?action=Planes&view=table&' + qs + '&_=' + Date.now());
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
@@ -903,15 +900,8 @@ async function fetchTablePage(page, resetTable) {
     serverTotalMatching = data.totalMatching  || planes.length;
     serverTotal         = data.total          || serverTotalMatching;
     serverPageSize      = data.pageSize       || PAGE_SIZE;
-    if (resetTable) {
-        loadedPlanes = planes;
-        renderTable(planes);
-    } else {
-        loadedPlanes = loadedPlanes.concat(planes);
-        appendRows(sortedPlanes(planes));
-        updateShowMore();
-        applyFilters();
-    }
+    loadedPlanes        = planes;
+    renderTable(planes);
     return data;
 }
 
@@ -924,7 +914,7 @@ async function doRefresh() {
             fetch('/api/?action=Planes&view=summary&_=' + Date.now())
                 .then(r => r.ok ? r.json() : null)
                 .then(d => (d?.response?.data) || {}),
-            fetchTablePage(1, true),
+            fetchTablePage(),
         ]);
 
         const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
@@ -956,7 +946,7 @@ document.getElementById('ac-search').addEventListener('input', function() {
     const q = this.value.trim();
     searchDebounce = setTimeout(function() {
         searchQ = q;
-        fetchTablePage(1, true).then(function() { applyFilters(); });
+        fetchTablePage().then(applyFilters).catch(console.error);
     }, 350);
 });
 

@@ -567,8 +567,9 @@ class ApiPlanes(ApiBase):
     })
 
     # Freshness thresholds — must match index.html VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE
-    _AIR_MAX_AGE    = 120   # seconds
-    _GROUND_MAX_AGE = 900   # seconds
+    _AIR_MAX_AGE    = 120   # seconds — radar display cutoff for airborne aircraft
+    _GROUND_MAX_AGE = 900   # seconds — radar display cutoff for ground-sweep aircraft
+    _DQ_STALE_SECS  = 180   # seconds — DQ stale flag (broader than radar cutoff; matches alerts.html STALE_SECS)
     _RADAR_PAD      = 0.5   # degrees lat/lon padding around requested bounds
 
     _RADAR_FIELDS = frozenset({
@@ -777,7 +778,7 @@ class ApiPlanes(ApiBase):
                 dq["unknownSrc"] += 1
 
             lu = self.safeFloat(p.get("lastUpdate", 0))
-            if lu > 1e9 and (now_ts - lu) > 180:
+            if lu > 1e9 and (now_ts - lu) > self._DQ_STALE_SECS:
                 dq["stale"] += 1
 
             # Operational filter — include only flagged aircraft
