@@ -281,6 +281,19 @@
                         </div>
                         <label class="toggle"><input id="smoothMovement" type="checkbox"> Enabled</label>
                     </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Default map layer</div>
+                            <div class="setting-desc">Basemap style loaded when the radar page opens. Can also be changed live with the Map control on the radar screen.</div>
+                        </div>
+                        <select id="defaultMapLayer">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                            <option value="street">Street</option>
+                            <option value="satellite">Satellite</option>
+                            <option value="hybrid">Hybrid</option>
+                        </select>
+                    </div>
                 </div>
             </section>
 
@@ -400,6 +413,7 @@ const DEFAULTS = {
     focusInboundAlerts: true,
     focusEmergencyAlerts: true,
     smoothMovement: true,
+    defaultMapLayer: 'dark',
 };
 
 function loadStored() {

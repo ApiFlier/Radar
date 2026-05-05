@@ -774,6 +774,60 @@
         body.panel-open #search-box,
         body.panel-open #search-results { right: 392px; }
 
+        /* Aircraft hover tooltip */
+        .aircraft-hover-tip {
+            background: rgba(8, 12, 16, 0.90) !important;
+            border: 1px solid rgba(0, 255, 204, 0.22) !important;
+            border-radius: 4px !important;
+            color: #d4f5ec !important;
+            font-family: 'Segoe UI', system-ui, sans-serif !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            padding: 3px 8px !important;
+            white-space: nowrap !important;
+            pointer-events: none !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.55) !important;
+            letter-spacing: 0.15px !important;
+        }
+        .aircraft-hover-tip::before { display: none !important; }
+
+        /* Basemap layer selector */
+        #basemap-ctl {
+            position: fixed; bottom: 32px; left: 64px;
+            z-index: 999;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        #bm-btn {
+            display: block;
+            background: rgba(8,12,16,0.85);
+            border: 1px solid rgba(0,255,204,0.22);
+            border-radius: 4px;
+            color: #c8efe6;
+            font-size: 11px; font-weight: 600;
+            padding: 4px 9px;
+            cursor: pointer; letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+        #bm-btn:hover { background: rgba(0,255,204,0.1); }
+        #bm-menu {
+            display: none;
+            position: absolute; bottom: 100%; left: 0;
+            margin-bottom: 4px;
+            background: rgba(8,12,16,0.93);
+            border: 1px solid rgba(0,255,204,0.2);
+            border-radius: 4px; overflow: hidden;
+            min-width: 90px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+        }
+        #bm-menu.bm-open { display: block; }
+        .bm-opt {
+            padding: 6px 10px;
+            font-size: 11px; color: #c0e8df;
+            cursor: pointer; white-space: nowrap;
+        }
+        .bm-opt:hover { background: rgba(0,255,204,0.1); }
+        .bm-opt.bm-active { color: #00ffcc; font-weight: 700; }
+
     </style>
 </head>
 <body>
@@ -842,6 +896,17 @@
         <div id="dp-body"></div>
     </div>
 
+    <div id="basemap-ctl">
+        <button id="bm-btn" onclick="_bmToggle()" title="Map layer">Map &#9662;</button>
+        <div id="bm-menu">
+            <div class="bm-opt" data-key="dark"      onclick="applyBasemap('dark')">Dark</div>
+            <div class="bm-opt" data-key="light"     onclick="applyBasemap('light')">Light</div>
+            <div class="bm-opt" data-key="street"    onclick="applyBasemap('street')">Street</div>
+            <div class="bm-opt" data-key="satellite" onclick="applyBasemap('satellite')">Satellite</div>
+            <div class="bm-opt" data-key="hybrid"    onclick="applyBasemap('hybrid')">Hybrid</div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         /* ── Settings (read once at page load) ── */
@@ -851,7 +916,7 @@
                       defaultAlertsTab:'operational', aircraftPageSize:'500',
                       showDQSummary:true, showInferredWarnings:true,
                       focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true,
-                      smoothMovement:true };
+                      smoothMovement:true, defaultMapLayer:'dark' };
             try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
             catch(e) { return Object.assign({}, D); }
         })();
@@ -877,26 +942,98 @@
             }
         }
         var map = L.map('map').setView([_initLat, _initLon], _initZoom);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '&copy; Esri'
-        }).addTo(map);
-
-        // Hybrid map overlays: satellite imagery plus labels/roads.
+        /* Labels pane — used by Hybrid overlay; created once regardless of active layer */
         map.createPane('labels');
         map.getPane('labels').style.zIndex = 350;
         map.getPane('labels').style.pointerEvents = 'none';
 
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-            pane: 'labels',
-            maxZoom: 19,
-            attribution: 'Labels © Esri'
-        }).addTo(map);
+        /* ── Basemap registry ── */
+        var BASEMAPS = {
+            dark: {
+                label: 'Dark',
+                url:   'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                attr:  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                maxZoom: 20, subdomains: 'abcd'
+            },
+            light: {
+                label: 'Light',
+                url:   'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                attr:  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                maxZoom: 20, subdomains: 'abcd'
+            },
+            street: {
+                label: 'Street',
+                url:   'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                attr:  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19, subdomains: 'abc'
+            },
+            satellite: {
+                label: 'Satellite',
+                url:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr:  'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                maxZoom: 19
+            },
+            hybrid: {
+                label: 'Hybrid',
+                url:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr:  'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+                maxZoom: 19, hasOverlays: true
+            }
+        };
 
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
-            pane: 'labels',
-            maxZoom: 19,
-            attribution: 'Roads © Esri'
-        }).addTo(map);
+        var _activeBaseLayers = [];
+        var _currentBasemap   = null;
+
+        function applyBasemap(key) {
+            if (!BASEMAPS[key]) key = 'dark';
+            for (var _bi = 0; _bi < _activeBaseLayers.length; _bi++) {
+                map.removeLayer(_activeBaseLayers[_bi]);
+            }
+            _activeBaseLayers = [];
+            var _bm = BASEMAPS[key];
+            var _tOpts = { attribution: _bm.attr, maxZoom: _bm.maxZoom };
+            if (_bm.subdomains) _tOpts.subdomains = _bm.subdomains;
+            _activeBaseLayers.push(L.tileLayer(_bm.url, _tOpts).addTo(map));
+            if (_bm.hasOverlays) {
+                _activeBaseLayers.push(
+                    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+                        { pane: 'labels', maxZoom: 19, attribution: 'Labels &copy; Esri' }).addTo(map)
+                );
+                _activeBaseLayers.push(
+                    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+                        { pane: 'labels', maxZoom: 19, attribution: 'Roads &copy; Esri' }).addTo(map)
+                );
+            }
+            _currentBasemap = key;
+            var _bmOpts = document.querySelectorAll('.bm-opt');
+            for (var _bj = 0; _bj < _bmOpts.length; _bj++) {
+                _bmOpts[_bj].classList.toggle('bm-active', _bmOpts[_bj].getAttribute('data-key') === key);
+            }
+            var _bmBtn = document.getElementById('bm-btn');
+            if (_bmBtn) _bmBtn.textContent = _bm.label + ' ▾';
+            var _bmMenu = document.getElementById('bm-menu');
+            if (_bmMenu) _bmMenu.classList.remove('bm-open');
+            try {
+                var _bmSt = JSON.parse(localStorage.getItem('radar.settings') || '{}');
+                _bmSt.defaultMapLayer = key;
+                localStorage.setItem('radar.settings', JSON.stringify(_bmSt));
+            } catch(_e) {}
+        }
+
+        function _bmToggle() {
+            var _m = document.getElementById('bm-menu');
+            if (_m) _m.classList.toggle('bm-open');
+        }
+
+        document.addEventListener('click', function(e) {
+            var _ctl = document.getElementById('basemap-ctl');
+            if (_ctl && !_ctl.contains(e.target)) {
+                var _m = document.getElementById('bm-menu');
+                if (_m) _m.classList.remove('bm-open');
+            }
+        });
+
+        applyBasemap(_RS.defaultMapLayer || 'dark');
 
 
         var planeData = {};
@@ -1128,6 +1265,38 @@
         function aircraftBadgeHtml(p) {
             // Keep the map clean. Aircraft privacy/category tags are shown in the popup instead.
             return '';
+        }
+
+        var _tooltipOpts = {
+            permanent: false, sticky: false, direction: 'top',
+            offset: [0, -2], className: 'aircraft-hover-tip', interactive: false
+        };
+
+        function buildAircraftHoverLabel(p) {
+            if (!p) return '';
+            var isMil  = boolField(p.isMilitary);
+            var isHeli = boolField(p.isHelicopter);
+            var cs     = String(p.callsign    || '').trim();
+            var reg    = String(p.registration || '').trim();
+            var icao   = String(p.icaoHex      || '').trim();
+            var cls    = String(p.aircraftClass || '').toLowerCase();
+            var al     = airlineInfo(p);
+
+            if (isMil || cls === 'military') {
+                var ident = cs || reg || icao;
+                return 'Military' + (ident ? ' · ' + ident : '');
+            }
+            if (isHeli || cls === 'helicopter') {
+                var ident = reg || cs;
+                return ident ? ident + ' · Helicopter' : 'Helicopter';
+            }
+            if (al) {
+                return (cs || (al.prefix + al.number)) + ' · ' + al.airline;
+            }
+            if (cs)   return cs;
+            if (reg)  return reg;
+            if (icao) return 'ICAO ' + icao.toUpperCase();
+            return p.flightId || '';
         }
 
         function makePlaneIcon(id, heading, color, opacity) {
@@ -1811,6 +1980,10 @@
                 })(id))
                 .addTo(map);
 
+            var tipLabel = buildAircraftHoverLabel(p);
+            marker._hoverLabel = tipLabel;
+            if (tipLabel) marker.bindTooltip(tipLabel, _tooltipOpts);
+
             planeMarkers[id] = marker;
             planeMarkers[id]._lastColor = color;
             applyMarkerFocus(id);
@@ -2160,6 +2333,19 @@
                 }
             } else if (shouldDisplayPlane(pd)) {
                 addMarker(id);
+            }
+
+            var _tm = planeMarkers[id];
+            if (_tm) {
+                var _newTip = buildAircraftHoverLabel(pd);
+                if (_newTip && _tm._hoverLabel !== _newTip) {
+                    _tm._hoverLabel = _newTip;
+                    if (_tm.getTooltip()) {
+                        _tm.setTooltipContent(_newTip);
+                    } else {
+                        _tm.bindTooltip(_newTip, _tooltipOpts);
+                    }
+                }
             }
 
             if (panelMode === 'aircraft' && selectedAcId === id) {
