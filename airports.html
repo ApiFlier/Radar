@@ -407,6 +407,7 @@
             border-radius: 3px;
         }
         .mini-link:hover { background: rgba(0,255,204,0.08); }
+        .apt-flights-disclaimer { font-size: 11px; color: #555; margin: 4px 0 8px; font-style: italic; }
         .airport-code-link {
             color: #00ffcc;
             text-decoration: none;
@@ -841,29 +842,83 @@ function fmtAirportFlightSpeed(v) {
     return Math.round(n) + ' kt';
 }
 
-function renderAirportFlightTable(title, list) {
+function haversineNm(lat1, lon1, lat2, lon2) {
+    const R = 3440.065, p = Math.PI / 180;
+    const dLat = (lat2 - lat1) * p, dLon = (lon2 - lon1) * p;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function fmtNm(d) {
+    if (!isFinite(d) || d < 0) return '—';
+    return d < 10 ? d.toFixed(1) + ' nm' : Math.round(d) + ' nm';
+}
+
+function fmtEtaMin(minutes) {
+    if (!isFinite(minutes) || minutes < 0) return '—';
+    if (minutes < 2) return 'Nearby';
+    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
+    const clock = new Date(Date.now() + minutes * 60000);
+    const clockStr = clock.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    return (h ? h + 'h ' : '') + m + 'm (~' + clockStr + ')';
+}
+
+function vertTrend(vr) {
+    const v = parseFloat(vr);
+    if (isNaN(v)) return '—';
+    if (v > 300) return '↑ Climbing';
+    if (v < -300) return '↓ Descending';
+    return '→ Level';
+}
+
+function renderAirportFlightTable(title, list, aptLat, aptLon, isInbound) {
     if (!list || list.length === 0) {
         return `<h3>${title}</h3><div class="status-msg">No active aircraft found.</div>`;
     }
+    const hasAptPos = !isNaN(aptLat) && !isNaN(aptLon);
 
-    let rows = list.slice(0, 20).map(p => {
+    function calcDist(p) {
+        if (!hasAptPos) return NaN;
+        const pLat = parseFloat(p.lat), pLon = parseFloat(p.lon);
+        if (isNaN(pLat) || isNaN(pLon) || (pLat === 0 && pLon === 0)) return NaN;
+        return haversineNm(pLat, pLon, aptLat, aptLon);
+    }
+
+    const rows = list.slice(0, 20).map(p => {
         const icao = (p.icaoHex || '').toUpperCase();
         const link = icao ? `<a class="mini-link" href="/?icao=${icao}">Radar</a>` : '';
+        const dist = calcDist(p);
+        const distStr = fmtNm(dist);
+        let etaOrStatus;
+        if (isInbound) {
+            const spd = parseFloat(p.speed);
+            etaOrStatus = (isFinite(dist) && isFinite(spd) && spd >= 80)
+                ? 'ETA est. ' + fmtEtaMin(dist / spd * 60)
+                : '—';
+        } else {
+            const isAirborne = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
+            etaOrStatus = isAirborne ? 'Airborne · ' + vertTrend(p.verticalRate) : 'Ground';
+        }
         return `<tr>
             <td class="call">${airportFlightCall(p)}</td>
             <td>${airportFlightRoute(p)}</td>
-            <td>${p.aircraftClass || 'unknown'}</td>
+            <td>${distStr}</td>
+            <td>${etaOrStatus}</td>
             <td>${fmtAirportFlightAlt(p.alt)}</td>
-            <td>${fmtAirportFlightSpeed(p.speed)}</td>
             <td>${p.source || p.positionSource || '—'}</td>
             <td>${link}</td>
         </tr>`;
     }).join('');
 
+    const etaHeader = isInbound ? 'ETA Est.' : 'Status';
+    const disclaimer = isInbound
+        ? '<div class="apt-flights-disclaimer">ETA est. from live position and groundspeed. Not official airline schedule data.</div>'
+        : '';
+
     return `<h3>${title} <span style="color:#555;font-weight:400">(${list.length})</span></h3>
-        <table class="airport-flight-table">
+        ${disclaimer}<table class="airport-flight-table">
             <thead><tr>
-                <th>Aircraft</th><th>Route</th><th>Class</th><th>Alt</th><th>Speed</th><th>Source</th><th></th>
+                <th>Aircraft</th><th>Route</th><th>Dist</th><th>${etaHeader}</th><th>Alt</th><th>Source</th><th></th>
             </tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
@@ -884,10 +939,14 @@ async function loadAirportFlights(code) {
         const inbound = data.inbound || [];
         const outbound = data.outbound || [];
 
+        const info   = airportInfo(code);
+        const aptLat = info ? parseFloat(info.lat) : NaN;
+        const aptLon = info ? parseFloat(info.lon) : NaN;
+
         box.dataset.loaded = '1';
         box.innerHTML =
-            renderAirportFlightTable('Inbound to ' + code, inbound) +
-            renderAirportFlightTable('Outbound from ' + code, outbound);
+            renderAirportFlightTable('Inbound to ' + code, inbound, aptLat, aptLon, true) +
+            renderAirportFlightTable('Outbound from ' + code, outbound, aptLat, aptLon, false);
     } catch (err) {
         box.innerHTML = '<div class="status-msg error">Unable to load airport aircraft: ' + String(err) + '</div>';
     }

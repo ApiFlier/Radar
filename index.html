@@ -692,6 +692,13 @@
             white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
         }
         .dp-flight-link:hover { background: rgba(0,255,204,0.08); }
+        .dp-flight-entry { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .dp-flight-entry:last-child { border-bottom: none; }
+        .dp-flight-top { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        .dp-flight-top .dp-flight-call { flex-shrink: 0; }
+        .dp-flight-top .dp-flight-route { flex: 1; }
+        .dp-flight-bot { font-size: 10px; color: #555; margin-top: 2px; line-height: 1.4; }
+        .dp-flights-disclaimer { font-size: 9px; color: #444; padding: 4px 14px 8px; line-height: 1.4; font-style: italic; }
 
         .dp-stale {
             margin: 10px 14px; padding: 7px 10px;
@@ -3109,35 +3116,84 @@
                 return;
             }
 
-            function groupHtml(list, label) {
+            var aptObj   = selectedAptObj || lookupAirport(code) || null;
+            var aptLat   = aptObj ? parseFloat(aptObj.lat || aptObj.latitude || aptObj.latitude_deg) : NaN;
+            var aptLon   = aptObj ? parseFloat(aptObj.lon || aptObj.longitude || aptObj.longitude_deg) : NaN;
+            var hasAptPos = !isNaN(aptLat) && !isNaN(aptLon);
+
+            function calcDist(p) {
+                if (!hasAptPos) return NaN;
+                var pLat = parseFloat(p.lat), pLon = parseFloat(p.lon);
+                if (isNaN(pLat) || isNaN(pLon) || (pLat === 0 && pLon === 0)) return NaN;
+                return distanceNm(pLat, pLon, aptLat, aptLon);
+            }
+
+            function fmtNm(d) {
+                if (!isFinite(d) || d < 0) return '—';
+                return d < 10 ? d.toFixed(1) + ' nm' : Math.round(d) + ' nm';
+            }
+
+            function fmtEta(minutes) {
+                if (!isFinite(minutes) || minutes < 0) return '—';
+                if (minutes < 2) return 'Nearby';
+                var h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
+                var clock = new Date(Date.now() + minutes * 60000);
+                var clockStr = clock.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                return (h ? h + 'h ' : '') + m + 'm (~' + clockStr + ')';
+            }
+
+            function vTrend(vr) {
+                var v = parseFloat(vr);
+                if (isNaN(v)) return '—';
+                if (v > 300) return '↑ Climbing';
+                if (v < -300) return '↓ Descending';
+                return '→ Level';
+            }
+
+            function buildRow(p, isInbound) {
+                var icaoHex = (p.icaoHex || '').toUpperCase();
+                var cs      = (p.callsign || '').trim();
+                var call    = (cs && cs !== icaoHex) ? cs : (p.registration || p.flightId || icaoHex || '—');
+                var dep     = (p.dep || '').trim().toUpperCase();
+                var arr     = (p.arr || '').trim().toUpperCase();
+                var rt      = (dep && arr) ? dep + '→' + arr : dep ? dep + '→?' : arr ? '?→' + arr : '—';
+                var altN    = parseFloat(p.alt);
+                var altStr  = (!isNaN(altN) && altN > 0) ? Math.round(altN).toLocaleString() + ' ft' : '—';
+                var dist    = calcDist(p);
+                var distStr = fmtNm(dist);
+                var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
+                var meta;
+                if (isInbound) {
+                    var spd = parseFloat(p.speed);
+                    var eta = (isFinite(dist) && isFinite(spd) && spd >= 80) ? fmtEta(dist / spd * 60) : null;
+                    meta = distStr + ' · ' + altStr + ' · ' + vTrend(p.verticalRate) +
+                           (eta ? ' · ETA est. ' + eta : '');
+                } else {
+                    var isAir  = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
+                    var spdN   = parseFloat(p.speed);
+                    var spdStr = (!isNaN(spdN) && spdN > 0) ? Math.round(spdN) + ' kt' : '';
+                    meta = distStr + ' · ' + (isAir ? 'Airborne · ' + vTrend(p.verticalRate) : 'Ground') +
+                           ' · ' + altStr + (spdStr ? ' · ' + spdStr : '');
+                }
+                return '<div class="dp-flight-entry">' +
+                       '<div class="dp-flight-top">' +
+                       '<span class="dp-flight-call">' + htmlEscape(call) + '</span>' +
+                       '<span class="dp-flight-route">' + htmlEscape(rt) + '</span>' +
+                       (link ? '<a class="dp-flight-link" href="' + htmlEscape(link) + '">Radar</a>' : '<span></span>') +
+                       '</div>' +
+                       '<div class="dp-flight-bot">' + htmlEscape(meta) + '</div>' +
+                       '</div>';
+            }
+
+            function groupHtml(list, label, isInbound) {
                 if (!list.length) return '';
                 var h = '<div class="dp-flights-group">';
                 h += '<div class="dp-flights-group-title">' + htmlEscape(label) +
                      ' <span style="color:#444;font-weight:400">(' + list.length + ')</span></div>';
-                list.slice(0, 10).forEach(function(p) {
-                    var icaoHex = (p.icaoHex || '').toUpperCase();
-                    var cs      = (p.callsign || '').trim();
-                    var call    = (cs && cs !== icaoHex) ? cs :
-                                  (p.registration || p.flightId || icaoHex || '—');
-                    var dep     = (p.dep || '').trim().toUpperCase();
-                    var arr     = (p.arr || '').trim().toUpperCase();
-                    var rt      = (dep && arr) ? dep + '→' + arr :
-                                  dep ? dep + '→?' : arr ? '?→' + arr : '—';
-                    var altN    = parseFloat(p.alt);
-                    var altStr  = (!isNaN(altN) && altN > 0) ?
-                                  Math.round(altN).toLocaleString() + ' ft' : '';
-                    var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
-                    h += '<div class="dp-flight-row">';
-                    h += '<span class="dp-flight-call">'  + htmlEscape(call)   + '</span>';
-                    h += '<span class="dp-flight-route">' + htmlEscape(rt)     + '</span>';
-                    h += '<span class="dp-flight-alt">'   + htmlEscape(altStr) + '</span>';
-                    h += link ? '<a class="dp-flight-link" href="' + htmlEscape(link) + '">Radar</a>'
-                              : '<span></span>';
-                    h += '</div>';
-                });
-                if (list.length > 10) {
+                list.slice(0, 15).forEach(function(p) { h += buildRow(p, isInbound); });
+                if (list.length > 15) {
                     h += '<div style="font-size:10px;color:#444;padding:4px 0">+' +
-                         (list.length - 10) + ' more</div>';
+                         (list.length - 15) + ' more</div>';
                 }
                 h += '</div>';
                 return h;
@@ -3148,8 +3204,11 @@
             html += '<span style="color:#444">·</span>';
             html += '<span style="color:#aaa">' + outbound.length + ' outbound</span>';
             html += '</div>';
-            html += groupHtml(inbound,  'Inbound to '    + code);
-            html += groupHtml(outbound, 'Outbound from ' + code);
+            html += groupHtml(inbound,  'Inbound to '    + code, true);
+            html += groupHtml(outbound, 'Outbound from ' + code, false);
+            if (inbound.length) {
+                html += '<div class="dp-flights-disclaimer">ETA est. from live position and groundspeed. Not official airline schedule data.</div>';
+            }
 
             box.innerHTML = html;
         }
