@@ -850,7 +850,8 @@
                       showLabels:true, showTrails:false, compactTables:false, showRawSources:true,
                       defaultAlertsTab:'operational', aircraftPageSize:'500',
                       showDQSummary:true, showInferredWarnings:true,
-                      focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true };
+                      focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true,
+                      smoothMovement:true };
             try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
             catch(e) { return Object.assign({}, D); }
         })();
@@ -1816,10 +1817,76 @@
         }
 
         function removeMarker(id) {
-            if (planeMarkers[id]) {
-                map.removeLayer(planeMarkers[id]);
+            var m = planeMarkers[id];
+            if (m) {
+                if (m._moveAnim) {
+                    cancelAnimationFrame(m._moveAnim.rafId);
+                    m._moveAnim = null;
+                }
+                map.removeLayer(m);
                 delete planeMarkers[id];
             }
+        }
+
+        var ANIM_DURATION_MS = 800;
+        var ANIM_SNAP_NM     = 50;   // jumps larger than this snap immediately
+        var ANIM_MIN_NM      = 0.005; // trivially small moves skip animation
+
+        function _quickDistNm(lat1, lon1, lat2, lon2) {
+            var dlat = (lat2 - lat1) * 60;
+            var dlon = (lon2 - lon1) * 60 * Math.cos((lat1 + lat2) / 2 * Math.PI / 180);
+            return Math.sqrt(dlat * dlat + dlon * dlon);
+        }
+
+        function animateMarkerTo(id, toLat, toLon) {
+            var marker = planeMarkers[id];
+            if (!marker) return;
+
+            // Cancel any in-flight animation
+            if (marker._moveAnim) {
+                cancelAnimationFrame(marker._moveAnim.rafId);
+                marker._moveAnim = null;
+            }
+
+            var from = marker.getLatLng();
+            var fromLat = from.lat, fromLon = from.lng;
+
+            // Snap when smoothMovement is disabled or distance is out of range
+            var dist = _quickDistNm(fromLat, fromLon, toLat, toLon);
+            if (!_RS.smoothMovement || dist < ANIM_MIN_NM || dist > ANIM_SNAP_NM) {
+                marker.setLatLng([toLat, toLon]);
+                return;
+            }
+
+            var anim = {
+                active: true,
+                rafId: null,
+                fromLat: fromLat, fromLon: fromLon,
+                toLat: toLat,     toLon: toLon,
+                startTs: performance.now(),
+                dur: ANIM_DURATION_MS
+            };
+            marker._moveAnim = anim;
+
+            function step(ts) {
+                if (!anim.active || !planeMarkers[id]) {
+                    anim.active = false;
+                    return;
+                }
+                var t = Math.min(1, (ts - anim.startTs) / anim.dur);
+                var e = t < 1 ? t * (2 - t) : 1; // easeOutQuad
+                marker.setLatLng([
+                    anim.fromLat + (anim.toLat - anim.fromLat) * e,
+                    anim.fromLon + (anim.toLon - anim.fromLon) * e
+                ]);
+                if (t < 1) {
+                    anim.rafId = requestAnimationFrame(step);
+                } else {
+                    anim.active = false;
+                    marker._moveAnim = null;
+                }
+            }
+            anim.rafId = requestAnimationFrame(step);
         }
 
         function getVisibleAirMaxAge() {
@@ -2081,14 +2148,13 @@
                 if (positionUpdated) {
                     var color   = altColor(pd.alt, pd.speed);
                     var opacity = staleOpacity(pd);
-                    planeMarkers[id].setLatLng([pd.lat, pd.lon]);
+                    // Animate to new accepted position (stale guard already passed above).
+                    // animateMarkerTo reads from marker.getLatLng() so it starts from
+                    // the current displayed position (which may be dead-reckoned).
+                    animateMarkerTo(id, pd.lat, pd.lon);
                     planeMarkers[id].setIcon(makePlaneIcon(id, pd.heading, color, opacity));
                     planeMarkers[id]._lastColor = color;
                     applyMarkerFocus(id);
-
-                    if (followFlightId === id) {
-                        map.panTo([pd.lat, pd.lon], {animate: true, duration: 1});
-                    }
                 }
             } else if (shouldDisplayPlane(pd)) {
                 addMarker(id);
@@ -2429,17 +2495,27 @@
                 var pd = planeData[id];
                 if (!pd) continue;
 
-                var age = now - (parseFloat(pd.lastUpdate) || 0);
-                if (shouldDrawTrail(pd) && pd.speed > 10 && age < DEAD_RECKON_MAX_AGE) {
-                    var dist = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
-                    var rad = pd.heading * Math.PI / 180;
-                    pd.lat += dist * Math.cos(rad);
-                    pd.lon += dist * Math.sin(rad) / Math.cos(pd.lat * Math.PI / 180);
-                    planeMarkers[id].setLatLng([pd.lat, pd.lon]);
+                var marker    = planeMarkers[id];
+                var animActive = marker._moveAnim && marker._moveAnim.active;
+
+                // Skip dead-reckoning while a position animation is in progress so
+                // they don't fight each other. pd.lat/pd.lon stay at the accepted
+                // real position; after animation ends, dead-reckoning resumes from there.
+                if (!animActive) {
+                    var age = now - (parseFloat(pd.lastUpdate) || 0);
+                    if (shouldDrawTrail(pd) && pd.speed > 10 && age < DEAD_RECKON_MAX_AGE) {
+                        var dr = pd.speed * KNOTS_TO_DEG_SEC * 0.033;
+                        var rad = pd.heading * Math.PI / 180;
+                        pd.lat += dr * Math.cos(rad);
+                        pd.lon += dr * Math.sin(rad) / Math.cos(pd.lat * Math.PI / 180);
+                        marker.setLatLng([pd.lat, pd.lon]);
+                    }
                 }
 
                 if (followFlightId === id) {
-                    map.panTo([pd.lat, pd.lon], {animate: false});
+                    // During animation, follow the marker's animated intermediate position
+                    // so the map glides with it rather than jumping to the destination.
+                    map.panTo(animActive ? marker.getLatLng() : [pd.lat, pd.lon], {animate: false});
                 }
             }
         }, 33);

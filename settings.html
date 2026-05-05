@@ -274,6 +274,13 @@
                         </div>
                         <label class="toggle"><input id="showRawSources" type="checkbox"> Enabled</label>
                     </div>
+                    <div class="setting">
+                        <div>
+                            <div class="setting-title">Smooth aircraft movement</div>
+                            <div class="setting-desc">Animate aircraft markers between position updates so they glide rather than jump. Uses requestAnimationFrame; disable if you see any performance issues.</div>
+                        </div>
+                        <label class="toggle"><input id="smoothMovement" type="checkbox"> Enabled</label>
+                    </div>
                 </div>
             </section>
 
@@ -392,6 +399,7 @@ const DEFAULTS = {
     focusRadiusNm: '50',
     focusInboundAlerts: true,
     focusEmergencyAlerts: true,
+    smoothMovement: true,
 };
 
 function loadStored() {
