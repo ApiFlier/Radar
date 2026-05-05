@@ -860,6 +860,7 @@
         var globalLoadedAt = 0;
         var globalLoadInFlight = false;
         var GLOBAL_REFRESH_INTERVAL_MS = 300000; // 5 min between global background fetches
+        var DEBUG_POSITION_MERGE = false;        // set true in console to log merge decisions
 
         function updateBounds() {
             currentBounds = map.getBounds().pad(BOUNDS_PAD);
@@ -1830,23 +1831,19 @@
             target.aircraftRole = source.aircraftRole || source.aircraft_role || target.aircraftRole || 'unknown';
             target.iconType = source.iconType || source.icon_type || target.iconType || target.aircraftClass || 'private';
 
-            // Preserve source fields so ground-sweep aircraft can be identified after storage in planeData.
-            target.source = source.source || target.source || '';
             target.positionSource = source.positionSource || source.position_source || target.positionSource || '';
             target.sourceFacility = source.sourceFacility || source.source_facility || target.sourceFacility || '';
             target.groundCluster = source.groundCluster || source.ground_cluster || target.groundCluster || '';
 
-            // Preserve ground/airborne state fields.
             target.alt_baro = source.alt_baro !== undefined ? source.alt_baro : target.alt_baro;
             target.altBaro = source.altBaro !== undefined ? source.altBaro : target.altBaro;
-            target.airborne = source.airborne !== undefined ? source.airborne : target.airborne;
-            target.onGround = source.onGround !== undefined ? source.onGround : (source.on_ground !== undefined ? source.on_ground : target.onGround);
-            target.lastUpdate = source.lastUpdate || source.last_update || target.lastUpdate;
 
             target.isMilitary = source.isMilitary !== undefined ? source.isMilitary : (source.is_military !== undefined ? source.is_military : target.isMilitary);
             target.isPia = source.isPia !== undefined ? source.isPia : (source.is_pia !== undefined ? source.is_pia : target.isPia);
             target.isLadd = source.isLadd !== undefined ? source.isLadd : (source.is_ladd !== undefined ? source.is_ladd : target.isLadd);
             target.isHelicopter = source.isHelicopter !== undefined ? source.isHelicopter : (source.is_helicopter !== undefined ? source.is_helicopter : target.isHelicopter);
+            // source, airborne, onGround, lastUpdate are position-adjacent and managed
+            // exclusively by processPlane to prevent stale merges from corrupting them.
         }
 
         function aircraftStorageId(p) {
@@ -1871,7 +1868,7 @@
             var lon = parseFloat(p.lon);
             if (isNaN(lat) || isNaN(lon)) return;
 
-            var speed = parseFloat(p.speed) || 0;
+            var speed   = parseFloat(p.speed)   || 0;
             var heading = parseFloat(p.heading) || 0;
             var timestamp = parseFloat(p.lastUpdate || p.last_update) || 0;
 
@@ -1882,77 +1879,102 @@
                 timestamp = Date.now() / 1000;
             }
 
+            var positionUpdated = false;
+
             if (!planeData[id]) {
                 planeData[id] = {
-                    flightId: id,
-                    callsign: p.callsign || id,
-                    lat: lat,
-                    lon: lon,
-                    speed: speed,
-                    heading: heading,
-                    lastUpdate: timestamp,
-                    alt: p.alt,
+                    flightId:    id,
+                    callsign:    p.callsign || id,
+                    lat:         lat,
+                    lon:         lon,
+                    speed:       speed,
+                    heading:     heading,
+                    lastUpdate:  timestamp,
+                    alt:         p.alt,
                     assignedAlt: p.assignedAlt || p.assigned_alt,
-                    dep: p.dep,
-                    arr: p.arr,
-                    depTime: p.depTime || p.dep_time,
-                    eta: p.eta,
-                    faaTs: p.faaTs || p.faa_ts,
+                    dep:         p.dep,
+                    arr:         p.arr,
+                    depTime:     p.depTime || p.dep_time,
+                    eta:         p.eta,
+                    faaTs:       p.faaTs || p.faa_ts,
                     flightStatus: p.flightStatus || p.flight_status,
-                    operator: p.operator,
-                    icaoHex: p.icaoHex || p.icao_hex,
-                    source: p.source,
-                    airborne: p.airborne,
-                    onGround: p.onGround || p.on_ground,
+                    operator:    p.operator,
+                    icaoHex:     p.icaoHex || p.icao_hex,
+                    source:      p.source,
+                    airborne:    p.airborne,
+                    onGround:    p.onGround !== undefined ? p.onGround : p.on_ground,
                     displayState: aircraftDisplayState(p)
                 };
-
                 updateAircraftTags(planeData[id], p);
+                positionUpdated = true;
             } else {
                 var pd = planeData[id];
-                if (timestamp >= pd.lastUpdate || timestamp === 0) {
-                    pd.flightId = id;
-                    pd.callsign = p.callsign || pd.callsign || id;
-                    pd.lat = lat;
-                    pd.lon = lon;
-                    pd.speed = speed;
-                    pd.heading = heading;
-                    pd.lastUpdate = timestamp;
-                    pd.alt = p.alt;
-                    pd.assignedAlt = p.assignedAlt || p.assigned_alt || pd.assignedAlt;
-                    pd.dep = p.dep || pd.dep;
-                    pd.arr = p.arr || pd.arr;
-                    pd.depTime = p.depTime || p.dep_time || pd.depTime;
-                    pd.eta = p.eta || pd.eta;
-                    pd.faaTs = p.faaTs || p.faa_ts || pd.faaTs;
-                    pd.flightStatus = p.flightStatus || p.flight_status || pd.flightStatus;
-                    pd.operator = p.operator || pd.operator;
-                    pd.icaoHex = p.icaoHex || p.icao_hex || pd.icaoHex;
-                    pd.source = p.source || pd.source;
-                    pd.airborne = p.airborne !== undefined ? p.airborne : pd.airborne;
-                    pd.onGround = (p.onGround || p.on_ground) !== undefined ? (p.onGround || p.on_ground) : pd.onGround;
-                    updateAircraftTags(pd, p);
-                    pd.displayState = aircraftDisplayState(pd);
+                var existingTs = pd.lastUpdate || 0;
+
+                // Accept position only when incoming timestamp is confirmed non-stale.
+                // timestamp===0 no longer bypasses this guard — records with no
+                // timestamp only update enrichment fields, never overwrite a known position.
+                var acceptPosition = (timestamp > 0 && timestamp >= existingTs) || existingTs === 0;
+
+                if (acceptPosition) {
+                    pd.callsign   = p.callsign || pd.callsign || id;
+                    pd.lat        = lat;
+                    pd.lon        = lon;
+                    pd.speed      = speed;
+                    pd.heading    = heading;
+                    pd.lastUpdate = timestamp || existingTs;
+                    pd.alt        = p.alt;
+                    pd.source     = p.source || pd.source;
+                    pd.airborne   = p.airborne !== undefined ? p.airborne : pd.airborne;
+                    pd.onGround   = p.onGround !== undefined ? p.onGround : (p.on_ground !== undefined ? p.on_ground : pd.onGround);
+                    positionUpdated = true;
+                    if (DEBUG_POSITION_MERGE) {
+                        console.debug('[merge] accepted', id, 'ts:', timestamp, 'was:', existingTs);
+                    }
+                } else if (DEBUG_POSITION_MERGE) {
+                    console.debug('[merge] skipped stale position for', id,
+                        'incoming:', timestamp, 'existing:', existingTs);
                 }
+
+                // Enrichment fields update regardless of position timestamp.
+                pd.flightId    = id;
+                pd.assignedAlt = p.assignedAlt || p.assigned_alt || pd.assignedAlt;
+                pd.dep         = p.dep || pd.dep;
+                pd.arr         = p.arr || pd.arr;
+                pd.depTime     = p.depTime || p.dep_time || pd.depTime;
+                pd.eta         = p.eta || pd.eta;
+                pd.faaTs       = p.faaTs || p.faa_ts || pd.faaTs;
+                pd.flightStatus = p.flightStatus || p.flight_status || pd.flightStatus;
+                pd.operator    = p.operator || pd.operator;
+                pd.icaoHex     = p.icaoHex || p.icao_hex || pd.icaoHex;
+
+                updateAircraftTags(pd, p);
+                pd.displayState = aircraftDisplayState(pd);
             }
 
+            var pd = planeData[id];
+
             if (planeMarkers[id]) {
-                if (!shouldDisplayPlane(planeData[id]) && id !== followFlightId && id !== activeFlightId) {
+                if (!shouldDisplayPlane(pd) && id !== followFlightId && id !== activeFlightId) {
                     removeMarker(id);
                     return;
                 }
 
-                var color = altColor(planeData[id].alt, planeData[id].speed);
-                var opacity = staleOpacity(planeData[id]);
+                // Only move/redraw marker when we accepted a position update.
+                // Using pd.lat/pd.lon/pd.heading (stored values) prevents a stale
+                // incoming record from physically snapping the marker backward.
+                if (positionUpdated) {
+                    var color   = altColor(pd.alt, pd.speed);
+                    var opacity = staleOpacity(pd);
+                    planeMarkers[id].setLatLng([pd.lat, pd.lon]);
+                    planeMarkers[id].setIcon(makePlaneIcon(id, pd.heading, color, opacity));
+                    planeMarkers[id]._lastColor = color;
 
-                planeMarkers[id].setLatLng([lat, lon]);
-                planeMarkers[id].setIcon(makePlaneIcon(id, heading, color, opacity));
-                planeMarkers[id]._lastColor = color;
-
-                if (followFlightId === id) {
-                    map.panTo([lat, lon], {animate: true, duration: 1});
+                    if (followFlightId === id) {
+                        map.panTo([pd.lat, pd.lon], {animate: true, duration: 1});
+                    }
                 }
-            } else if (shouldDisplayPlane(planeData[id])) {
+            } else if (shouldDisplayPlane(pd)) {
                 addMarker(id);
             }
 
