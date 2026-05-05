@@ -913,9 +913,9 @@ async function doRefresh() {
 
         lastPlanes = [];    // no full plane list; DQ rows fetched on demand
         dqLoaded   = false;
-        if (serverDQ) dqSummary = serverDQ;  // accurate DQ counts from server scan
 
         allAlerts = buildAlerts(planes, health);
+        if (serverDQ) dqSummary = serverDQ;  // override with accurate server-side DQ counts (buildAlerts resets them)
         renderCards(allAlerts);
         renderTable(allAlerts);
 
