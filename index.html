@@ -885,68 +885,71 @@
             display: flex; gap: 6px; align-items: flex-end;
             font-family: 'Segoe UI', system-ui, sans-serif;
         }
-        #basemap-ctl { position: relative; }
-        #bm-btn {
+        #basemap-ctl, #weather-ctl { position: relative; }
+        
+        #bm-btn, #wx-btn {
             display: block;
-            background: rgba(8,12,16,0.85);
+            background: rgba(8,12,16,0.88);
             border: 1px solid rgba(0,255,204,0.22);
             border-radius: 4px;
             color: #c8efe6;
             font-size: 11px; font-weight: 600;
-            padding: 4px 9px;
+            padding: 5px 10px;
             cursor: pointer; letter-spacing: 0.2px;
             white-space: nowrap;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
         }
-        #bm-btn:hover { background: rgba(0,255,204,0.1); }
+        #bm-btn:hover, #wx-btn:hover { background: rgba(0,255,204,0.1); border-color: rgba(0,255,204,0.4); }
+        #wx-btn.wx-on { border-color: rgba(0,255,204,0.6); color: #00ffcc; background: rgba(0,255,204,0.05); }
+
         #bm-menu {
             display: none;
             position: absolute; bottom: 100%; left: 0;
-            margin-bottom: 4px;
-            background: rgba(8,12,16,0.93);
-            border: 1px solid rgba(0,255,204,0.2);
+            margin-bottom: 6px;
+            background: rgba(8,12,16,0.95);
+            border: 1px solid rgba(0,255,204,0.25);
             border-radius: 4px; overflow: hidden;
-            min-width: 90px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+            min-width: 105px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.7);
         }
         #bm-menu.bm-open { display: block; }
         .bm-opt {
-            padding: 6px 10px;
-            font-size: 11px; color: #c0e8df;
+            padding: 7px 12px;
+            font-size: 11px; color: #a0c8df;
             cursor: pointer; white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
         }
-        .bm-opt:hover { background: rgba(0,255,204,0.1); }
-        .bm-opt.bm-active { color: #00ffcc; font-weight: 700; }
+        .bm-opt:hover { background: rgba(0,255,204,0.12); color: #fff; }
+        .bm-opt.bm-active { color: #00ffcc; font-weight: 700; background: rgba(0,255,204,0.06); }
 
-        /* Weather radar overlay control */
-        #weather-ctl { position: relative; }
-        #wx-btn {
-            display: block;
-            background: rgba(8,12,16,0.85);
-            border: 1px solid rgba(0,255,204,0.22);
-            border-radius: 4px;
-            color: #c8efe6;
-            font-size: 11px; font-weight: 600;
-            padding: 4px 9px;
-            cursor: pointer; letter-spacing: 0.2px;
-            white-space: nowrap;
-        }
-        #wx-btn:hover { background: rgba(0,255,204,0.1); }
-        #wx-btn.wx-on { border-color: rgba(0,255,204,0.6); color: #00ffcc; }
         #wx-panel {
             display: none;
             position: absolute; bottom: 100%; left: 0;
-            margin-bottom: 4px;
-            background: rgba(8,12,16,0.93);
-            border: 1px solid rgba(0,255,204,0.2);
-            border-radius: 4px;
-            min-width: 178px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
-            padding: 9px 10px 8px;
+            margin-bottom: 6px;
+            background: rgba(8,12,16,0.96);
+            border: 1px solid rgba(0,255,204,0.25);
+            border-radius: 5px;
+            min-width: 190px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.75);
+            padding: 12px 14px 10px;
         }
         #wx-panel.wx-open { display: block; }
+        
+        .wx-panel-title {
+            font-size: 10px; font-weight: 800; color: #00ffcc;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            margin-bottom: 2px;
+        }
+        .wx-panel-sub {
+            font-size: 9px; color: #566; margin-bottom: 12px;
+            display: block; border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding-bottom: 8px;
+        }
+
         .wx-row {
-            display: flex; align-items: center; gap: 7px;
-            margin-bottom: 7px;
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 9px;
         }
         .wx-row:last-child { margin-bottom: 0; }
         .wx-label {
@@ -954,24 +957,32 @@
             flex-shrink: 0; cursor: default;
         }
         #wx-opacity-range {
-            width: 88px; accent-color: #00ffcc; cursor: pointer;
+            flex: 1; accent-color: #00ffcc; cursor: pointer; height: 14px;
         }
+        .wx-opacity-val {
+            font-size: 10px; color: #00ffcc; min-width: 28px; text-align: right;
+            font-family: Consolas, monospace;
+        }
+
         #wx-status {
-            font-size: 10px; color: #556; min-height: 13px;
-            margin-top: 4px;
+            font-size: 10px; color: #567; min-height: 14px;
+            margin-top: 6px; padding: 0 2px;
         }
-        .wx-playback-row { justify-content: space-between; margin-top: 10px; }
+        .wx-playback-row { justify-content: space-between; margin-top: 12px; gap: 4px; }
         .wx-ctrl {
-            background: rgba(0,255,204,0.1); border: 1px solid rgba(0,255,204,0.2);
+            background: rgba(0,255,204,0.08); border: 1px solid rgba(0,255,204,0.2);
             color: #00ffcc; border-radius: 3px; cursor: pointer;
-            width: 32px; height: 22px; display: flex; align-items: center; justify-content: center;
-            font-size: 10px; transition: background 0.2s;
+            flex: 1; height: 24px; display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 700; transition: background 0.2s, border-color 0.2s;
+            text-transform: uppercase; letter-spacing: 0.3px;
         }
-        .wx-ctrl:hover { background: rgba(0,255,204,0.2); }
-        .wx-ctrl:disabled { color: #444; border-color: #333; cursor: default; background: transparent; }
+        .wx-ctrl:hover { background: rgba(0,255,204,0.18); border-color: rgba(0,255,204,0.4); }
+        .wx-ctrl:disabled { color: #344; border-color: #233; cursor: default; background: transparent; }
+        
         .wx-advisory {
-            font-size: 9px; color: #566; margin-top: 8px; line-height: 1.2;
-            border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px;
+            font-size: 9px; color: #455; margin-top: 10px; line-height: 1.3;
+            border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;
+            font-style: italic;
         }
 
     </style>
@@ -1044,7 +1055,7 @@
 
     <div id="map-overlay-bar">
         <div id="basemap-ctl">
-            <button id="bm-btn" onclick="_bmToggle()" title="Map layer">Map &#9662;</button>
+            <button id="bm-btn" onclick="_bmToggle()" title="Change map layer">Map ▾</button>
             <div id="bm-menu">
                 <div class="bm-opt" data-key="dark"      onclick="applyBasemap('dark')">Dark</div>
                 <div class="bm-opt" data-key="light"     onclick="applyBasemap('light')">Light</div>
@@ -1054,21 +1065,25 @@
             </div>
         </div>
         <div id="weather-ctl">
-            <button id="wx-btn" onclick="_wxPanelToggle()" title="Weather radar overlay (RainViewer - advisory only)">Weather</button>
+            <button id="wx-btn" onclick="_wxPanelToggle()" title="Weather radar overlay (RainViewer - advisory only)">Weather: Off ▾</button>
             <div id="wx-panel">
+                <div class="wx-panel-title">Weather Radar</div>
+                <span class="wx-panel-sub">RainViewer · Advisory only</span>
+
                 <div class="wx-row">
                     <label class="wx-label"><input type="checkbox" id="wx-enabled-chk" onchange="_wxChecked(this.checked)"> Enable Radar</label>
                 </div>
                 <div class="wx-row">
                     <span class="wx-label">Opacity</span>
                     <input type="range" id="wx-opacity-range" min="15" max="85" step="5" value="45" oninput="_wxOpacityInput(this.value)">
+                    <span id="wx-opacity-value" class="wx-opacity-val">45%</span>
                 </div>
                 <div class="wx-row wx-playback-row">
-                    <button id="wx-prev-btn" class="wx-ctrl" onclick="_wxPrevFrame()" title="Previous frame">«</button>
-                    <button id="wx-play-btn" class="wx-ctrl" onclick="_wxTogglePlay()" title="Play/Pause">▶</button>
-                    <button id="wx-next-btn" class="wx-ctrl" onclick="_wxNextFrame()" title="Next frame">»</button>
+                    <button id="wx-prev-btn" class="wx-ctrl" onclick="_wxPrevFrame()" title="Previous frame">‹</button>
+                    <button id="wx-play-btn" class="wx-ctrl" onclick="_wxTogglePlay()" title="Play / Pause">Play</button>
+                    <button id="wx-next-btn" class="wx-ctrl" onclick="_wxNextFrame()" title="Next frame">›</button>
                 </div>
-                <div id="wx-status" class="wx-status"></div>
+                <div id="wx-status"></div>
                 <div class="wx-advisory">Radar frames are recent but not certified aviation weather.</div>
             </div>
         </div>
@@ -1185,7 +1200,7 @@
                 _bmOpts[_bj].classList.toggle('bm-active', _bmOpts[_bj].getAttribute('data-key') === key);
             }
             var _bmBtn = document.getElementById('bm-btn');
-            if (_bmBtn) _bmBtn.textContent = _bm.label + ' ▾';
+            if (_bmBtn) _bmBtn.textContent = 'Map: ' + _bm.label + ' ▾';
             var _bmMenu = document.getElementById('bm-menu');
             if (_bmMenu) _bmMenu.classList.remove('bm-open');
             try {
@@ -1237,7 +1252,7 @@
         function _wxBtnUpdate() {
             var btn = document.getElementById('wx-btn');
             if (btn) {
-                btn.textContent = _wxEnabled ? 'Weather ●' : 'Weather';
+                btn.textContent = _wxEnabled ? 'Weather: On ● ▾' : 'Weather: Off ▾';
                 btn.classList.toggle('wx-on', _wxEnabled);
             }
             var chk = document.getElementById('wx-enabled-chk');
@@ -1274,7 +1289,7 @@
 
         function _wxUpdateControls() {
             var playBtn = document.getElementById('wx-play-btn');
-            if (playBtn) playBtn.textContent = _wxPlaying ? '❙❙' : '▶';
+            if (playBtn) playBtn.textContent = _wxPlaying ? 'Pause' : 'Play';
             var prevBtn = document.getElementById('wx-prev-btn');
             var nextBtn = document.getElementById('wx-next-btn');
             var disabled = !_wxEnabled || _wxFrames.length === 0;
@@ -1488,6 +1503,8 @@
 
         function _wxOpacityInput(val) {
             _wxOpacity = parseInt(val, 10) / 100;
+            var valEl = document.getElementById('wx-opacity-value');
+            if (valEl) valEl.textContent = val + '%';
             if (_wxLayer && !_wxFadeId) _wxLayer.setOpacity(_wxOpacity);
             if (_wxNextLayer && !_wxFadeId) _wxNextLayer.setOpacity(_wxOpacity);
             try {
@@ -1514,6 +1531,8 @@
         (function() {
             var _wr = document.getElementById('wx-opacity-range');
             if (_wr) _wr.value = Math.round(_wxOpacity * 100);
+            var _wv = document.getElementById('wx-opacity-value');
+            if (_wv) _wv.textContent = Math.round(_wxOpacity * 100) + '%';
             if (_RS.weatherRadarEnabled === true) _wxEnable();
             else _wxBtnUpdate();
         })();
