@@ -62,20 +62,15 @@ Radar aggregates data from several sources. **All data is advisory only and must
 
 ## Quick Start
 
-1. **Clone the repository and Configure your deployment environment:**
+1. **Clone the repository and Configure your deployment environment and Build and start the containers:**
    ```bash
-   git clone https://github.com/ApiFlier/Radar radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env;
+   git clone https://github.com/ApiFlier/Radar radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
    ```
    ```bash
-   git clone https://github.com/ApiFlier/Radar radar; sudo chown -R $USER:$USER ./radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env;
-   ```
-
-2. **Build and start the containers:**
-   ```bash
-   chmod +x setup.sh && ./setup.sh
+   git clone https://github.com/ApiFlier/Radar radar; sudo chown -R $USER:$USER ./radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
    ```
 
-3. **Access the application:**
+2. **Access the application:**
    Find the assigned web port:
    ```bash
    WEB_PORT=$(grep '^WEB_PORT=' .env | cut -d= -f2)
