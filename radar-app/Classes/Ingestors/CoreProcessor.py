@@ -23,6 +23,19 @@ class CoreProcessor(BaseIngestor):
     NEARBY_THRESHOLD = 0.03
     HEADING_THRESHOLD = 30
     
+    # Source priority: lower is better
+    SOURCE_PRIORITY = {
+        "faa-sfdps": 1,
+        "faa-stdds": 2,
+        "adsb-lol-reapi": 3,
+        "opensky": 4,
+        "adsblol-ground-sweep": 5,
+        "unknown": 10
+    }
+    
+    MAX_SPEED_KTS = 1000 # Increased for high-altitude jets
+    MAX_GROUND_SPEED_KTS = 100 # Allow for fast taxis/takeoff roll
+    
     def __init__(self):
         super().__init__()
         self.redis = None
@@ -91,6 +104,7 @@ class CoreProcessor(BaseIngestor):
     
     def process(self, data):
         source = (data.get("source") or "").lower()
+        # print(f"[CoreProcessor] Received message from {source}") 
         
         if "sfdps" in source:
             self.process_sfdps(data)
@@ -157,32 +171,9 @@ class CoreProcessor(BaseIngestor):
         
         profile["source"] = data.get("source", "")
         
-        state = dict(existing_state)
-        state["flight_id"] = flight_id
-        state["callsign"] = callsign or state.get("callsign", "")
-        state["last_update"] = str(now)
-        
-        lat = data.get("lat")
-        lon = data.get("lon")
-        if lat and lon:
-            state["lat"] = str(lat)
-            state["lon"] = str(lon)
-        
-        # SFDPS speed - use it if present
-        for field in ["alt", "speed", "heading", "vertical_rate"]:
-            val = data.get(field)
-            if val is not None:
-                state[field] = str(val)
-        
-        speed = float(state.get("speed", 0) or 0)
-        state["airborne"] = "1" if speed >= self.AIRBORNE_SPEED else "0"
-        state["source"] = data.get("source", "")
-        
         pipe = r.pipeline()
         pipe.hset(profile_key, mapping=profile)
         pipe.expire(profile_key, self.PROFILE_TTL)
-        pipe.hset(state_key, mapping=state)
-        pipe.expire(state_key, self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL)
         
         # Store correlations - CRITICAL for STDDS matching
         if callsign:
@@ -191,13 +182,34 @@ class CoreProcessor(BaseIngestor):
             pipe.set(f"corr:icao:{icao_hex}", flight_id, ex=self.CORR_TTL)
         if gufi:
             pipe.set(f"corr:gufi:{gufi}", flight_id, ex=self.CORR_TTL)
-        
-        if lat and lon and state["airborne"] == "1":
-            self._append_trail(pipe, flight_id, lat, lon, state.get("alt", ""), now)
-        
-        out = {**profile, **state, "last_update": now}
-        pipe.publish("planes_out", json.dumps(out))
         pipe.execute()
+        
+        lat = data.get("lat")
+        lon = data.get("lon")
+        if lat and lon:
+            self._update_position(flight_id, data, float(lat), float(lon), now)
+        else:
+            # Non-positional update - still update state with whatever we have
+            state_key = f"state:{flight_id}"
+            state = r.hgetall(state_key) or {}
+            state["flight_id"] = flight_id
+            state["last_update"] = str(now)
+            state["source"] = data.get("source", "")
+            
+            for field in ["alt", "speed", "heading", "vertical_rate", "callsign", "icao_hex"]:
+                val = data.get(field)
+                if val:
+                    state[field] = str(val).strip().upper() if field in ["callsign", "icao_hex"] else str(val)
+            
+            if "speed" in state:
+                speed = float(state.get("speed", 0) or 0)
+                state["airborne"] = "1" if speed >= self.AIRBORNE_SPEED else "0"
+            
+            r.hset(state_key, mapping=state)
+            r.expire(state_key, self.STATE_AIR_TTL if state.get("airborne") == "1" else self.STATE_GROUND_TTL)
+            
+            out = {**profile, **state, "last_update": now}
+            r.publish("planes_out", json.dumps(out))
     
     def process_stdds(self, data):
         """STDDS provides real-time radar position and speed."""
@@ -314,6 +326,11 @@ class CoreProcessor(BaseIngestor):
         else:
             # Create as OpenSky-only flight
             flight_id = f"icao:{icao_hex}"
+            source = data.get("source", "opensky")
+            history_key = f"history:{flight_id}"
+            
+            # Record initial position
+            self._record_history(history_key, now, source, lat, lon, data, True, "New OpenSky flight")
             
             profile = {
                 "flight_id": flight_id,
@@ -360,6 +377,7 @@ class CoreProcessor(BaseIngestor):
         """ADSB.lol provides high-frequency ADS-B data."""
         self.stats["adsblol"] = self.stats.get("adsblol", 0) + 1
         
+        source = data.get("source", "adsb-lol-reapi")
         lat = data.get("lat")
         lon = data.get("lon")
         if not lat or not lon:
@@ -389,6 +407,10 @@ class CoreProcessor(BaseIngestor):
         else:
             # Create as ADSB.lol-only flight
             flight_id = f"icao:{icao_hex}"
+            history_key = f"history:{flight_id}"
+            
+            # Record initial position
+            self._record_history(history_key, now, source, lat, lon, data, True, "New flight")
             
             profile = {
                 "flight_id": flight_id,
@@ -435,24 +457,93 @@ class CoreProcessor(BaseIngestor):
         
         state_key = f"state:{flight_id}"
         profile_key = f"profile:{flight_id}"
+        history_key = f"history:{flight_id}"
         
         state = r.hgetall(state_key) or {}
         profile = r.hgetall(profile_key) or {}
         
+        source = (data.get("source") or "unknown").lower()
+        new_ts = float(data.get("last_update") or now)
+        old_ts = float(state.get("last_update", 0))
+        
+        # 1. Timestamp validation: ignore VERY stale updates
+        # Some sources like ADSB.lol provide 'seen' which might jitter or lag.
+        # We allow updates up to 60s old if the current state is not significantly newer.
+        if new_ts < old_ts - 60:
+            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Extremely stale (new={new_ts}, old={old_ts})")
+            return
+            
+        # If new update is slightly older than current but current is very fresh, skip it
+        if new_ts < old_ts and old_ts > now - 5:
+            return
+            
+        # 2. Source priority check
+        current_source = (state.get("position_source") or "unknown").lower()
+        new_priority = self._get_priority(source)
+        old_priority = self._get_priority(current_source)
+        
+        # If current source is very fresh and has better priority, ignore lower priority updates
+        if old_ts > now - 15 and new_priority > old_priority:
+            # We have a high-priority fresh source, ignore this lower priority one
+            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Lower priority than {current_source} ({new_priority} > {old_priority})")
+            return
+
+        # 3. Position sanity check
+        old_lat = float(state.get("lat") or 0)
+        old_lon = float(state.get("lon") or 0)
+        
+        if old_lat != 0 and old_lon != 0:
+            dist_nm = self._haversine(old_lat, old_lon, lat, lon)
+            dt = new_ts - old_ts
+            
+            if dt > 0.1:
+                implied_speed = (dist_nm / dt) * 3600
+                
+                # Check for impossible jumps
+                max_speed = self.MAX_SPEED_KTS
+                is_ground = "ground" in source or state.get("airborne") == "0"
+                if is_ground:
+                    max_speed = self.MAX_GROUND_SPEED_KTS
+                
+                # Allow some slack for jitter/latency
+                slack = 1.8 
+                if implied_speed > max_speed * slack and dist_nm > 2.0 and dt < 300:
+                    # Sanity check failed, record but don't apply
+                    # Bypass if the previous position was long ago (dt > 300)
+                    reason = f"Impossible speed: {int(implied_speed)} kts"
+                    print(f"[CoreProcessor] REJECTED {flight_id} from {source}: {reason} (dist={dist_nm:.2f}nm, dt={dt:.1f}s)")
+                    self._record_history(history_key, now, source, lat, lon, data, False, reason)
+                    return
+
+        # 4. Ground vs Airborne protection
+        # If we have a reliable airborne track, don't let a ground sweep point pull it down
+        was_airborne = state.get("airborne") == "1"
+        is_ground_source = "ground" in source
+        if was_airborne and is_ground_source and old_ts > now - 60:
+            # Current track is airborne and fresh, ignore ground sweep
+            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Ground update for active airborne track")
+            return
+
+        # Record the update attempt
+        self._record_history(history_key, now, source, lat, lon, data, True, "")
+        
         state["flight_id"] = flight_id
         state["lat"] = str(lat)
         state["lon"] = str(lon)
-        state["last_update"] = str(now)
-        state["position_source"] = data.get("source", "")
+        state["last_update"] = str(new_ts)
+        state["position_source"] = source
+        state["source"] = source
         
-        # STDDS has good speed/heading from radar vectors
-        for field in ["speed", "heading", "alt", "vertical_rate"]:
+        # Merge other fields
+        for field in ["speed", "heading", "alt", "vertical_rate", "callsign", "icao_hex"]:
             val = data.get(field)
-            if val is not None:
-                state[field] = str(val)
+            if val:
+                state[field] = str(val).strip().upper()
         
         speed = float(state.get("speed", 0) or 0)
-        state["airborne"] = "1" if speed >= self.AIRBORNE_SPEED else "0"
+        # Authoritative airborne flag: if source says airborne or speed > threshold
+        is_airborne = data.get("airborne") == "1" or speed >= self.AIRBORNE_SPEED
+        state["airborne"] = "1" if is_airborne else "0"
         
         pipe = r.pipeline()
         pipe.hset(state_key, mapping=state)
@@ -464,6 +555,40 @@ class CoreProcessor(BaseIngestor):
         out = {**profile, **state, "last_update": now}
         pipe.publish("planes_out", json.dumps(out))
         pipe.execute()
+
+    def _get_priority(self, source):
+        for key, priority in self.SOURCE_PRIORITY.items():
+            if key in source:
+                return priority
+        return self.SOURCE_PRIORITY["unknown"]
+
+    def _record_history(self, history_key, now, source, lat, lon, data, accepted, reason):
+        history_entry = {
+            "ts": now,
+            "source": source,
+            "lat": lat,
+            "lon": lon,
+            "alt": data.get("alt", ""),
+            "speed": data.get("speed", ""),
+            "heading": data.get("heading", ""),
+            "accepted": accepted,
+            "reason": reason
+        }
+        r = self.redis.client
+        r.lpush(history_key, json.dumps(history_entry))
+        r.ltrim(history_key, 0, 19) # keep 20
+        r.expire(history_key, 3600)
+
+    def _haversine(self, lat1, lon1, lat2, lon2):
+        """Calculate the great circle distance in nautical miles."""
+        R = 3440.065 # Earth radius in NM
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        
+        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return R * c
     
     def _create_uncorrelated(self, data, lat, lon, now):
         """Create entry for uncorrelated STDDS track."""
@@ -479,6 +604,10 @@ class CoreProcessor(BaseIngestor):
             flight_id = f"track:{track_key}"
         else:
             flight_id = f"stdds:{int(now*1000)}"
+        
+        source = data.get("source", "faa-stdds")
+        history_key = f"history:{flight_id}"
+        self._record_history(history_key, now, source, lat, lon, data, True, "New uncorrelated track")
         
         profile = {
             "flight_id": flight_id,

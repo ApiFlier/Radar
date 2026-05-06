@@ -3,6 +3,7 @@ Meeks Family Radar - Unified App
 """
 
 import os
+import json
 import importlib
 import time
 import logging
@@ -168,6 +169,40 @@ async def debugAircraftSample(sources: int = 1):
         "timestamp": time.time(),
         "source_counts": source_counts,
         "samples": samples if sources else "omitted"
+    }
+
+@api_router.get("/debug/aircraft/{icao}")
+async def debugAircraftIcao(icao: str):
+    import json # redundant but safe
+    from Classes.Redis import getRedis
+    r = getRedis()
+    icao = icao.strip().upper()
+    print(f"DEBUG: Fetching aircraft {icao}")
+    
+    # Find flight_id from ICAO correlation
+    flight_id = r.get(f"corr:icao:{icao}")
+    print(f"DEBUG: flight_id={flight_id}")
+    if not flight_id:
+        # Fallback to direct ICAO key
+        flight_id = f"icao:{icao}"
+        
+    profile = r.hgetall(f"profile:{flight_id}")
+    state = r.hgetall(f"state:{flight_id}")
+    history_raw = r.lrange(f"history:{flight_id}", 0, -1)
+    print(f"DEBUG: history_raw count={len(history_raw)}")
+    history = []
+    for h in history_raw:
+        try:
+            history.append(json.loads(h))
+        except Exception as e:
+            print(f"DEBUG: history load error: {e}")
+    
+    return {
+        "icao": icao,
+        "flight_id": flight_id,
+        "profile": profile,
+        "state": state,
+        "history": history
     }
 
 @api_router.get("/workers/status")

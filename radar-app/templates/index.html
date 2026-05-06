@@ -1574,10 +1574,15 @@
             return currentBounds && currentBounds.contains([lat, lon]);
         }
 
-        function altColor(alt, speed) {
+        function altColor(alt, speed, p) {
             var a = parseFloat(alt) || 0;
             var s = parseFloat(speed) || 0;
-            if (s < 40) return '#666666';
+            
+            // Only show gray if truly on ground OR speed is tiny (likely parked)
+            var onGround = isGroundSweepPlane(p) || (p && p.airborne === '0');
+            if (onGround && s < 40) return '#666666';
+            if (!onGround && s < 10) return '#666666'; // probably just started tracking / parked
+            
             if (a < 5000) return '#3b82f6';
             if (a < 15000) return '#06b6d4';
             if (a < 25000) return '#00ffcc';
@@ -1650,7 +1655,7 @@
                         var pd = planeData[flightId];
                         if (pd) latlngs.push([pd.lat, pd.lon]);
 
-                        var color = pd ? altColor(pd.alt, pd.speed) : '#00ffcc';
+                        var color = pd ? altColor(pd.alt, pd.speed, pd) : '#00ffcc';
                         activeTrail = L.polyline(latlngs, {
                             color: color,
                             weight: 2,
@@ -2467,7 +2472,7 @@
             var p = planeData[id];
             if (!p || planeMarkers[id]) return;
 
-            var color = altColor(p.alt, p.speed);
+            var color = altColor(p.alt, p.speed, p);
             var icon = makePlaneIcon(id, p.heading || 0, color, staleOpacity(p));
 
             var marker = L.marker([p.lat, p.lon], {icon: icon})
@@ -2509,7 +2514,7 @@
             }
         }
 
-        var ANIM_DURATION_MS = 800;
+        var ANIM_DURATION_MS = 1200;
         var ANIM_SNAP_NM     = 50;   // jumps larger than this snap immediately
         var ANIM_MIN_NM      = 0.005; // trivially small moves skip animation
 
@@ -2828,7 +2833,7 @@
                 // Using pd.lat/pd.lon/pd.heading (stored values) prevents a stale
                 // incoming record from physically snapping the marker backward.
                 if (positionUpdated) {
-                    var color   = altColor(pd.alt, pd.speed);
+                    var color   = altColor(pd.alt, pd.speed, pd);
                     var opacity = staleOpacity(pd);
                     // Animate to new accepted position (stale guard already passed above).
                     // animateMarkerTo reads from marker.getLatLng() so it starts from
@@ -2883,7 +2888,7 @@
                     removeMarker(id);
                     delete planeData[id];
                 } else if (planeMarkers[id]) {
-                    var _sc = altColor(planeData[id].alt, planeData[id].speed);
+                    var _sc = altColor(planeData[id].alt, planeData[id].speed, planeData[id]);
                     planeMarkers[id]._lastColor = _sc;
                     planeMarkers[id].setPopupContent(popupContent(planeData[id]));
                     planeMarkers[id].setIcon(makePlaneIcon(
@@ -3153,7 +3158,7 @@
             for (var id in planeMarkers) {
                 var p = planeData[id];
                 if (!p) continue;
-                var color = planeMarkers[id]._lastColor || altColor(p.alt, p.speed);
+                var color = planeMarkers[id]._lastColor || altColor(p.alt, p.speed, p);
                 planeMarkers[id].setIcon(makePlaneIcon(id, parseFloat(p.heading || 0), color, staleOpacity(p)));
             }
         }

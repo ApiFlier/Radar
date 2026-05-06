@@ -581,9 +581,13 @@ class ApiPlanes(ApiBase):
             aircraft_class = "private"
             aircraft_role = "private"
             icon_type = "private"
-        elif callsign:
+        elif callsign and not callsign.startswith("track:") and len(callsign) > 3:
             aircraft_class = "private"
             aircraft_role = "general"
+            icon_type = "private"
+        elif (plane.get("source") or "").lower() == "adsblol-ground-sweep" or plane.get("groundCluster"):
+            aircraft_class = "ground"
+            aircraft_role = "ground"
             icon_type = "private"
         else:
             aircraft_class = "unknown"
