@@ -64,7 +64,7 @@ Radar aggregates data from several sources. **All data is advisory only and must
 
 3. **Build and start the containers:**
    ```bash
-   docker compose up -d --build
+   chmod +x setup.sh && ./setup.sh
    ```
 
 4. **Access the application:**

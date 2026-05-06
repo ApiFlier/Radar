@@ -182,6 +182,9 @@ def process_message(data):
     if now - last_heartbeat >= 60:
         logger.info("Heartbeat: core alive, processed=%s", processed_count)
         last_heartbeat = now
+        stale_keys = [k for k, v in trail_timers.items() if now - v > TRAIL_TTL]
+        for k in stale_keys:
+            trail_timers.pop(k, None)
 
 
 def run():

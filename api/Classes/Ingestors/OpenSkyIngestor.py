@@ -76,6 +76,7 @@ class OpenSkyIngestor(BaseIngestor):
 
         if not self.client_id or not self.client_secret:
             print("[OpenSky] No credentials configured, skipping")
+            self._running = False
             return
 
         print(f"[OpenSky] Starting — own@{self.POLL_INTERVAL_OWN}s / all@{self.POLL_INTERVAL_ALL}s")

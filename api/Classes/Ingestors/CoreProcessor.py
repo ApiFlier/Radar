@@ -110,6 +110,9 @@ class CoreProcessor(BaseIngestor):
                   f"STDDS-new:{self.stats['stdds_new']} STDDS-dup:{self.stats['stdds_dup']} "
                   f"TFMS:{self.stats['tfms']} OpenSky:{self.stats['opensky']}")
             self.last_heartbeat = now
+            stale_keys = [k for k, v in self.trail_timers.items() if now - v > self.TRAIL_TTL]
+            for k in stale_keys:
+                self.trail_timers.pop(k, None)
     
     def process_sfdps(self, data):
         """SFDPS is authoritative for flight identity."""
