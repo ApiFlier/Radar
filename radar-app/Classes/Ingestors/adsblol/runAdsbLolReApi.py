@@ -138,13 +138,33 @@ class AdsbLolReApiIngestor(BaseIngestor):
         is_ground = str(alt_baro).lower() == "ground"
         alt = 0.0 if is_ground else float(alt_baro or 0)
         
+        # Readsb common fields: flight (callsign), gs (speed), track (heading), baro_rate (vertical rate)
+        callsign = str(ac.get("flight") or "").strip().upper()
+        speed = float(ac.get("gs") or ac.get("speed") or 0)
+        heading = float(ac.get("track") or ac.get("heading") or 0)
+        vert_rate = float(ac.get("baro_rate") or ac.get("vert_rate") or 0)
+        squawk = str(ac.get("squawk") or "").strip()
+        category = str(ac.get("category") or "").strip()
+        registration = str(ac.get("r") or "").strip().upper()
+        aircraft_type = str(ac.get("t") or "").strip().upper()
+        db_flags = ac.get("dbFlags", ac.get("dbflags", 0))
+
         return {
             "flight_id": f"adsblol:icao:{hex_id}",
             "icao_hex": hex_id,
+            "callsign": callsign or hex_id,
+            "registration": registration,
+            "aircraft_type": aircraft_type,
             "lat": str(lat),
             "lon": str(lon),
             "alt": str(alt),
-            "airborne": "0" if is_ground else "1",
+            "speed": str(speed),
+            "heading": str(heading),
+            "vertical_rate": str(vert_rate),
+            "squawk": squawk,
+            "category": category,
+            "db_flags": str(db_flags),
+            "airborne": "0" if is_ground else ("1" if speed >= 40 else "0"),
             "source": self.SOURCE_NAME,
             "last_update": str(source_now - float(ac.get("seen", 0)))
         }

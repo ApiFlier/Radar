@@ -131,16 +131,36 @@ class AdsbLolGroundSweepIngestor(BaseIngestor):
     def normalize_ground_aircraft(self, ac: Dict[str, Any], cluster_name: str) -> Dict[str, Any] | None:
         hex_id = str(ac.get("hex", "")).strip().upper()
         if not hex_id: return None
+        
+        lat = ac.get("lat")
+        lon = ac.get("lon")
+        if lat is None or lon is None: return None
+
+        callsign = str(ac.get("flight") or "").strip().upper()
+        gs = float(ac.get("gs", ac.get("speed", 0)) or 0)
+        track = float(ac.get("track", ac.get("heading", 0)) or 0)
+        alt = ac.get("alt_baro", ac.get("altitude", 0))
+        if str(alt).lower() == "ground": alt = 0
+        
         return {
             "icao_hex": hex_id,
+            "callsign": callsign or hex_id,
+            "lat": lat,
+            "lon": lon,
+            "alt": alt,
+            "speed": gs,
+            "heading": track,
             "source": "adsblol-ground-sweep",
-            "lastUpdate": time.time()
+            "ground_cluster": cluster_name,
+            "last_update": time.time()
         }
 
     def store_ground_aircraft(self, plane: Dict[str, Any]) -> None:
         key = f"adsblol:state:icao:{plane['icao_hex']}"
-        self.r.hset(key, mapping={k: str(v) for k, v in plane.items()})
+        mapping = {k: str(v) for k, v in plane.items()}
+        self.r.hset(key, mapping=mapping)
         self.r.expire(key, self.ttl)
+        self.r.publish("live_planes", json.dumps(mapping))
 
 def main():
     worker = AdsbLolGroundSweepIngestor()

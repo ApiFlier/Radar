@@ -34,6 +34,17 @@ Radar uses a modular, microservice architecture orchestrated via Docker Compose:
 - **Cache / Message Broker**: Redis (`radar-redis`) is used for internal state storage and fast message brokering between services.
 - **Ingestors**: Dedicated Python workers (`radar-swim-ingestor`) connecting to external data feeds.
 
+### Aircraft Data Path
+
+Aircraft data flows through the system in a standard canonical path:
+1. **Fetch/Receive**: Ingestors (internal or external) fetch data from sources (ADSB.lol, OpenSky, FAA SWIM).
+2. **Normalize**: Ingestors normalize raw source data into a standard snake_case schema.
+3. **Publish to live_planes**: Normalized data is published to the `live_planes` Redis channel.
+4. **CoreProcessor Fusion**: The `CoreProcessor` worker subscribes to `live_planes`, performs data fusion/correlation (e.g., matching ADS-B to FAA GUFI), and updates the canonical state in Redis (`state:*` and `profile:*` keys).
+5. **Publish to planes_out**: `CoreProcessor` publishes the fused aircraft object to the `planes_out` Redis channel.
+6. **SSE Stream**: The FastAPI `/api/stream` endpoint subscribes to `planes_out` and pushes real-time updates to the frontend via Server-Sent Events.
+7. **REST Snapshot**: The `/api?action=Planes` endpoint (used by `ApiPlanes.py`) scans Redis `state:*` and `adsblol:state:*` keys to provide a full snapshot for initial load and periodic fallback.
+
 ---
 
 ## Worker Supervisor (Stage 2B)

@@ -131,6 +131,45 @@ async def healthCheck():
         "workers_status_url": "/api/workers/status"
     }
 
+@api_router.get("/debug/aircraft/sample")
+async def debugAircraftSample(sources: int = 1):
+    from Classes.Redis import getRedis
+    r = getRedis()
+    
+    # Get source counts
+    source_counts = {}
+    samples = {}
+    
+    # Scan standard states
+    for key in r.scan_iter(match="state:*", count=1000):
+        state = r.hgetall(key)
+        source = state.get("source", "unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
+        
+        if sources:
+            if source not in samples:
+                samples[source] = []
+            if len(samples[source]) < 3:
+                samples[source].append(state)
+                
+    # Scan ADSB.lol states
+    for key in r.scan_iter(match="adsblol:state:*", count=1000):
+        state = r.hgetall(key)
+        source = state.get("source", "adsblol-unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
+        
+        if sources:
+            if source not in samples:
+                samples[source] = []
+            if len(samples[source]) < 3:
+                samples[source].append(state)
+                
+    return {
+        "timestamp": time.time(),
+        "source_counts": source_counts,
+        "samples": samples if sources else "omitted"
+    }
+
 @api_router.get("/workers/status")
 async def workersStatus():
     return getSupervisor().get_status()
