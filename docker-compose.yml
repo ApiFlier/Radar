@@ -5,27 +5,31 @@ services:
     image: redis:alpine
     container_name: radar-redis
     restart: unless-stopped
+    volumes:
+      - redis_data:/data
 
-  api:
-    image: radar-backend
+  app:
+    image: radar-app
     build:
-      context: ./api
+      context: ./radar-app
       dockerfile: Dockerfile
-    container_name: radar-api
-    command: uvicorn main:app --host 0.0.0.0 --port 8081
+    container_name: radar-app
     env_file:
       - .env
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - API_PORT=8081
     depends_on:
       - redis
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8081"
     restart: unless-stopped
 
   swim-ingestor:
-    image: radar-backend
+    image: radar-app
     build:
-      context: ./api
+      context: ./radar-app
       dockerfile: Dockerfile
     container_name: radar-swim-ingestor
     command: python -u -m Classes.Ingestors.faa.runFAASwim
@@ -38,51 +42,5 @@ services:
       - redis
     restart: unless-stopped
 
-  adsblol-reapi:
-    image: radar-backend
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: radar-adsblol-reapi
-    command: python -u -m Classes.Ingestors.adsblol.runAdsbLolReApi
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - redis
-    restart: unless-stopped
-
-  adsblol-ground:
-    image: radar-backend
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    container_name: radar-adsblol-ground
-    command: python -u -m Classes.AdsbLolGroundSweep
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - redis
-    restart: unless-stopped
-
-  web:
-    image: radar-web
-    build:
-      context: .
-      dockerfile: lib/Dockerfile
-    container_name: radar-web
-    command: python -u app.py
-    env_file:
-      - .env
-    environment:
-      - API_BASE_URL=http://api:8081
-    depends_on:
-      - api
-    ports:
-      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8080"
-    restart: unless-stopped
+volumes:
+  redis_data:

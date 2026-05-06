@@ -30,10 +30,21 @@ A self-hosted, Docker-based radar and airport operations dashboard. Radar provid
 
 Radar uses a modular, microservice architecture orchestrated via Docker Compose:
 
-- **Web Frontend**: A fast, browser-based UI using HTML/JS/CSS and Leaflet for mapping.
-- **API Backend**: An internal Python/FastAPI service that serves normalized JSON to the frontend.
-- **Cache / Message Broker**: Redis is used for internal state storage and fast message brokering between services.
-- **Ingestors**: Python services connecting to external data feeds (FAA SWIM, ADSB.lol) and pushing updates to Redis.
+- **App Service**: A unified Python/FastAPI service (`radar-app`) that serves both the browser-based UI and the internal REST API. As of Stage 2B-2, it runs both the **ADSB.lol Re-API** and **ADSB.lol Ground Sweep** ingestors as internal supervised background workers.
+- **Cache / Message Broker**: Redis (`radar-redis`) is used for internal state storage and fast message brokering between services.
+- **Ingestors**: Dedicated Python workers (`radar-swim-ingestor`) connecting to external data feeds.
+
+---
+
+## Worker Supervisor (Stage 2B)
+
+The `radar-app` contains an internal **Worker Supervisor** that manages ingestor tasks.
+
+- **Internal Workers**:
+  - `adsblol-reapi`: **ENABLED** by default.
+  - `adsblol-ground`: **ENABLED** by default (integrated into `radar-app`).
+  - `swim-ingestor`: **DISABLED** internally (runs as external container).
+- **Status Monitoring**: Detailed internal worker health is available at `/api/workers/status`.
 
 ---
 

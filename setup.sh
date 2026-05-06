@@ -154,12 +154,12 @@ require_env() {
     fi
 }
 
-port_is_current_radar_web() {
+port_is_current_radar_app() {
     local port="$1"
 
     docker ps --format '{{.Names}} {{.Ports}}' \
-        | grep -E '^radar-web ' \
-        | grep -q ":${port}->8080/tcp"
+        | grep -E '^radar-app ' \
+        | grep -q ":${port}->8081/tcp"
 }
 
 port_available() {
@@ -211,8 +211,8 @@ choose_web_port() {
             break
         fi
 
-        if port_is_current_radar_web "$port"; then
-            info "WEB_PORT $port is already used by existing radar-web and will be reused."
+        if port_is_current_radar_app "$port"; then
+            info "WEB_PORT $port is already used by existing radar-app and will be reused."
             upsert_env "WEB_PORT" "$port"
             break
         fi
@@ -250,6 +250,11 @@ prepare_env() {
     ensure_default "ADSBLOL_REAPI_REQUEST_SPACING_SECONDS" "1.2"
     ensure_default "ADSBLOL_HEALTH_MAX_AGE_SECONDS" "45"
 
+    ensure_default "ENABLE_INTERNAL_WORKERS" "true"
+    ensure_default "ENABLE_INTERNAL_ADSBLOL_REAPI" "true"
+    ensure_default "ENABLE_INTERNAL_ADSBLOL_GROUND" "true"
+    ensure_default "ENABLE_INTERNAL_SWIM" "false"
+
     ensure_default "GROUND_SWEEP_CLUSTER_INTERVAL_SECONDS" "300"
     ensure_default "GROUND_SWEEP_REQUEST_SPACING_SECONDS" "5"
     ensure_default "GROUND_SWEEP_TTL_SECONDS" "900"
@@ -284,7 +289,7 @@ start_containers() {
 
     echo ""
     info "Building and starting containers..."
-    docker compose up -d --build
+    docker compose up -d --build --remove-orphans
 
     echo ""
     info "Container status:"
@@ -302,7 +307,7 @@ verify_api() {
     echo ""
     info "Checking API aircraft response..."
 
-    if curl -sS "http://127.0.0.1:${port}/api/?action=Planes&_=$(date +%s)" -o /tmp/radar_setup_planes.json; then
+    if curl -sS "http://127.0.0.1:${port}/api?action=Planes&_=$(date +%s)" -o /tmp/radar_setup_planes.json; then
         python3 - <<'PY' || true
 import json
 from pathlib import Path
@@ -325,7 +330,7 @@ print("ground sweep:", sum(
 ))
 PY
     else
-        warn "API did not respond yet. Check: docker compose logs web api"
+        warn "API did not respond yet. Check: docker compose logs app"
     fi
 }
 
@@ -342,12 +347,9 @@ show_summary() {
     echo "  Local/LAN:  http://SERVER_IP:${port}"
     echo ""
     echo "  Containers:"
-    echo "    radar-web"
-    echo "    radar-api"
+    echo "    radar-app"
     echo "    radar-redis"
     echo "    radar-swim-ingestor"
-    echo "    radar-adsblol-reapi"
-    echo "    radar-adsblol-ground"
     echo ""
     echo "  ADSB.lol note:"
     echo "    re-api access requires this server/public IP to have feeder access."
@@ -361,10 +363,9 @@ show_summary() {
     echo "  If you delete this repo, containers/images keep running."
     echo "  Without the repo, manage them by container name:"
     echo "    docker ps"
-    echo "    docker logs radar-api"
-    echo "    docker logs radar-web"
-    echo "    docker stop radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground"
-    echo "    docker start radar-redis radar-api radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground radar-web"
+    echo "    docker logs radar-app"
+    echo "    docker stop radar-app radar-redis radar-swim-ingestor"
+    echo "    docker start radar-redis radar-app radar-swim-ingestor"
     echo ""
 }
 

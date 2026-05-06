@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radar — Health</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #111;
+            color: #ccc;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 13px 24px;
+            background: rgba(0,0,0,0.75);
+            border-bottom: 1px solid rgba(0,255,204,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .page-header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #00ffcc;
+            letter-spacing: 0.6px;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        #last-update {
+            font-size: 11px;
+            color: #444;
+            white-space: nowrap;
+        }
+        .refresh-btn {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            background: rgba(0,255,204,0.07);
+            border: 1px solid rgba(0,255,204,0.22);
+            border-radius: 4px;
+            padding: 4px 12px;
+            cursor: pointer;
+            letter-spacing: 0.3px;
+            transition: background 0.15s;
+        }
+        .refresh-btn:hover { background: rgba(0,255,204,0.14); }
+        .refresh-btn:active { background: rgba(0,255,204,0.2); }
+
+        /* ── Page content offset ── */
+        .page-content { margin-left: 56px; }
+
+        /* ── App sidebar ── */
+        #sidebar {
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: 56px;
+            z-index: 1100;
+            background: rgba(8,8,8,0.97);
+            border-right: 1px solid rgba(0,255,204,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .sidebar-logo {
+            width: 100%;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            color: #00ffcc;
+            flex-shrink: 0;
+        }
+        .sidebar-logo svg { width: 20px; height: 20px; }
+        .sidebar-nav {
+            flex: 1;
+            width: 100%;
+            padding: 6px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .sidebar-bottom {
+            width: 100%;
+            padding: 6px 0 8px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            flex-shrink: 0;
+        }
+        .nav-item {
+            width: 46px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 8px 0 7px;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #686868;
+            font-size: 8.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+        .nav-item:hover { color: #b0b0b0; background: rgba(255,255,255,0.06); }
+        .nav-item.active { color: #00ffcc; background: rgba(0,255,204,0.09); }
+        .nav-item.active:hover { color: #00ffcc; background: rgba(0,255,204,0.13); }
+        .nav-item.soon { color: #464646; }
+        .nav-item.soon:hover { color: #636363; background: rgba(255,255,255,0.02); }
+        .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
+
+        /* ── Main ── */
+        .main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 20px 48px;
+        }
+
+        /* ── Status cards ── */
+        .cards-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+        .card {
+            flex: 1 1 140px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            padding: 14px 18px 13px;
+            min-width: 120px;
+            position: relative;
+        }
+        .card .value {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.4px;
+            font-variant-numeric: tabular-nums;
+        }
+        .card .label {
+            font-size: 10px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            margin-top: 5px;
+        }
+        .card .sub {
+            font-size: 11px;
+            color: #444;
+            margin-top: 3px;
+        }
+
+        /* Status dot */
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            flex-shrink: 0;
+        }
+        .dot.ok  { background: #00ffcc; box-shadow: 0 0 5px rgba(0,255,204,0.6); }
+        .dot.warn { background: #f5a623; box-shadow: 0 0 5px rgba(245,166,35,0.6); }
+        .dot.err  { background: #f55;   box-shadow: 0 0 5px rgba(255,85,85,0.6); }
+        .dot.dim  { background: #333; }
+
+        /* Color classes for value text */
+        .ok   { color: #00ffcc; }
+        .warn { color: #f5a623; }
+        .err  { color: #f55; }
+        .dim  { color: #555; }
+        .neutral { color: #aaa; }
+
+        /* ── Sections ── */
+        .section-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .section-grid.wide {
+            grid-template-columns: 1fr;
+        }
+        @media (max-width: 800px) {
+            .section-grid { grid-template-columns: 1fr; }
+        }
+
+        .section {
+            background: rgba(0,0,0,0.45);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 16px 8px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            gap: 10px;
+        }
+        .section-head h2 {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            white-space: nowrap;
+        }
+        .section h2 {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 11px 16px 9px;
+            background: rgba(0,0,0,0.35);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .search-wrap { flex: 1; max-width: 200px; }
+        .search-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            color: #ccc;
+            font-size: 11px;
+            padding: 4px 9px;
+            outline: none;
+            font-family: inherit;
+        }
+        .search-input:focus { border-color: rgba(0,255,204,0.35); }
+        .search-input::placeholder { color: #3a3a3a; }
+        .clickable-row { cursor: pointer; }
+        .clickable-row:hover td { background: rgba(255,255,255,0.04) !important; }
+        .detail-row td {
+            padding: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .detail-panel {
+            padding: 12px 16px;
+            background: rgba(0,255,204,0.03);
+            font-size: 12px;
+            color: #888;
+            line-height: 1.6;
+        }
+        .detail-panel .dp-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #00ffcc;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .detail-row.hidden { display: none; }
+
+        /* ── Tables ── */
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            font-size: 10px;
+            font-weight: 600;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 8px 16px 6px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        th.r { text-align: right; }
+        td {
+            padding: 7px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: middle;
+            font-size: 13px;
+        }
+        td.key { color: #666; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; width: 1%; white-space: nowrap; }
+        td.val { color: #bbb; }
+        td.num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: #00ffcc;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        td.src { color: #888; }
+        td.status-cell { display: flex; align-items: center; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: rgba(255,255,255,0.025); }
+
+        /* ── Status message ── */
+        .status-msg {
+            text-align: center;
+            padding: 28px;
+            color: #444;
+            font-size: 13px;
+        }
+        .status-msg.error { color: #f97; }
+
+        /* ── Footer ── */
+        .footer {
+            margin-top: 28px;
+            text-align: center;
+            font-size: 11px;
+            color: #383838;
+        }
+    </style>
+</head>
+<body>
+
+<nav id="sidebar">
+    <div class="sidebar-logo">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="9" cy="9" r="7"/>
+            <circle cx="9" cy="9" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="9" x2="14.2" y2="4.2" stroke-opacity="0.55"/>
+        </svg>
+    </div>
+    <div class="sidebar-nav">
+        <a class="nav-item" href="/" title="Radar">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="7"/><circle cx="9" cy="9" r="2.5"/><line x1="9" y1="1" x2="9" y2="5.5"/><line x1="9" y1="12.5" x2="9" y2="17"/><line x1="1" y1="9" x2="5.5" y2="9"/><line x1="12.5" y1="9" x2="17" y2="9"/></svg>
+            <span>Radar</span>
+        </a>
+        <a class="nav-item" href="/stats" title="Stats">
+            <svg viewBox="0 0 18 18" fill="currentColor"><rect x="2" y="10" width="3.5" height="6" rx="0.5"/><rect x="7.25" y="6" width="3.5" height="10" rx="0.5"/><rect x="12.5" y="3" width="3.5" height="13" rx="0.5"/></svg>
+            <span>Stats</span>
+        </a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" href="/airports" title="Airports">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="2" x2="9" y2="13"/><line x1="5.5" y1="4.5" x2="12.5" y2="4.5"/><line x1="6" y1="7.5" x2="12" y2="7.5"/><line x1="6" y1="10.5" x2="12" y2="10.5"/><line x1="2" y1="16" x2="16" y2="16"/></svg>
+            <span>Airports</span>
+        </a>
+        <a class="nav-item" href="/aircraft" title="Aircraft">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="1" x2="9" y2="17"/><path d="M2 9 L9 7 L16 9"/><path d="M6 14.5 L9 13 L12 14.5"/></svg>
+            <span>Aircraft</span>
+        </a>
+        <a class="nav-item" href="/ground" title="Ground Ops">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="1" x2="9" y2="12"/><line x1="5" y1="6" x2="13" y2="6"/><line x1="3" y1="10.5" x2="15" y2="10.5"/><line x1="2" y1="15" x2="16" y2="15"/></svg>
+            <span>Ground</span>
+        </a>
+        <a class="nav-item" href="/alerts" title="Alerts">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 3 C5.8 3 3.5 5.8 3.5 9.5 L3.5 13 L14.5 13 L14.5 9.5 C14.5 5.8 12.2 3 9 3 Z"/><line x1="9" y1="1.5" x2="9" y2="3"/><path d="M7.5 14.5 Q7.5 16 9 16 Q10.5 16 10.5 14.5"/></svg>
+            <span>Alerts</span>
+        </a>
+    </div>
+    <div class="sidebar-bottom">
+        <a class="nav-item active" href="/health" title="Health">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,9 4,9 6.5,4 9,13.5 11,6.5 13.5,9 17,9"/></svg>
+            <span>Health</span>
+        </a>
+        <a class="nav-item" href="/settings" title="Settings">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="9" cy="9" r="2.5"/><path d="M9 1.5 L9 4.5 M9 13.5 L9 16.5 M1.5 9 L4.5 9 M13.5 9 L16.5 9 M3.7 3.7 L5.8 5.8 M12.2 12.2 L14.3 14.3 M3.7 14.3 L5.8 12.2 M12.2 5.8 L14.3 3.7"/></svg>
+            <span>Settings</span>
+        </a>
+    </div>
+</nav>
+
+<div class="page-content">
+    <header class="page-header">
+        <h1>System Health</h1>
+        <div class="header-right">
+            <span id="last-update">—</span>
+            <button class="refresh-btn" onclick="refresh()">Refresh</button>
+        </div>
+    </header>
+
+    <div class="main">
+        <div class="cards-row" id="cards-row">
+            <div class="card"><div class="value dim">—</div><div class="label">API</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">Redis</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">Total Aircraft</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">FAA / SWIM</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">ADSB.lol Aircraft</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">Ground Sweep</div></div>
+            <div class="card"><div class="value dim">—</div><div class="label">Unknown</div></div>
+        </div>
+
+        <div class="section-grid">
+            <div class="section">
+                <div class="section-head">
+                    <h2>Source Breakdown</h2>
+                    <div class="search-wrap">
+                        <input class="search-input" id="source-search" type="text" placeholder="Filter sources…" oninput="filterSources()">
+                    </div>
+                </div>
+                <div id="sources-content"><div class="status-msg">Loading…</div></div>
+            </div>
+            <div class="section">
+                <h2>Endpoint Status</h2>
+                <div id="endpoints-content"><div class="status-msg">Loading…</div></div>
+            </div>
+        </div>
+
+        <div class="section-grid wide">
+            <div class="section">
+                <h2>ADSB.lol Ingestor</h2>
+                <div id="ingestor-content"><div class="status-msg">Loading…</div></div>
+            </div>
+        </div>
+
+        <div class="footer" id="footer">Auto-refreshes every 30 seconds</div>
+    </div>
+</div>
+
+<script>
+const SOURCE_LABELS = {
+    'faa-sfdps':        'FAA / SFDPS',
+    'faa-stdds-tfms':   'FAA / STDDS-TFMS',
+    'faa-stdds-tfm':    'FAA / STDDS-TFM',
+    'faa-stdds':        'FAA / STDDS',
+    'faa-swim':         'FAA / SWIM',
+    'faa':              'FAA / SWIM',
+    'adsb-lol-reapi':   'ADSB.lol Re-API',
+    'adsblol-ground-sweep': 'ADSB.lol Ground Sweep',
+    'adsblol-ground':   'ADSB.lol Ground',
+    'adsblol':          'ADSB.lol Re-API',
+    'opensky':          'OpenSky Network',
+    'ground':           'Ground Sweep',
+    'unknown':          'Unknown',
+};
+
+const SOURCE_DESCRIPTIONS = {
+    'faa-sfdps':        'FAA System-wide Information Management Flight Data Publication Service. Primary source for FAA-tracked IFR flight plans, positions, and system data.',
+    'faa-stdds-tfms':   'FAA System-wide Terminal Data Distribution System — Traffic Flow Management System feed. Provides TFMS-enriched flight information.',
+    'faa-stdds-tfm':    'FAA STDDS Traffic Flow Management feed. Real-time flight data from FAA TFMS.',
+    'faa-stdds':        'FAA System-wide Terminal Data Distribution System. Distributes flight data from FAA ARTCC facilities.',
+    'faa-swim':         'FAA System Wide Information Management. Aggregated FAA data bus covering SFDPS, STDDS, and related systems.',
+    'faa':              'FAA / SWIM data feed.',
+    'adsb-lol-reapi':   'ADSB.lol Re-API ingestor. Pulls live ADS-B position reports from the ADSB.lol global receiver network via their REST API.',
+    'adsblol-ground-sweep': 'ADSB.lol Ground Sweep ingestor. Polls airport surface area bounding boxes for low-altitude and ground-level ADS-B targets including taxiing and parked aircraft.',
+    'adsblol-ground':   'ADSB.lol ground-layer data from the surface sweep ingestor.',
+    'adsblol':          'ADSB.lol Re-API ingestor. Live ADS-B data from the ADSB.lol global receiver network.',
+    'opensky':          'OpenSky Network. Crowdsourced ADS-B receiver network providing global flight position data.',
+    'ground':           'Ground sweep data. Surface-level aircraft position reports from airport surface surveillance.',
+    'unknown':          'Source could not be determined. Data may be from an unrecognized ingestor or an older record with missing provenance.',
+};
+
+function friendlySource(raw) {
+    if (!raw) return 'Unknown';
+    const lower = raw.toLowerCase();
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower === key || lower.startsWith(key + '-') || lower === key) return label;
+    }
+    for (const [key, label] of Object.entries(SOURCE_LABELS)) {
+        if (lower.startsWith(key)) return label;
+    }
+    return raw;
+}
+
+function sourceDescription(raw) {
+    if (!raw) return SOURCE_DESCRIPTIONS['unknown'];
+    const lower = raw.toLowerCase();
+    for (const key of Object.keys(SOURCE_DESCRIPTIONS)) {
+        if (lower === key) return SOURCE_DESCRIPTIONS[key];
+    }
+    for (const key of Object.keys(SOURCE_DESCRIPTIONS)) {
+        if (lower.startsWith(key + '-') || lower.startsWith(key)) return SOURCE_DESCRIPTIONS[key];
+    }
+    return 'No description available for this source.';
+}
+
+function filterSources() {
+    const q = (document.getElementById('source-search')?.value || '').toLowerCase();
+    document.querySelectorAll('#sources-content tbody tr.src-row').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const show = !q || text.includes(q);
+        row.style.display = show ? '' : 'none';
+        const detail = row.nextElementSibling;
+        if (detail && detail.classList.contains('detail-row')) {
+            if (!show) detail.classList.add('hidden');
+        }
+    });
+}
+
+function toggleSrcDetail(id) {
+    const row = document.getElementById(id);
+    if (row) row.classList.toggle('hidden');
+}
+
+function relativeTime(ts) {
+    if (!ts) return '—';
+    const secs = Math.floor(Date.now() / 1000 - parseFloat(ts));
+    if (secs < 0) return 'just now';
+    if (secs < 60) return secs + 's ago';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+    return Math.floor(secs / 3600) + 'h ago';
+}
+
+function fmtDuration(ms) {
+    if (ms == null || ms === '') return '—';
+    const s = parseFloat(ms);
+    if (s < 1) return (s * 1000).toFixed(0) + ' ms';
+    return s.toFixed(2) + ' s';
+}
+
+function fmtBytes(b) {
+    if (b == null || b === '') return '—';
+    const n = parseInt(b, 10);
+    if (isNaN(n)) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(2) + ' MB';
+}
+
+function dotHtml(cls) {
+    return `<span class="dot ${cls}"></span>`;
+}
+
+let lastData = null;
+
+async function refresh() {
+    try {
+        const res = await fetch('/api/?action=Health');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const raw = await res.json();
+        const d = raw && raw.response && raw.response.data ? raw.response.data : raw;
+        lastData = d;
+        render(d);
+        document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+        document.getElementById('last-update').textContent = 'Error: ' + e.message;
+        showError();
+    }
+}
+
+function showError() {
+    document.getElementById('sources-content').innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+    document.getElementById('ingestor-content').innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+    document.getElementById('endpoints-content').innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+}
+
+function render(d) {
+    const redisOk = d.redis && d.redis.connected;
+    const apiOk   = d.status === 'ok' || d.status === 'degraded';
+
+    const planes   = d.planes  || {};
+    const sources  = d.sources || {};
+    const adsbLol  = d.adsbLol || {};
+    const hb       = adsbLol.heartbeat || {};
+
+    /* ── Count sources ── */
+    let faaCount    = 0;
+    let groundCount = 0;
+    let unknownCount = 0;
+
+    for (const [src, cnt] of Object.entries(sources)) {
+        const lower = src.toLowerCase();
+        if (lower.startsWith('faa') || lower.startsWith('swim')) {
+            faaCount += cnt;
+        } else if (lower.startsWith('adsblol-ground') || lower.startsWith('ground')) {
+            groundCount += cnt;
+        } else if (lower === 'unknown' || lower === '') {
+            unknownCount += cnt;
+        } else if (lower.startsWith('adsblol')) {
+            /* counted separately via adsbLol.count */
+        } else {
+            unknownCount += cnt;
+        }
+    }
+
+    const adsbLolAircraft = adsbLol.count || 0;
+    const total = planes.total || 0;
+
+    /* ── ADSB.lol ingestor staleness ── */
+    let adsbStatus = 'dim';
+    let adsbLabel  = 'Unknown';
+    if (hb.status === 'healthy') { adsbStatus = 'ok'; adsbLabel = 'Healthy'; }
+    else if (hb.status === 'degraded') { adsbStatus = 'warn'; adsbLabel = 'Degraded'; }
+    else if (hb.last_success) {
+        const age = Date.now() / 1000 - parseFloat(hb.last_success);
+        if (age < 90) { adsbStatus = 'ok'; adsbLabel = 'OK'; }
+        else if (age < 300) { adsbStatus = 'warn'; adsbLabel = 'Stale'; }
+        else { adsbStatus = 'err'; adsbLabel = 'Offline'; }
+    }
+
+    /* ── FAA staleness heuristic ── */
+    let faaStatus = faaCount > 0 ? 'ok' : 'warn';
+    let faaLabel  = faaCount > 0 ? faaCount.toLocaleString() : 'No data';
+
+    /* ── Cards ── */
+    document.getElementById('cards-row').innerHTML = `
+        <div class="card">
+            <div class="value ${apiOk ? 'ok' : 'err'}" style="display:flex;align-items:center">
+                ${dotHtml(apiOk ? 'ok' : 'err')}${apiOk ? 'Online' : 'Offline'}
+            </div>
+            <div class="label">API Service</div>
+        </div>
+        <div class="card">
+            <div class="value ${redisOk ? 'ok' : 'err'}" style="display:flex;align-items:center">
+                ${dotHtml(redisOk ? 'ok' : 'err')}${redisOk ? 'Connected' : 'Down'}
+            </div>
+            <div class="label">Redis</div>
+        </div>
+        <div class="card">
+            <div class="value neutral">${total.toLocaleString()}</div>
+            <div class="label">Total Aircraft</div>
+            <div class="sub">${(planes.airborne || 0).toLocaleString()} airborne</div>
+        </div>
+        <div class="card">
+            <div class="value ${faaStatus}" style="display:flex;align-items:center">
+                ${dotHtml(faaStatus)}${faaLabel}
+            </div>
+            <div class="label">FAA / SWIM</div>
+        </div>
+        <div class="card">
+            <div class="value neutral">${adsbLolAircraft.toLocaleString()}</div>
+            <div class="label">ADSB.lol Aircraft</div>
+        </div>
+        <div class="card">
+            <div class="value neutral">${groundCount.toLocaleString()}</div>
+            <div class="label">Ground Sweep</div>
+        </div>
+        <div class="card">
+            <div class="value ${adsbStatus}" style="display:flex;align-items:center">
+                ${dotHtml(adsbStatus)}${adsbLabel}
+            </div>
+            <div class="label">ADSB.lol Ingestor</div>
+        </div>
+    `;
+
+    /* ── Source Breakdown Table ── */
+    const srcEntries = Object.entries(sources).sort((a, b) => b[1] - a[1]);
+    if (srcEntries.length === 0) {
+        document.getElementById('sources-content').innerHTML = '<div class="status-msg">No source data</div>';
+    } else {
+        function srcRowPair(src, cnt, keyLabel) {
+            const id = 'src-detail-' + src.replace(/[^a-z0-9]/gi, '-');
+            const desc = sourceDescription(src);
+            const label = friendlySource(src);
+            return `<tr class="src-row clickable-row" onclick="toggleSrcDetail('${id}')">
+                <td class="src">${label}</td>
+                <td class="key" style="color:#3a3a3a;font-size:10px">${keyLabel || src}</td>
+                <td class="num">${cnt.toLocaleString()}</td>
+            </tr><tr class="detail-row hidden" id="${id}">
+                <td colspan="3"><div class="detail-panel">
+                    <div class="dp-title">${label}</div>
+                    ${desc}
+                </div></td>
+            </tr>`;
+        }
+        let rows = '';
+        for (const [src, cnt] of srcEntries) {
+            rows += srcRowPair(src, cnt, src);
+        }
+        if (adsbLolAircraft > 0) {
+            rows += srcRowPair('adsb-lol-reapi', adsbLolAircraft, 'adsblol:state:icao:*');
+        }
+        document.getElementById('sources-content').innerHTML = `
+            <table>
+                <thead><tr><th>Source</th><th>Key Prefix</th><th class="r">Count</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    }
+
+    /* ── Endpoint Status ── */
+    const endpoints = [
+        { label: 'API Health',   url: '/api/health',        expect: r => r.status === 'ok' },
+        { label: 'API Stream',   url: '/api/stream',        expect: null, skip: true },
+        { label: 'Health (web)', url: '/health.json',       expect: r => r.status === 'ok' },
+        { label: 'Health Data',  url: '/api/?action=Health',expect: r => {
+            const d = r && r.response && r.response.data ? r.response.data : r;
+            return d.status === 'ok' || d.status === 'degraded';
+        } },
+    ];
+
+    const epRows = endpoints.filter(e => !e.skip).map(e => `
+        <tr>
+            <td class="src">${e.label}</td>
+            <td class="key" style="color:#3a3a3a">${e.url}</td>
+            <td class="num" id="ep-${btoa(e.label).replace(/=/g,'')}">—</td>
+        </tr>`).join('');
+
+    document.getElementById('endpoints-content').innerHTML = `
+        <table>
+            <thead><tr><th>Endpoint</th><th>Path</th><th class="r">Status</th></tr></thead>
+            <tbody>${epRows}</tbody>
+        </table>`;
+
+    for (const ep of endpoints.filter(e => !e.skip)) {
+        const id = 'ep-' + btoa(ep.label).replace(/=/g, '');
+        const cell = document.getElementById(id);
+        if (!cell) continue;
+        const t0 = performance.now();
+        fetch(ep.url, { method: 'GET' })
+            .then(r => {
+                const ms = Math.round(performance.now() - t0);
+                return r.json().then(body => {
+                    const ok = ep.expect ? ep.expect(body) : r.ok;
+                    cell.textContent = (ok ? '✓ ' : '✗ ') + ms + ' ms';
+                    cell.className   = 'num ' + (ok ? 'ok' : 'warn');
+                });
+            })
+            .catch(() => {
+                cell.textContent = 'Error';
+                cell.className   = 'num err';
+            });
+    }
+
+    /* ── ADSB.lol Ingestor ── */
+    const hbFields = [
+        { key: 'status',             label: 'Status' },
+        { key: 'source',             label: 'Source' },
+        { key: 'last_success',       label: 'Last Success',  fmt: v => relativeTime(v) + (v ? ' (' + new Date(parseFloat(v)*1000).toLocaleTimeString() + ')' : '') },
+        { key: 'last_circle',        label: 'Last Circle',   fmt: relativeTime },
+        { key: 'last_count',         label: 'Last Count' },
+        { key: 'last_stored',        label: 'Last Stored' },
+        { key: 'last_elapsed',       label: 'Last Elapsed',  fmt: fmtDuration },
+        { key: 'last_bytes',         label: 'Last Bytes',    fmt: fmtBytes },
+        { key: 'last_ptime',         label: 'Parse Time',    fmt: fmtDuration },
+        { key: 'total_seen',         label: 'Total Seen' },
+        { key: 'total_stored',       label: 'Total Stored' },
+        { key: 'circle_count',       label: 'Circle Count' },
+        { key: 'consecutive_errors', label: 'Consecutive Errors' },
+    ];
+
+    if (!hb || Object.keys(hb).length === 0) {
+        document.getElementById('ingestor-content').innerHTML = '<div class="status-msg">No heartbeat data — ingestor may not have started yet</div>';
+    } else {
+        let rows = '';
+        for (const f of hbFields) {
+            const raw = hb[f.key];
+            if (raw == null) continue;
+            let display = f.fmt ? f.fmt(raw) : raw;
+            let cls = 'val';
+            if (f.key === 'status') {
+                if (raw === 'healthy') { display = `${dotHtml('ok')}Healthy`; cls = 'val ok'; }
+                else if (raw === 'degraded') { display = `${dotHtml('warn')}Degraded`; cls = 'val warn'; }
+                else { display = `${dotHtml('dim')}${raw}`; }
+            }
+            if (f.key === 'consecutive_errors' && parseInt(raw,10) > 0) cls = 'val warn';
+            rows += `<tr><td class="key">${f.label}</td><td class="${cls}" style="display:table-cell">${display}</td></tr>`;
+        }
+        document.getElementById('ingestor-content').innerHTML = `
+            <table><tbody>${rows}</tbody></table>`;
+    }
+}
+
+let timer;
+function scheduleRefresh() {
+    clearTimeout(timer);
+    timer = setTimeout(() => { refresh().then(scheduleRefresh); }, 30000);
+}
+
+refresh().then(scheduleRefresh);
+</script>
+</body>
+</html>
