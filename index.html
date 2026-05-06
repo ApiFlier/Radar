@@ -719,6 +719,72 @@
         .dp-freq-mhz { color: #ddd; font-family: Consolas, Menlo, monospace; }
         .dp-freq-desc { color: #777; }
 
+        /* Airport Weather Card */
+        .dp-wx-box {
+            padding: 10px 14px; background: rgba(0,255,204,0.01);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .dp-wx-head {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 7px;
+        }
+        .dp-wx-title {
+            font-size: 9px; font-weight: 800; color: #00ffcc;
+            text-transform: uppercase; letter-spacing: 0.8px;
+        }
+        .dp-wx-cat {
+            padding: 1px 5px; border-radius: 3px; font-weight: 800;
+            font-size: 9px; color: #fff; text-transform: uppercase;
+        }
+        .dp-wx-cat.VFR  { background: #008100; }
+        .dp-wx-cat.MVFR { background: #0000ee; }
+        .dp-wx-cat.IFR  { background: #ee0000; }
+        .dp-wx-cat.LIFR { background: #ff00ff; }
+
+        .dp-wx-metar {
+            font-family: Consolas, Menlo, monospace; font-size: 10px;
+            color: #bbb; line-height: 1.4; margin-bottom: 9px;
+            overflow-wrap: anywhere; background: rgba(0,0,0,0.15);
+            padding: 6px 8px; border-radius: 3px;
+        }
+        .dp-wx-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr);
+            gap: 7px 10px; margin-bottom: 8px;
+        }
+        .dp-wx-field { display: flex; flex-direction: column; gap: 1px; }
+        .dp-wx-label { font-size: 8px; color: #444; text-transform: uppercase; letter-spacing: 0.4px; }
+        .dp-wx-value { font-size: 11px; color: #aaa; }
+
+        .dp-wx-alerts {
+            margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.04);
+            padding-top: 6px; display: flex; flex-direction: column; gap: 3px;
+        }
+        .dp-wx-alert {
+            font-size: 10px; color: #ff8080; line-height: 1.25;
+            padding-left: 10px; position: relative;
+        }
+        .dp-wx-alert::before {
+            content: "!"; position: absolute; left: 0; font-weight: 800;
+        }
+        .dp-wx-taf-wrap { margin-top: 8px; }
+        .dp-wx-taf-toggle {
+            font-size: 9px; color: #555; cursor: pointer; text-transform: uppercase;
+            letter-spacing: 0.5px; border-bottom: 1px dashed #333; display: inline-block;
+        }
+        .dp-wx-taf-toggle:hover { color: #888; border-bottom-color: #555; }
+        .dp-wx-taf-raw {
+            display: none; font-family: Consolas, Menlo, monospace; font-size: 10px;
+            color: #888; line-height: 1.4; margin-top: 6px;
+            background: rgba(0,0,0,0.1); padding: 5px 8px; border-radius: 3px;
+            overflow-wrap: anywhere;
+        }
+        .dp-wx-taf-raw.open { display: block; }
+
+        .dp-wx-advisory {
+            font-size: 9px; color: #444; margin-top: 8px; font-style: italic;
+            line-height: 1.2;
+        }
+
         .dp-flights-box { border-top: 1px solid rgba(255,255,255,0.05); }
         .dp-flights-loading { padding: 14px; color: #555; font-size: 11px; text-align: center; }
         .dp-flights-counts {
@@ -1159,6 +1225,9 @@
         var _wxPlaying   = false;
         var _wxPlayTimer = null;
         var _wxHost      = 'https://tilecache.rainviewer.com';
+        var _wxNextLayer = null;
+        var _wxTransitioning = false;
+        var _wxFadeId    = null;
 
         function _wxSetStatus(msg) {
             var el = document.getElementById('wx-status');
@@ -1227,27 +1296,98 @@
             return _wxHost + frame.path + '/512/{z}/{x}/{y}/2/1_1.png';
         }
 
-        function _wxSetFrame(idx) {
+        function _wxBuildFrameLayer(frame) {
+            if (!frame) return null;
+            return L.tileLayer(_wxFrameUrl(frame), {
+                pane: 'weather',
+                opacity: _wxOpacity,
+                maxNativeZoom: 7,
+                maxZoom: 18,
+                attribution: 'Weather &copy; <a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer</a> (advisory only, not certified aviation weather)'
+            });
+        }
+
+        function _wxFadeLayers(oldLayer, newLayer, duration, cb) {
+            if (_wxFadeId) { cancelAnimationFrame(_wxFadeId); _wxFadeId = null; }
+            var start = performance.now();
+
+            function animate(now) {
+                if (!_wxEnabled || !newLayer) {
+                    if (oldLayer) map.removeLayer(oldLayer);
+                    if (newLayer) map.removeLayer(newLayer);
+                    return;
+                }
+                var elapsed = now - start;
+                var progress = Math.min(elapsed / duration, 1);
+                
+                // Linear fade using live _wxOpacity
+                newLayer.setOpacity(_wxOpacity * progress);
+                if (oldLayer) oldLayer.setOpacity(_wxOpacity * (1 - progress));
+
+                if (progress < 1) {
+                    _wxFadeId = requestAnimationFrame(animate);
+                } else {
+                    if (oldLayer) map.removeLayer(oldLayer);
+                    newLayer.setOpacity(_wxOpacity);
+                    _wxFadeId = null;
+                    if (cb) cb();
+                }
+            }
+            _wxFadeId = requestAnimationFrame(animate);
+        }
+
+        function _wxSetFrame(idx, immediate) {
             if (!_wxEnabled || !_wxFrames.length) return;
             if (idx < 0) idx = _wxFrames.length - 1;
             if (idx >= _wxFrames.length) idx = 0;
+            
+            var frame = _wxFrames[idx];
             _wxFrameIdx = idx;
-            var frame = _wxFrames[_wxFrameIdx];
-            var url = _wxFrameUrl(frame);
 
-            if (_wxLayer) {
-                _wxLayer.setUrl(url);
+            if (immediate || !_wxLayer) {
+                if (_wxFadeId) { cancelAnimationFrame(_wxFadeId); _wxFadeId = null; }
+                if (_wxLayer) map.removeLayer(_wxLayer);
+                if (_wxNextLayer) { map.removeLayer(_wxNextLayer); _wxNextLayer = null; }
+                _wxLayer = _wxBuildFrameLayer(frame);
+                if (_wxLayer) _wxLayer.addTo(map);
+                _wxSetStatus('Radar frame: ' + _wxFormatFrameTime(frame));
+                _wxTransitioning = false;
             } else {
-                _wxLayer = L.tileLayer(url, {
-                    pane: 'weather',
-                    opacity: _wxOpacity,
-                    maxNativeZoom: 7,
-                    maxZoom: 18,
-                    attribution: 'Weather &copy; <a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer</a> (advisory only, not certified aviation weather)'
+                if (_wxNextLayer) map.removeLayer(_wxNextLayer);
+                _wxNextLayer = _wxBuildFrameLayer(frame);
+                _wxNextLayer.setOpacity(0);
+                _wxTransitioning = true;
+                
+                var _tid = idx;
+                _wxNextLayer.on('load', function() {
+                    if (!_wxEnabled || _wxFrameIdx !== _tid || !_wxNextLayer) {
+                        if (_wxNextLayer) { map.removeLayer(_wxNextLayer); _wxNextLayer = null; }
+                        return;
+                    }
+                    
+                    var duration = _wxPlaying ? 600 : 250;
+                    _wxFadeLayers(_wxLayer, _wxNextLayer, duration, function() {
+                        _wxLayer = _wxNextLayer;
+                        _wxNextLayer = null;
+                        _wxTransitioning = false;
+                        _wxSetStatus('Radar frame: ' + _wxFormatFrameTime(frame));
+                    });
                 });
-                _wxLayer.addTo(map);
+                
+                _wxNextLayer.addTo(map);
+                
+                // Safety timeout
+                setTimeout(function() {
+                    if (_wxTransitioning && _wxFrameIdx === _tid && _wxNextLayer && !_wxFadeId) {
+                        if (_wxLayer) map.removeLayer(_wxLayer);
+                        _wxLayer = _wxNextLayer;
+                        _wxNextLayer.setOpacity(_wxOpacity);
+                        _wxNextLayer = null;
+                        _wxTransitioning = false;
+                        _wxSetStatus('Radar frame: ' + _wxFormatFrameTime(frame));
+                    }
+                }, 4000);
             }
-            _wxSetStatus('Radar frame: ' + _wxFormatFrameTime(frame));
         }
 
         function _wxTogglePlay() {
@@ -1260,8 +1400,9 @@
             _wxUpdateControls();
             if (_wxPlayTimer) clearInterval(_wxPlayTimer);
             _wxPlayTimer = setInterval(function() {
+                if (_wxTransitioning) return; // Skip tick if still loading/fading last frame
                 _wxNextFrame(true);
-            }, 1000);
+            }, 2000);
         }
 
         function _wxPause() {
@@ -1294,10 +1435,10 @@
             
             if (isInitial) {
                 _wxFrameIdx = _wxFrames.length - 1;
-                _wxSetFrame(_wxFrameIdx);
+                _wxSetFrame(_wxFrameIdx, true);
             } else {
                 if (!_wxPlaying) {
-                    _wxSetFrame(_wxFrameIdx >= _wxFrames.length ? _wxFrames.length - 1 : _wxFrameIdx);
+                    _wxSetFrame(_wxFrameIdx >= _wxFrames.length ? _wxFrames.length - 1 : _wxFrameIdx, true);
                 }
             }
             _wxUpdateControls();
@@ -1328,10 +1469,13 @@
         function _wxDisable() {
             _wxEnabled = false;
             _wxPause();
+            if (_wxFadeId) { cancelAnimationFrame(_wxFadeId); _wxFadeId = null; }
             if (_wxLayer) { map.removeLayer(_wxLayer); _wxLayer = null; }
+            if (_wxNextLayer) { map.removeLayer(_wxNextLayer); _wxNextLayer = null; }
             if (_wxRefreshId) { clearInterval(_wxRefreshId); _wxRefreshId = null; }
             _wxFrames = [];
             _wxFrameIdx = -1;
+            _wxTransitioning = false;
             _wxBtnUpdate();
             _wxUpdateControls();
             _wxSetStatus('');
@@ -1344,7 +1488,8 @@
 
         function _wxOpacityInput(val) {
             _wxOpacity = parseInt(val, 10) / 100;
-            if (_wxLayer) _wxLayer.setOpacity(_wxOpacity);
+            if (_wxLayer && !_wxFadeId) _wxLayer.setOpacity(_wxOpacity);
+            if (_wxNextLayer && !_wxFadeId) _wxNextLayer.setOpacity(_wxOpacity);
             try {
                 var _wSt = JSON.parse(localStorage.getItem('radar.settings') || '{}');
                 _wSt.weatherRadarOpacity = String(_wxOpacity);
@@ -3764,15 +3909,25 @@
             openPanel();
             renderAirportPanel();
             fetchAptFlights(code);
+
+            var lat = selectedAptObj ? (selectedAptObj.lat || selectedAptObj.latitude || selectedAptObj.latitude_deg) : null;
+            var lon = selectedAptObj ? (selectedAptObj.lon || selectedAptObj.longitude || selectedAptObj.longitude_deg) : null;
+            fetchAptWeather(code, lat, lon);
         }
 
         function renderAirportPanel() {
             if (panelMode !== 'airport' || !selectedAptCode) return;
             var code = selectedAptCode;
             document.getElementById('dp-body').innerHTML = buildAirportPanelHTML(selectedAptObj, code);
-            var cache = aptFlightsCache[code];
-            if (cache && cache.inbound !== undefined) {
-                renderAptFlightsInPanel(code, cache.inbound, cache.outbound);
+            
+            var fCache = aptFlightsCache[code];
+            if (fCache && fCache.inbound !== undefined) {
+                renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound);
+            }
+            
+            var wCache = aptWeatherCache[code];
+            if (wCache && wCache.data !== undefined) {
+                renderAptWeatherInPanel(code, wCache.data);
             }
         }
 
@@ -3823,6 +3978,8 @@
             html += '<div class="dp-cell"><div class="dp-cell-label">Elevation</div>' +
                     '<div class="dp-cell-value">' + esc(elev ? elev + ' ft' : '—') + '</div></div>';
             html += '</div>';
+
+            html += '<div id="dp-weather-box" class="dp-wx-box"><div class="dp-flights-loading">Loading weather…</div></div>';
 
             function dpRow(label, val) {
                 if (!val) return '';
@@ -4010,6 +4167,94 @@
             }
 
             box.innerHTML = html;
+        }
+
+        /* ── Airport Weather ── */
+        var aptWeatherCache = {};
+        var APT_WEATHER_TTL = 10 * 60 * 1000; // 10 minutes
+
+        function fetchAptWeather(code, lat, lon) {
+            var now = Date.now();
+            var cache = aptWeatherCache[code];
+            if (cache && (now - cache.ts) < APT_WEATHER_TTL) {
+                if (selectedAptCode === code && panelMode === 'airport') {
+                    renderAptWeatherInPanel(code, cache.data);
+                }
+                return;
+            }
+
+            var url = '/api/?action=Weather&airport=' + encodeURIComponent(code);
+            if (lat != null && lon != null) {
+                url += '&lat=' + lat + '&lon=' + lon;
+            }
+            url += '&_=' + now;
+
+            fetch(url)
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(json) {
+                    var data = (json.response || {}).data || null;
+                    aptWeatherCache[code] = { ts: Date.now(), data: data };
+                    if (selectedAptCode === code && panelMode === 'airport') {
+                        renderAptWeatherInPanel(code, data);
+                    }
+                })
+                .catch(function() {
+                    if (selectedAptCode === code && panelMode === 'airport') {
+                        var el = document.getElementById('dp-weather-box');
+                        if (el) el.innerHTML = '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
+                    }
+                });
+        }
+
+        function renderAptWeatherInPanel(code, data) {
+            var el = document.getElementById('dp-weather-box');
+            if (!el) return;
+            if (!data) {
+                el.innerHTML = '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
+                return;
+            }
+
+            var esc = htmlEscape;
+            var html = '';
+
+            html += '<div class="dp-wx-head">';
+            html += '<div class="dp-wx-title">Airport Weather</div>';
+            if (data.metar && data.metar.flightCategory) {
+                html += '<div class="dp-wx-cat ' + esc(data.metar.flightCategory) + '">' + esc(data.metar.flightCategory) + '</div>';
+            }
+            html += '</div>';
+
+            if (data.metar && data.metar.raw) {
+                html += '<div class="dp-wx-metar">' + esc(data.metar.raw) + '</div>';
+
+                html += '<div class="dp-wx-grid">';
+                html += '<div class="dp-wx-field"><span class="dp-wx-label">Wind</span><span class="dp-wx-value">' + esc(data.metar.wind || '—') + '</span></div>';
+                html += '<div class="dp-wx-field"><span class="dp-wx-label">Visibility</span><span class="dp-wx-value">' + esc(data.metar.visibility || '—') + '</span></div>';
+                html += '<div class="dp-wx-field"><span class="dp-wx-label">Ceiling</span><span class="dp-wx-value">' + esc(data.metar.ceiling || '—') + '</span></div>';
+                html += '<div class="dp-wx-field"><span class="dp-wx-label">Altimeter</span><span class="dp-wx-value">' + esc(data.metar.altimeter || '—') + '</span></div>';
+                html += '</div>';
+            } else {
+                html += '<div class="dp-flights-loading" style="color:#555;padding:5px 0">METAR unavailable</div>';
+            }
+
+            if (data.alerts && data.alerts.length) {
+                html += '<div class="dp-wx-alerts">';
+                data.alerts.forEach(function(a) {
+                    html += '<div class="dp-wx-alert">' + esc(a.event || 'Weather Alert') + '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (data.taf && data.taf.raw) {
+                html += '<div class="dp-wx-taf-wrap">';
+                html += '<div class="dp-wx-taf-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\')">Show TAF</div>';
+                html += '<div class="dp-wx-taf-raw">' + esc(data.taf.raw) + '</div>';
+                html += '</div>';
+            }
+
+            html += '<div class="dp-wx-advisory">' + esc(data.advisory) + '</div>';
+
+            el.innerHTML = html;
         }
 
         /* ── Airport Focus / Ops Mode ─────────────────────────────────────────── */
