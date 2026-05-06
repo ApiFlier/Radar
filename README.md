@@ -1,434 +1,160 @@
-# Radar
+# Radar / Airport Operations Dashboard
 
-Radar is a private Docker-based aircraft tracking stack using FAA/SWIM data, ADSB.lol re-api data, ADSB.lol airport ground sweeps, Redis, Python services, and a browser-based radar display.
-
-Radar ingests live aircraft data, stores aircraft state in Redis, and serves a web dashboard through a Dockerized frontend.
+A self-hosted, Docker-based radar and airport operations dashboard. Radar provides live aircraft tracking, configurable airport focus modes, aviation weather integrations, and system health monitoring in a professional, browser-based UI.
 
 ---
 
-## Deploy
+## Screenshots
 
-### Part 1 — Install Docker
-
-Skip this if Docker is already installed.
-
-```bash
-sudo apt update && sudo apt upgrade -y && sudo apt install -y git curl
-curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
-```
-
-Log out and back in after this so the Docker group takes effect, then verify:
-
-```bash
-docker --version && docker compose version
-```
+*(Placeholders for future screenshots)*
+- ![Radar map screenshot](docs/screenshots/radar.png)
+- ![Airport panel screenshot](docs/screenshots/airport-panel.png)
 
 ---
 
-### Part 2 — Clone and run
+## Features
 
-If `deploy.env` is already included in your private repo:
-
-```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar && chmod +x setup.sh && ./setup.sh
-```
-
-If you still need to create `deploy.env`:
-
-```bash
-git clone https://github.com/ApiFlier/Radar radar && cd radar && [ -f deploy.env ] || cp deploy.env.example deploy.env && nano deploy.env && chmod +x setup.sh && ./setup.sh
-```
-
-The only file you need to edit before setup is:
-
-```text
-deploy.env
-```
-
-`setup.sh` reads `deploy.env`, generates a local `.env`, checks the required values, chooses an available web port if needed, builds the Docker images locally, starts the containers, verifies the API, and then asks whether to delete the local repo files.
-
-If you delete the repo files, the containers keep running. To use `docker compose` again later, reclone the repo or keep the folder.
-
----
-
-## Required access
-
-### FAA API Portal
-
-Use the FAA API Portal to confirm API/SWIM access and credentials:
-
-```text
-https://portal.apic4e.faa.gov/
-```
-
-### FAA SWIM / NAS Enterprise Messaging
-
-FAA SWIM information:
-
-```text
-https://www.faa.gov/air_traffic/technology/swim
-```
-
-You need these values in `deploy.env`:
-
-```env
-FAA_USER=
-FAA_PASS=
-QUEUE_SFDPS=
-QUEUE_STDDS=
-QUEUE_TFMS=
-```
-
-### OpenSky, optional
-
-OpenSky credentials are optional:
-
-```text
-https://opensky-network.org/
-```
-
-```env
-OPENSKY_CLIENT_ID=
-OPENSKY_CLIENT_SECRET=
-```
-
-### ADSB.lol
-
-ADSB.lol re-api access depends on the server/public IP having feeder access:
-
-```text
-https://www.adsb.lol/docs/
-```
-
-There is no ADSB.lol username/password in `deploy.env` for re-api access.
-
----
-
-## Deploy config
-
-The deployment config file is:
-
-```text
-deploy.env
-```
-
-Start from the example:
-
-```bash
-cp deploy.env.example deploy.env
-nano deploy.env
-```
-
-Minimum required values:
-
-```env
-FAA_USER=
-FAA_PASS=
-QUEUE_SFDPS=
-QUEUE_STDDS=
-QUEUE_TFMS=
-```
-
-Optional values:
-
-```env
-OPENSKY_CLIENT_ID=
-OPENSKY_CLIENT_SECRET=
-```
-
-Everything else is handled by `setup.sh`, including:
-
-```text
-WEB_BIND
-WEB_PORT
-REDIS_HOST
-REDIS_PORT
-FAA_URL
-ADSBLOL_REAPI settings
-GROUND_SWEEP settings
-```
-
-If `WEB_PORT` is busy, `setup.sh` will choose the next available port and write it to the generated `.env`.
-
----
-
-## Runtime model
-
-Radar follows the same deployment model as the other private projects:
-
-```text
-repo folder = setup/build/compose management
-Docker containers/images = actual running app
-```
-
-After setup, the app keeps running even if the repo folder is deleted.
-
-The generated runtime environment file is:
-
-```text
-.env
-```
-
-It is created inside the cloned repo folder during setup.
-
-Docker stores the container environment when containers are created, so the running containers can survive reboot without the repo folder. If you need to recreate the containers later, reclone the repo and recreate `deploy.env`.
+- **Live Aircraft Tracking**: Real-time tracking with smooth marker animation and zoom-based density adjustments.
+- **Airport Focus Mode**: Focus on a specific airport to highlight related flights, with configurable inbound and emergency alerts.
+- **Aviation Weather**: Airport weather cards load METAR and TAF data lazily to keep the dashboard fast.
+- **Weather Radar**: RainViewer precipitation overlay with crossfaded playback and adjustable opacity.
+- **Rich Aircraft Data**: Distinct icons for commercial, private, military, and helicopters, plus parked vs. taxiing states.
+- **Interactive UI**: Viewport-first loading, hover tooltips, and shift-click popup behaviors.
+- **Multiple Basemaps**: Choose from Dark, Light, Street, Satellite, and Hybrid (default) basemaps.
+- **Comprehensive Dashboards**: Dedicated pages for Alerts, Aircraft Search, Ground Ops, System Stats, and Health.
+- **Local Persistence**: User settings (basemap, weather layer, default airport) are saved locally.
+- **Placeholder Ready**: A NOTAM shell is present and officially linked, ready for future backend integration.
 
 ---
 
 ## Architecture
 
-Radar currently runs as six Docker services:
+Radar uses a modular, microservice architecture orchestrated via Docker Compose:
 
-| Service | Container | Purpose |
-|---|---|---|
-| Redis | `radar-redis` | Internal state store and message broker |
-| FAA SWIM ingestor | `radar-swim-ingestor` | Connects to FAA SWIM queues and publishes flight data |
-| ADSB.lol re-api ingestor | `radar-adsblol-reapi` | Primary live-ish ADS-B airborne feed |
-| ADSB.lol ground sweep | `radar-adsblol-ground` | Airport ground/taxi/gate aircraft sweep |
-| API | `radar-api` | Internal API service used by the web frontend |
-| Web | `radar-web` | Browser UI |
-
-Network flow:
-
-```text
-Browser
-  ↓
-radar-web
-  ↓
-radar-api
-  ↓
-radar-redis
-
-radar-swim-ingestor  → radar-redis
-radar-adsblol-reapi  → radar-redis
-radar-adsblol-ground → radar-redis
-```
-
-Redis and API are internal-only. Only the web service publishes a host port.
+- **Web Frontend**: A fast, browser-based UI using HTML/JS/CSS and Leaflet for mapping.
+- **API Backend**: An internal Python/FastAPI service that serves normalized JSON to the frontend.
+- **Cache / Message Broker**: Redis is used for internal state storage and fast message brokering between services.
+- **Ingestors**: Python services connecting to external data feeds (FAA SWIM, ADSB.lol) and pushing updates to Redis.
 
 ---
 
-## Ports
+## Data Sources & Attribution
 
-Only `radar-web` is exposed to the host.
+Radar aggregates data from several sources. **All data is advisory only and must not be used for operational decision-making.**
 
-| Service | Host port | Container port | Public? |
-|---|---:|---:|---|
-| Web | Assigned by setup, usually `8080` | `8080` | Yes |
-| API | Not exposed | `8081` | No |
-| Redis | Not exposed | `6379` | No |
-
-Check the chosen web port while the repo folder exists:
-
-```bash
-grep '^WEB_PORT=' .env
-```
-
-Open the app:
-
-```text
-http://SERVER_IP:WEB_PORT
-```
-
-Example:
-
-```text
-http://192.168.1.206:8080
-```
+- **FAA SWIM**: Core flight data integration.
+- **ADSB.lol / OpenSky**: Airborne and ground-level ADS-B target feeds.
+- **RainViewer**: Public weather radar tiles (Advisory only; API limits may apply).
+- **AviationWeather.gov**: Source for METAR and TAF airport weather.
+- **api.weather.gov**: Source for active National Weather Service alerts.
 
 ---
 
-## Day-to-day management
+## Quick Start
 
-If you kept the repo folder, run these from that folder:
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url> radar
+   cd radar
+   ```
 
-```bash
-cd radar
-```
+2. **Configure your deployment environment:**
+   ```bash
+   cp deploy.env.example .env
+   # Edit .env with your specific credentials if necessary
+   ```
 
-View containers:
+3. **Build and start the containers:**
+   ```bash
+   docker compose up -d --build
+   ```
 
-```bash
-docker compose ps
-```
-
-Follow all logs:
-
-```bash
-docker compose logs -f
-```
-
-Follow one service:
-
-```bash
-docker compose logs -f web
-docker compose logs -f api
-docker compose logs -f swim-ingestor
-docker compose logs -f adsblol-reapi
-docker compose logs -f adsblol-ground
-```
-
-Restart everything:
-
-```bash
-docker compose restart
-```
-
-Stop everything:
-
-```bash
-docker compose down
-```
-
-Rebuild after code changes:
-
-```bash
-docker compose up -d --build
-```
+4. **Access the application:**
+   Find the assigned web port:
+   ```bash
+   WEB_PORT=$(grep '^WEB_PORT=' .env | cut -d= -f2)
+   echo "Open http://127.0.0.1:${WEB_PORT} in your browser"
+   ```
 
 ---
 
-## Management after deleting the repo folder
+## Configuration
 
-If you delete the repo folder, the containers keep running.
+Environment variables are configured in the `.env` file (copied from `deploy.env.example`).
 
-Without the repo folder, manage containers by name:
+Typical configuration variables include:
+- `FAA_USER` / `FAA_PASS`
+- `QUEUE_SFDPS`, `QUEUE_STDDS`, `QUEUE_TFMS`
+- `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` (Optional)
 
-```bash
-docker ps
-docker logs radar-api
-docker logs radar-web
-docker logs radar-swim-ingestor
-docker logs radar-adsblol-reapi
-docker logs radar-adsblol-ground
-```
-
-Stop containers:
-
-```bash
-docker stop radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground
-```
-
-Start containers:
-
-```bash
-docker start radar-redis radar-api radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground radar-web
-```
-
-To regain `docker compose` management, reclone the repo.
+**⚠️ SECURITY WARNING:** Never commit `.env` or `deploy.env` to version control. They contain sensitive credentials.
 
 ---
 
-## Useful checks
+## Pages & Routes
 
-Validate Docker Compose without starting containers:
-
-```bash
-docker compose config --quiet && echo "Compose OK"
-```
-
-Check running containers:
-
-```bash
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-```
-
-Confirm Redis and API are not exposed to the host:
-
-```bash
-docker compose config | grep -A12 "redis:"
-docker compose config | grep -A16 "api:"
-docker compose config | grep -A16 "web:"
-```
-
-Check aircraft source counts while the repo folder exists:
-
-```bash
-WEB_PORT=$(grep '^WEB_PORT=' .env | cut -d= -f2)
-
-curl -sS "http://127.0.0.1:${WEB_PORT}/api/?action=Planes" -o /tmp/radar_planes.json
-
-python3 - <<'PY'
-import json
-from pathlib import Path
-from collections import Counter
-
-data = json.loads(Path("/tmp/radar_planes.json").read_text())
-planes = data.get("response", {}).get("data", {}).get("planes", [])
-
-print("total:", len(planes))
-print("sources:", Counter(p.get("source") or "unknown" for p in planes).most_common(20))
-print("ground sweep:", sum(
-    1 for p in planes
-    if p.get("source") == "adsblol-ground-sweep"
-    or p.get("positionSource") == "adsblol-ground-sweep"
-))
-PY
-```
+- `/` : Main Radar Map & Dashboard
+- `/aircraft` : Aircraft search, pagination, and filtering
+- `/airports` : Airport directories and metrics
+- `/ground` : Ground operations sweep data
+- `/alerts` : Operational and Data-Quality alerts
+- `/stats` : System statistics and flight data summaries
+- `/health` : Microservice health and status monitoring
+- `/settings` : User preference configuration
 
 ---
 
-## Project structure
+## Usage Notes
 
-```text
-Radar/
-├── README.md
-├── setup.sh
-├── deploy.env.example
-├── deploy.env
-├── .env
-├── docker-compose.yml
-├── index.html
-├── api/
-├── core/
-├── data/
-├── ingestors/
-├── lib/
-├── samples/
-├── tools/
-└── web/
-```
+- **Map Controls**: Use the bottom-right buttons for zooming and the bottom-left control bar for switching basemaps or toggling the weather overlay.
+- **Weather Overlay**: Enable weather to see RainViewer data. Use the Play/Pause buttons to cycle through recent frames with smooth crossfading.
+- **Airport Focus**: Click an airport to open the side panel. Click "Focus Airport" to highlight inbound traffic and trigger proximity alerts.
+- **Aircraft Interaction**:
+  - *Hover*: View basic identification and state.
+  - *Click*: Open the detailed side panel.
+  - *Shift + Click*: Open a quick popup directly on the map.
 
 ---
 
-## Cleanup
+## Limitations
 
-Stop the stack while the repo folder exists:
-
-```bash
-docker compose down
-```
-
-Stop the stack and remove Redis data:
-
-```bash
-docker compose down -v
-```
-
-Remove local repo files after setup:
-
-```bash
-rm -rf /path/to/radar
-```
-
-The containers keep running unless you stop or remove them.
-
-Remove containers by name:
-
-```bash
-docker rm -f radar-web radar-api radar-redis radar-swim-ingestor radar-adsblol-reapi radar-adsblol-ground
-```
+- **Not Certified**: This is not a certified aviation, weather, or NOTAM source.
+- **NOTAMs**: Real NOTAM ingestion is not yet active. The UI acts as a placeholder linking to official FAA sources.
+- **Coverage**: Aircraft coverage is strictly dependent on the availability and health of the configured feeds.
+- **Weather**: RainViewer public tiles have inherent limitations and update frequencies.
+- **Rate Limits**: OpenSky or other external APIs may enforce rate limits that could throttle data updates.
 
 ---
 
-## Private deploy note
+## Security Notes
 
-This repo is currently private and optimized for fast redeploy.
+- **Protect Credentials**: `.env` and `deploy.env` files contain sensitive information and must remain excluded from Git.
+- **No Secrets in Docs**: This README and other documentation files must never contain live passwords, tokens, or private URLs.
+- **Terms of Service**: Review the terms of service for all external data providers before utilizing this stack in any public or commercial capacity.
 
-If this repo may ever become public or be shared broadly:
+---
 
-1. Remove `deploy.env` from Git.
-2. Add `deploy.env` and `.env` to `.gitignore`.
-3. Rotate FAA/OpenSky credentials that were ever committed.
-4. Keep only `deploy.env.example` committed.
-5. Clean Git history if needed.
+## Troubleshooting
+
+- **Containers not starting**: Verify Docker daemon is running and check `docker compose logs -f` for specific service failures.
+- **Routes not returning 200**: Ensure the API and Web services are fully built and bound to the correct ports.
+- **Weather unavailable**: Check browser DevTools for CORS issues or RainViewer/AviationWeather API outages.
+- **Aircraft not visible**: Verify that your ingestors (e.g., SWIM or ADSB.lol) are authenticating properly and receiving data.
+- **Settings not applying**: Ensure local storage is permitted in your browser, as settings are persisted client-side.
+
+---
+
+## Roadmap
+
+- Implement real FAA FNS/SWIM NOTAM ingestion.
+- Add NOTAM map badges and layers following real ingestion.
+- Introduce historical flight and radar playback.
+- Expand weather provider options for increased reliability.
+- Integrate optional alert sounds or browser notifications.
+- Transition to a database-backed history store for long-term analytics.
+
+---
+
+## Disclaimer
+
+**All data presented by this application—including weather, NOTAMs, frequencies, and aircraft positioning—is for display and advisory purposes only. It must not be used as the sole source for flight safety or operational decision-making. Always verify against official certified aviation sources.**
