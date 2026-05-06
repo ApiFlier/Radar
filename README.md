@@ -53,13 +53,12 @@ Radar aggregates data from several sources. **All data is advisory only and must
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url> radar
-   cd radar
+   git clone https://github.com/ApiFlier/Radar radar; cd radar;
    ```
 
 2. **Configure your deployment environment:**
    ```bash
-   cp deploy.env.example .env
+   cp deploy.env.example deploy.env; nano deploy.env;
    # Edit .env with your specific credentials if necessary
    ```
 
