@@ -785,35 +785,6 @@
             line-height: 1.2;
         }
 
-        /* Airport NOTAM Card */
-        .dp-nt-box {
-            padding: 10px 14px; background: rgba(255,255,255,0.01);
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-        .dp-nt-head {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 7px;
-        }
-        .dp-nt-title {
-            font-size: 9px; font-weight: 800; color: #aaa;
-            text-transform: uppercase; letter-spacing: 0.8px;
-        }
-        .dp-nt-msg {
-            font-size: 11px; color: #666; line-height: 1.4;
-            margin-bottom: 8px;
-        }
-        .dp-nt-planned {
-            font-size: 10px; color: #444; margin-bottom: 8px;
-            font-style: italic;
-        }
-        .dp-nt-action {
-            display: inline-block; padding: 4px 8px;
-            font-size: 9px; font-weight: 700; color: #aaa;
-            border: 1px solid rgba(255,255,255,0.1); border-radius: 3px;
-            text-decoration: none; text-transform: uppercase; letter-spacing: 0.4px;
-        }
-        .dp-nt-action:hover { color: #fff; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.04); }
-
         .dp-flights-box { border-top: 1px solid rgba(255,255,255,0.05); }
         .dp-flights-loading { padding: 14px; color: #555; font-size: 11px; text-align: center; }
         .dp-flights-counts {
@@ -3961,7 +3932,6 @@
             var lat = selectedAptObj ? (selectedAptObj.lat || selectedAptObj.latitude || selectedAptObj.latitude_deg) : null;
             var lon = selectedAptObj ? (selectedAptObj.lon || selectedAptObj.longitude || selectedAptObj.longitude_deg) : null;
             fetchAptWeather(code, lat, lon);
-            fetchAptNotams(code);
         }
 
         function renderAirportPanel() {
@@ -3977,11 +3947,6 @@
             var wCache = aptWeatherCache[code];
             if (wCache && wCache.data !== undefined) {
                 renderAptWeatherInPanel(code, wCache.data);
-            }
-
-            var nCache = aptNotamsCache[code];
-            if (nCache && nCache.data !== undefined) {
-                renderAptNotamsInPanel(code, nCache.data);
             }
         }
 
@@ -4034,7 +3999,6 @@
             html += '</div>';
 
             html += '<div id="dp-weather-box" class="dp-wx-box"><div class="dp-flights-loading">Loading weather…</div></div>';
-            html += '<div id="dp-notam-box" class="dp-nt-box"><div class="dp-flights-loading">Loading NOTAMs…</div></div>';
 
             function dpRow(label, val) {
                 if (!val) return '';
@@ -4308,75 +4272,6 @@
             }
 
             html += '<div class="dp-wx-advisory">' + esc(data.advisory) + '</div>';
-
-            el.innerHTML = html;
-        }
-
-        /* ── Airport NOTAMs ── */
-        var aptNotamsCache = {};
-        var APT_NOTAMS_TTL = 10 * 60 * 1000; // 10 minutes
-
-        function fetchAptNotams(code) {
-            var now = Date.now();
-            var cache = aptNotamsCache[code];
-            if (cache && (now - cache.ts) < APT_NOTAMS_TTL) {
-                if (selectedAptCode === code && panelMode === 'airport') {
-                    renderAptNotamsInPanel(code, cache.data);
-                }
-                return;
-            }
-
-            fetch('/api/?action=Notams&airport=' + encodeURIComponent(code) + '&_=' + now)
-                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-                .then(function(json) {
-                    var data = (json.response || {}).data || null;
-                    aptNotamsCache[code] = { ts: Date.now(), data: data };
-                    if (selectedAptCode === code && panelMode === 'airport') {
-                        renderAptNotamsInPanel(code, data);
-                    }
-                })
-                .catch(function() {
-                    if (selectedAptCode === code && panelMode === 'airport') {
-                        var el = document.getElementById('dp-notam-box');
-                        if (el) el.innerHTML = '<div class="dp-flights-loading" style="color:#555">NOTAMs unavailable</div>';
-                    }
-                });
-        }
-
-        function renderAptNotamsInPanel(code, data) {
-            var el = document.getElementById('dp-notam-box');
-            if (!el) return;
-            if (!data) {
-                el.innerHTML = '<div class="dp-flights-loading" style="color:#555">NOTAMs unavailable</div>';
-                return;
-            }
-
-            var esc = htmlEscape;
-            var html = '';
-
-            html += '<div class="dp-nt-head">';
-            html += '<div class="dp-nt-title">NOTAMs</div>';
-            html += '</div>';
-
-            if (!data.configured) {
-                html += '<div class="dp-nt-msg">NOTAM source not configured</div>';
-                html += '<div class="dp-nt-planned">Real FAA FNS/SWIM NOTAM ingestion is planned for a future phase.</div>';
-                if (data.officialUrl) {
-                    html += '<a class="dp-nt-action" href="' + esc(data.officialUrl) + '" target="_blank" rel="noopener">Open Official NOTAM Search</a>';
-                }
-            } else if (data.notams && data.notams.length) {
-                // Future placeholder for rendering real NOTAMs
-                data.notams.forEach(function(n) {
-                    html += '<div class="dp-flight-entry" style="border-bottom:1px solid rgba(255,255,255,0.03);padding:6px 0">';
-                    html += '<div style="font-size:10px;color:#888;margin-bottom:2px">' + esc(n.category || 'NOTAM') + '</div>';
-                    html += '<div style="font-size:11px;color:#bbb;line-height:1.4">' + esc(n.text || '') + '</div>';
-                    html += '</div>';
-                });
-            } else {
-                html += '<div class="dp-nt-msg" style="color:#444">No active NOTAMs found.</div>';
-            }
-
-            html += '<div class="dp-wx-advisory" style="margin-top:10px">' + esc(data.advisory) + '</div>';
 
             el.innerHTML = html;
         }

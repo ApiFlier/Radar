@@ -23,7 +23,6 @@ A self-hosted, Docker-based radar and airport operations dashboard. Radar provid
 - **Multiple Basemaps**: Choose from Dark, Light, Street, Satellite, and Hybrid (default) basemaps.
 - **Comprehensive Dashboards**: Dedicated pages for Alerts, Aircraft Search, Ground Ops, System Stats, and Health.
 - **Local Persistence**: User settings (basemap, weather layer, default airport) are saved locally.
-- **Placeholder Ready**: A NOTAM shell is present and officially linked, ready for future backend integration.
 
 ---
 
@@ -118,8 +117,8 @@ Typical configuration variables include:
 
 ## Limitations
 
-- **Not Certified**: This is not a certified aviation, weather, or NOTAM source.
-- **NOTAMs**: Real NOTAM ingestion is not yet active. The UI acts as a placeholder linking to official FAA sources.
+- **Not Certified**: This is not a certified aviation or weather source.
+- **NOTAMs**: Real NOTAM ingestion is not yet active and is planned for a future release.
 - **Coverage**: Aircraft coverage is strictly dependent on the availability and health of the configured feeds.
 - **Weather**: RainViewer public tiles have inherent limitations and update frequencies.
 - **Rate Limits**: OpenSky or other external APIs may enforce rate limits that could throttle data updates.
@@ -157,4 +156,4 @@ Typical configuration variables include:
 
 ## Disclaimer
 
-**All data presented by this application—including weather, NOTAMs, frequencies, and aircraft positioning—is for display and advisory purposes only. It must not be used as the sole source for flight safety or operational decision-making. Always verify against official certified aviation sources.**
+**All data presented by this application—including weather, frequencies, and aircraft positioning—is for display and advisory purposes only. It must not be used as the sole source for flight safety or operational decision-making. Always verify against official certified aviation sources.**
