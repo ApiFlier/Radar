@@ -791,12 +791,14 @@
         }
         .aircraft-hover-tip::before { display: none !important; }
 
-        /* Basemap layer selector */
-        #basemap-ctl {
+        /* Map overlay controls bar (basemap + weather, fixed bottom-left) */
+        #map-overlay-bar {
             position: fixed; bottom: 32px; left: 64px;
             z-index: 999;
+            display: flex; gap: 6px; align-items: flex-end;
             font-family: 'Segoe UI', system-ui, sans-serif;
         }
+        #basemap-ctl { position: relative; }
         #bm-btn {
             display: block;
             background: rgba(8,12,16,0.85);
@@ -827,6 +829,50 @@
         }
         .bm-opt:hover { background: rgba(0,255,204,0.1); }
         .bm-opt.bm-active { color: #00ffcc; font-weight: 700; }
+
+        /* Weather radar overlay control */
+        #weather-ctl { position: relative; }
+        #wx-btn {
+            display: block;
+            background: rgba(8,12,16,0.85);
+            border: 1px solid rgba(0,255,204,0.22);
+            border-radius: 4px;
+            color: #c8efe6;
+            font-size: 11px; font-weight: 600;
+            padding: 4px 9px;
+            cursor: pointer; letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+        #wx-btn:hover { background: rgba(0,255,204,0.1); }
+        #wx-btn.wx-on { border-color: rgba(0,255,204,0.6); color: #00ffcc; }
+        #wx-panel {
+            display: none;
+            position: absolute; bottom: 100%; left: 0;
+            margin-bottom: 4px;
+            background: rgba(8,12,16,0.93);
+            border: 1px solid rgba(0,255,204,0.2);
+            border-radius: 4px;
+            min-width: 178px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+            padding: 9px 10px 8px;
+        }
+        #wx-panel.wx-open { display: block; }
+        .wx-row {
+            display: flex; align-items: center; gap: 7px;
+            margin-bottom: 7px;
+        }
+        .wx-row:last-child { margin-bottom: 0; }
+        .wx-label {
+            font-size: 10px; color: #8a9ea9;
+            flex-shrink: 0; cursor: default;
+        }
+        #wx-opacity-range {
+            width: 88px; accent-color: #00ffcc; cursor: pointer;
+        }
+        #wx-status {
+            font-size: 10px; color: #556; min-height: 13px;
+            margin-top: 4px;
+        }
 
     </style>
 </head>
@@ -896,14 +942,29 @@
         <div id="dp-body"></div>
     </div>
 
-    <div id="basemap-ctl">
-        <button id="bm-btn" onclick="_bmToggle()" title="Map layer">Map &#9662;</button>
-        <div id="bm-menu">
-            <div class="bm-opt" data-key="dark"      onclick="applyBasemap('dark')">Dark</div>
-            <div class="bm-opt" data-key="light"     onclick="applyBasemap('light')">Light</div>
-            <div class="bm-opt" data-key="street"    onclick="applyBasemap('street')">Street</div>
-            <div class="bm-opt" data-key="satellite" onclick="applyBasemap('satellite')">Satellite</div>
-            <div class="bm-opt" data-key="hybrid"    onclick="applyBasemap('hybrid')">Hybrid</div>
+    <div id="map-overlay-bar">
+        <div id="basemap-ctl">
+            <button id="bm-btn" onclick="_bmToggle()" title="Map layer">Map &#9662;</button>
+            <div id="bm-menu">
+                <div class="bm-opt" data-key="dark"      onclick="applyBasemap('dark')">Dark</div>
+                <div class="bm-opt" data-key="light"     onclick="applyBasemap('light')">Light</div>
+                <div class="bm-opt" data-key="street"    onclick="applyBasemap('street')">Street</div>
+                <div class="bm-opt" data-key="satellite" onclick="applyBasemap('satellite')">Satellite</div>
+                <div class="bm-opt" data-key="hybrid"    onclick="applyBasemap('hybrid')">Hybrid</div>
+            </div>
+        </div>
+        <div id="weather-ctl">
+            <button id="wx-btn" onclick="_wxPanelToggle()" title="Weather radar overlay (RainViewer - advisory only)">Weather</button>
+            <div id="wx-panel">
+                <div class="wx-row">
+                    <label class="wx-label"><input type="checkbox" id="wx-enabled-chk" onchange="_wxChecked(this.checked)"> Enable</label>
+                </div>
+                <div class="wx-row">
+                    <span class="wx-label">Opacity</span>
+                    <input type="range" id="wx-opacity-range" min="15" max="85" step="5" value="45" oninput="_wxOpacityInput(this.value)">
+                </div>
+                <div id="wx-status" class="wx-status"></div>
+            </div>
         </div>
     </div>
 
@@ -916,7 +977,8 @@
                       defaultAlertsTab:'operational', aircraftPageSize:'500',
                       showDQSummary:true, showInferredWarnings:true,
                       focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true,
-                      smoothMovement:true, defaultMapLayer:'dark' };
+                      smoothMovement:true, defaultMapLayer:'dark',
+                      weatherRadarEnabled:false, weatherRadarOpacity:'0.45' };
             try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
             catch(e) { return Object.assign({}, D); }
         })();
@@ -946,6 +1008,12 @@
         map.createPane('labels');
         map.getPane('labels').style.zIndex = 350;
         map.getPane('labels').style.pointerEvents = 'none';
+
+        /* Weather pane — sits above base tiles (200) but below hybrid labels (350),
+           focus rings (overlayPane 400), and all markers (600+). */
+        map.createPane('weather');
+        map.getPane('weather').style.zIndex = 250;
+        map.getPane('weather').style.pointerEvents = 'none';
 
         /* ── Basemap registry ── */
         var BASEMAPS = {
@@ -1034,6 +1102,151 @@
         });
 
         applyBasemap(_RS.defaultMapLayer || 'dark');
+
+        /* ── Weather radar overlay (RainViewer public API, advisory only) ── */
+        var _wxLayer     = null;
+        var _wxEnabled   = false;
+        var _wxOpacity   = (function() {
+            var v = parseFloat(_RS.weatherRadarOpacity);
+            return (!isNaN(v) && v >= 0.15 && v <= 0.85) ? v : 0.45;
+        })();
+        var _wxMetaCache = null;
+        var _wxMetaTs    = 0;
+        var _wxRefreshId = null;
+
+        function _wxSetStatus(msg) {
+            var el = document.getElementById('wx-status');
+            if (el) el.textContent = msg;
+        }
+
+        function _wxBtnUpdate() {
+            var btn = document.getElementById('wx-btn');
+            if (btn) {
+                btn.textContent = _wxEnabled ? 'Weather ●' : 'Weather';
+                btn.classList.toggle('wx-on', _wxEnabled);
+            }
+            var chk = document.getElementById('wx-enabled-chk');
+            if (chk) chk.checked = _wxEnabled;
+        }
+
+        function _wxPersist() {
+            try {
+                var _wSt = JSON.parse(localStorage.getItem('radar.settings') || '{}');
+                _wSt.weatherRadarEnabled = _wxEnabled;
+                _wSt.weatherRadarOpacity = String(_wxOpacity);
+                localStorage.setItem('radar.settings', JSON.stringify(_wSt));
+            } catch(_we) {}
+        }
+
+        function _wxFetchMeta(cb) {
+            var _now = Date.now();
+            if (_wxMetaCache && (_now - _wxMetaTs) < 5 * 60 * 1000) {
+                cb(null, _wxMetaCache);
+                return;
+            }
+            fetch('https://api.rainviewer.com/public/weather-maps.json')
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    _wxMetaCache = data;
+                    _wxMetaTs = Date.now();
+                    cb(null, data);
+                })
+                .catch(function(err) { cb(err, null); });
+        }
+
+        function _wxApplyMeta(data) {
+            if (_wxLayer) { map.removeLayer(_wxLayer); _wxLayer = null; }
+            if (!data || !data.radar || !data.radar.past || !data.radar.past.length) {
+                _wxSetStatus('Unavailable');
+                return;
+            }
+            var _host  = (data.host || 'https://tilecache.rainviewer.com').replace(/\/$/, '');
+            var _past  = data.radar.past;
+            var _frame = _past[_past.length - 1];
+            /* Tile URL: host + path + /512/{z}/{x}/{y}/{colorScheme}/{options}.png
+               Color 2 = TITAN palette (good contrast on all basemaps).
+               Options 1_1 = smooth + snow. */
+            var _url = _host + _frame.path + '/512/{z}/{x}/{y}/2/1_1.png';
+            var _ts  = new Date(_frame.time * 1000);
+            var _hhmm = ('0' + _ts.getUTCHours()).slice(-2) + ':' + ('0' + _ts.getUTCMinutes()).slice(-2);
+            _wxLayer = L.tileLayer(_url, {
+                pane: 'weather',
+                opacity: _wxOpacity,
+                maxNativeZoom: 15,
+                maxZoom: 22,
+                attribution: 'Weather &copy; <a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer</a> (advisory only, not certified aviation weather)'
+            });
+            _wxLayer.addTo(map);
+            _wxSetStatus('Radar frame: ' + _hhmm + ' UTC');
+        }
+
+        function _wxEnable() {
+            _wxEnabled = true;
+            _wxBtnUpdate();
+            _wxSetStatus('Loading...');
+            _wxFetchMeta(function(err, data) {
+                if (!_wxEnabled) return;
+                if (err || !data) { _wxSetStatus('Unavailable'); }
+                else { _wxApplyMeta(data); }
+                _wxPersist();
+            });
+            if (_wxRefreshId) clearInterval(_wxRefreshId);
+            _wxRefreshId = setInterval(function() {
+                if (!_wxEnabled) return;
+                _wxMetaCache = null;
+                _wxFetchMeta(function(err, data) {
+                    if (!_wxEnabled) return;
+                    if (!err && data) _wxApplyMeta(data);
+                });
+            }, 10 * 60 * 1000);
+        }
+
+        function _wxDisable() {
+            _wxEnabled = false;
+            if (_wxLayer) { map.removeLayer(_wxLayer); _wxLayer = null; }
+            if (_wxRefreshId) { clearInterval(_wxRefreshId); _wxRefreshId = null; }
+            _wxBtnUpdate();
+            _wxSetStatus('');
+            _wxPersist();
+        }
+
+        function _wxChecked(checked) {
+            if (checked) _wxEnable(); else _wxDisable();
+        }
+
+        function _wxOpacityInput(val) {
+            _wxOpacity = parseInt(val, 10) / 100;
+            if (_wxLayer) _wxLayer.setOpacity(_wxOpacity);
+            try {
+                var _wSt = JSON.parse(localStorage.getItem('radar.settings') || '{}');
+                _wSt.weatherRadarOpacity = String(_wxOpacity);
+                localStorage.setItem('radar.settings', JSON.stringify(_wSt));
+            } catch(_we) {}
+        }
+
+        function _wxPanelToggle() {
+            var _wp = document.getElementById('wx-panel');
+            if (_wp) _wp.classList.toggle('wx-open');
+        }
+
+        document.addEventListener('click', function(e) {
+            var _wctl = document.getElementById('weather-ctl');
+            if (_wctl && !_wctl.contains(e.target)) {
+                var _wp = document.getElementById('wx-panel');
+                if (_wp) _wp.classList.remove('wx-open');
+            }
+        });
+
+        /* Apply saved opacity to slider, then conditionally enable */
+        (function() {
+            var _wr = document.getElementById('wx-opacity-range');
+            if (_wr) _wr.value = Math.round(_wxOpacity * 100);
+            if (_RS.weatherRadarEnabled === true) _wxEnable();
+            else _wxBtnUpdate();
+        })();
 
 
         var planeData = {};
