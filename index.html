@@ -34,12 +34,18 @@
         .aircraft-icon-helicopter svg { width: 30px; height: 30px; }
 
         .aircraft-icon-parked {
-            opacity: 0.75;
+            opacity: 0.7;
+            color: #777 !important;
+            filter: grayscale(1);
         }
 
         .aircraft-icon-ground_moving {
-            opacity: 0.9;
+            opacity: 1.0;
+            filter: drop-shadow(0 0 4px rgba(0,255,204,0.6));
         }
+
+        .badge-parked { background: #555 !important; color: #ccc !important; }
+        .badge-taxi { background: #0088aa !important; color: #fff !important; }
 
         .aircraft-icon-ground-sweep {
             background: rgba(0, 0, 0, 0.72);
@@ -115,8 +121,7 @@
         #hud .airlines { font-size: 11px; color: #aaa; line-height: 1.6; }
         #hud .airlines span { color: #00ffcc; font-weight: bold; min-width: 30px; display: inline-block; text-align: right; margin-right: 4px; }
 
-        /* push Leaflet zoom controls clear of the sidebar */
-        .leaflet-top.leaflet-left { margin-left: 56px; }
+        /* Leaflet zoom controls are positioned bottom-right in map init. */
 
         /* ── App sidebar ── */
         #sidebar {
@@ -791,6 +796,22 @@
         }
         .aircraft-hover-tip::before { display: none !important; }
 
+        .leaflet-bottom.leaflet-right .leaflet-control-zoom {
+            margin-bottom: 34px;
+            margin-right: 12px;
+            border: 1px solid rgba(0,255,204,0.24);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+        }
+        .leaflet-control-zoom a {
+            background: rgba(8,12,16,0.88);
+            color: #d4f5ec;
+            border-bottom-color: rgba(255,255,255,0.12);
+        }
+        .leaflet-control-zoom a:hover {
+            background: rgba(0,255,204,0.12);
+            color: #00ffcc;
+        }
+
         /* Map overlay controls bar (basemap + weather, fixed bottom-left) */
         #map-overlay-bar {
             position: fixed; bottom: 32px; left: 64px;
@@ -872,6 +893,19 @@
         #wx-status {
             font-size: 10px; color: #556; min-height: 13px;
             margin-top: 4px;
+        }
+        .wx-playback-row { justify-content: space-between; margin-top: 10px; }
+        .wx-ctrl {
+            background: rgba(0,255,204,0.1); border: 1px solid rgba(0,255,204,0.2);
+            color: #00ffcc; border-radius: 3px; cursor: pointer;
+            width: 32px; height: 22px; display: flex; align-items: center; justify-content: center;
+            font-size: 10px; transition: background 0.2s;
+        }
+        .wx-ctrl:hover { background: rgba(0,255,204,0.2); }
+        .wx-ctrl:disabled { color: #444; border-color: #333; cursor: default; background: transparent; }
+        .wx-advisory {
+            font-size: 9px; color: #566; margin-top: 8px; line-height: 1.2;
+            border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px;
         }
 
     </style>
@@ -957,13 +991,19 @@
             <button id="wx-btn" onclick="_wxPanelToggle()" title="Weather radar overlay (RainViewer - advisory only)">Weather</button>
             <div id="wx-panel">
                 <div class="wx-row">
-                    <label class="wx-label"><input type="checkbox" id="wx-enabled-chk" onchange="_wxChecked(this.checked)"> Enable</label>
+                    <label class="wx-label"><input type="checkbox" id="wx-enabled-chk" onchange="_wxChecked(this.checked)"> Enable Radar</label>
                 </div>
                 <div class="wx-row">
                     <span class="wx-label">Opacity</span>
                     <input type="range" id="wx-opacity-range" min="15" max="85" step="5" value="45" oninput="_wxOpacityInput(this.value)">
                 </div>
+                <div class="wx-row wx-playback-row">
+                    <button id="wx-prev-btn" class="wx-ctrl" onclick="_wxPrevFrame()" title="Previous frame">«</button>
+                    <button id="wx-play-btn" class="wx-ctrl" onclick="_wxTogglePlay()" title="Play/Pause">▶</button>
+                    <button id="wx-next-btn" class="wx-ctrl" onclick="_wxNextFrame()" title="Next frame">»</button>
+                </div>
                 <div id="wx-status" class="wx-status"></div>
+                <div class="wx-advisory">Radar frames are recent but not certified aviation weather.</div>
             </div>
         </div>
     </div>
@@ -977,7 +1017,7 @@
                       defaultAlertsTab:'operational', aircraftPageSize:'500',
                       showDQSummary:true, showInferredWarnings:true,
                       focusRadiusNm:'50', focusInboundAlerts:true, focusEmergencyAlerts:true,
-                      smoothMovement:true, defaultMapLayer:'dark',
+                      smoothMovement:true, defaultMapLayer:'hybrid',
                       weatherRadarEnabled:false, weatherRadarOpacity:'0.45' };
             try { return Object.assign({}, D, JSON.parse(localStorage.getItem('radar.settings') || '{}')); }
             catch(e) { return Object.assign({}, D); }
@@ -1003,7 +1043,8 @@
                 // Priority 3: Pittsburgh fallback (already set above)
             }
         }
-        var map = L.map('map').setView([_initLat, _initLon], _initZoom);
+        var map = L.map('map', { zoomControl: false }).setView([_initLat, _initLon], _initZoom);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
         /* Labels pane — used by Hybrid overlay; created once regardless of active layer */
         map.createPane('labels');
         map.getPane('labels').style.zIndex = 350;
@@ -1113,6 +1154,11 @@
         var _wxMetaCache = null;
         var _wxMetaTs    = 0;
         var _wxRefreshId = null;
+        var _wxFrames    = [];
+        var _wxFrameIdx  = -1;
+        var _wxPlaying   = false;
+        var _wxPlayTimer = null;
+        var _wxHost      = 'https://tilecache.rainviewer.com';
 
         function _wxSetStatus(msg) {
             var el = document.getElementById('wx-status');
@@ -1157,35 +1203,110 @@
                 .catch(function(err) { cb(err, null); });
         }
 
+        function _wxUpdateControls() {
+            var playBtn = document.getElementById('wx-play-btn');
+            if (playBtn) playBtn.textContent = _wxPlaying ? '❙❙' : '▶';
+            var prevBtn = document.getElementById('wx-prev-btn');
+            var nextBtn = document.getElementById('wx-next-btn');
+            var disabled = !_wxEnabled || _wxFrames.length === 0;
+            if (prevBtn) prevBtn.disabled = disabled;
+            if (playBtn) playBtn.disabled = disabled;
+            if (nextBtn) nextBtn.disabled = disabled;
+        }
+
+        function _wxFormatFrameTime(frame) {
+            if (!frame) return '';
+            var _ts  = new Date(frame.time * 1000);
+            return ('0' + _ts.getUTCHours()).slice(-2) + ':' + ('0' + _ts.getUTCMinutes()).slice(-2) + ' UTC';
+        }
+
+        function _wxFrameUrl(frame) {
+            if (!frame) return '';
+            /* Tile URL: host + path + /512/{z}/{x}/{y}/{colorScheme}/{options}.png
+               Color 2 = TITAN palette. Options 1_1 = smooth + snow. */
+            return _wxHost + frame.path + '/512/{z}/{x}/{y}/2/1_1.png';
+        }
+
+        function _wxSetFrame(idx) {
+            if (!_wxEnabled || !_wxFrames.length) return;
+            if (idx < 0) idx = _wxFrames.length - 1;
+            if (idx >= _wxFrames.length) idx = 0;
+            _wxFrameIdx = idx;
+            var frame = _wxFrames[_wxFrameIdx];
+            var url = _wxFrameUrl(frame);
+
+            if (_wxLayer) {
+                _wxLayer.setUrl(url);
+            } else {
+                _wxLayer = L.tileLayer(url, {
+                    pane: 'weather',
+                    opacity: _wxOpacity,
+                    maxNativeZoom: 7,
+                    maxZoom: 18,
+                    attribution: 'Weather &copy; <a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer</a> (advisory only, not certified aviation weather)'
+                });
+                _wxLayer.addTo(map);
+            }
+            _wxSetStatus('Radar frame: ' + _wxFormatFrameTime(frame));
+        }
+
+        function _wxTogglePlay() {
+            if (_wxPlaying) _wxPause(); else _wxPlay();
+        }
+
+        function _wxPlay() {
+            if (!_wxEnabled || _wxFrames.length === 0) return;
+            _wxPlaying = true;
+            _wxUpdateControls();
+            if (_wxPlayTimer) clearInterval(_wxPlayTimer);
+            _wxPlayTimer = setInterval(function() {
+                _wxNextFrame(true);
+            }, 1000);
+        }
+
+        function _wxPause() {
+            _wxPlaying = false;
+            _wxUpdateControls();
+            if (_wxPlayTimer) { clearInterval(_wxPlayTimer); _wxPlayTimer = null; }
+        }
+
+        function _wxNextFrame(auto) {
+            if (!auto) _wxPause();
+            _wxSetFrame(_wxFrameIdx + 1);
+        }
+
+        function _wxPrevFrame() {
+            _wxPause();
+            _wxSetFrame(_wxFrameIdx - 1);
+        }
+
         function _wxApplyMeta(data) {
-            if (_wxLayer) { map.removeLayer(_wxLayer); _wxLayer = null; }
             if (!data || !data.radar || !data.radar.past || !data.radar.past.length) {
                 _wxSetStatus('Unavailable');
+                _wxFrames = [];
+                _wxUpdateControls();
                 return;
             }
-            var _host  = (data.host || 'https://tilecache.rainviewer.com').replace(/\/$/, '');
-            var _past  = data.radar.past;
-            var _frame = _past[_past.length - 1];
-            /* Tile URL: host + path + /512/{z}/{x}/{y}/{colorScheme}/{options}.png
-               Color 2 = TITAN palette (good contrast on all basemaps).
-               Options 1_1 = smooth + snow. */
-            var _url = _host + _frame.path + '/512/{z}/{x}/{y}/2/1_1.png';
-            var _ts  = new Date(_frame.time * 1000);
-            var _hhmm = ('0' + _ts.getUTCHours()).slice(-2) + ':' + ('0' + _ts.getUTCMinutes()).slice(-2);
-            _wxLayer = L.tileLayer(_url, {
-                pane: 'weather',
-                opacity: _wxOpacity,
-                maxNativeZoom: 15,
-                maxZoom: 22,
-                attribution: 'Weather &copy; <a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer</a> (advisory only, not certified aviation weather)'
-            });
-            _wxLayer.addTo(map);
-            _wxSetStatus('Radar frame: ' + _hhmm + ' UTC');
+            _wxHost = (data.host || 'https://tilecache.rainviewer.com').replace(/\/$/, '');
+            var newFrames = data.radar.past;
+            var isInitial = (_wxFrames.length === 0);
+            _wxFrames = newFrames;
+            
+            if (isInitial) {
+                _wxFrameIdx = _wxFrames.length - 1;
+                _wxSetFrame(_wxFrameIdx);
+            } else {
+                if (!_wxPlaying) {
+                    _wxSetFrame(_wxFrameIdx >= _wxFrames.length ? _wxFrames.length - 1 : _wxFrameIdx);
+                }
+            }
+            _wxUpdateControls();
         }
 
         function _wxEnable() {
             _wxEnabled = true;
             _wxBtnUpdate();
+            _wxUpdateControls();
             _wxSetStatus('Loading...');
             _wxFetchMeta(function(err, data) {
                 if (!_wxEnabled) return;
@@ -1206,9 +1327,13 @@
 
         function _wxDisable() {
             _wxEnabled = false;
+            _wxPause();
             if (_wxLayer) { map.removeLayer(_wxLayer); _wxLayer = null; }
             if (_wxRefreshId) { clearInterval(_wxRefreshId); _wxRefreshId = null; }
+            _wxFrames = [];
+            _wxFrameIdx = -1;
             _wxBtnUpdate();
+            _wxUpdateControls();
             _wxSetStatus('');
             _wxPersist();
         }
@@ -1476,7 +1601,9 @@
         }
 
         function aircraftBadgeHtml(p) {
-            // Keep the map clean. Aircraft privacy/category tags are shown in the popup instead.
+            var state = aircraftDisplayState(p);
+            if (state === 'parked') return '<div class="aircraft-badge badge-parked">P</div>';
+            if (state === 'ground_moving') return '<div class="aircraft-badge badge-taxi">T</div>';
             return '';
         }
 
@@ -1494,22 +1621,25 @@
             var icao   = String(p.icaoHex      || '').trim();
             var cls    = String(p.aircraftClass || '').toLowerCase();
             var al     = airlineInfo(p);
+            
+            var state = aircraftDisplayState(p);
+            var stateSuffix = (state === 'parked') ? ' (Parked)' : (state === 'ground_moving') ? ' (Taxiing)' : '';
 
             if (isMil || cls === 'military') {
                 var ident = cs || reg || icao;
-                return 'Military' + (ident ? ' · ' + ident : '');
+                return 'Military' + (ident ? ' · ' + ident : '') + stateSuffix;
             }
             if (isHeli || cls === 'helicopter') {
                 var ident = reg || cs;
-                return ident ? ident + ' · Helicopter' : 'Helicopter';
+                return (ident ? ident + ' · Helicopter' : 'Helicopter') + stateSuffix;
             }
             if (al) {
-                return (cs || (al.prefix + al.number)) + ' · ' + al.airline;
+                return (cs || (al.prefix + al.number)) + ' · ' + al.airline + stateSuffix;
             }
-            if (cs)   return cs;
-            if (reg)  return reg;
-            if (icao) return 'ICAO ' + icao.toUpperCase();
-            return p.flightId || '';
+            if (cs)   return cs + stateSuffix;
+            if (reg)  return reg + stateSuffix;
+            if (icao) return 'ICAO ' + icao.toUpperCase() + stateSuffix;
+            return (p.flightId || '') + stateSuffix;
         }
 
         function makePlaneIcon(id, heading, color, opacity) {
