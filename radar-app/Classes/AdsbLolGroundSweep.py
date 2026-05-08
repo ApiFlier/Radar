@@ -114,7 +114,7 @@ class AdsbLolGroundSweepIngestor(BaseIngestor):
     def fetch_circle(self, lat: float, lon: float, radius_nm: int) -> Tuple[Dict[str, Any], int]:
         circle = f"{lat},{lon},{radius_nm}"
         url = f"{self.reapi_base}/?circle={circle}"
-        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "MeeksRadarGroundSweep/1.0"})
+        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "AviationRadar/1.0"})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode("utf-8")), resp.getcode()

@@ -1,5 +1,5 @@
 """
-Meeks Family Radar - Unified App
+Aviation Radar - Unified App
 """
 
 import os
@@ -67,8 +67,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Meeks Family Radar",
-    description="Unified Flight Tracking App",
+    title="Aviation Radar",
+    description="Self-hosted live aircraft tracking application",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -118,7 +118,7 @@ async def showDocumentation():
     })
     
     return JSONResponse(content={
-        "api": "Meeks Family Radar API",
+        "api": "Aviation Radar API",
         "version": "1.0.0",
         "endpoints": endpoints,
         "usage": "Use ?action=<ModuleName> or specific /api/* paths"

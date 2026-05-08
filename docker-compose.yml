@@ -1,19 +1,19 @@
-name: radar
+name: aviation-radar
 
 services:
   redis:
     image: redis:alpine
-    container_name: radar-redis
+    container_name: aviation-radar-redis
     restart: unless-stopped
     volumes:
       - redis_data:/data
 
   app:
-    image: radar-app
+    image: aviation-radar-app
     build:
       context: ./radar-app
       dockerfile: Dockerfile
-    container_name: radar-app
+    container_name: aviation-radar-app
     env_file:
       - .env
     environment:
@@ -27,11 +27,11 @@ services:
     restart: unless-stopped
 
   swim-ingestor:
-    image: radar-app
+    image: aviation-radar-app
     build:
       context: ./radar-app
       dockerfile: Dockerfile
-    container_name: radar-swim-ingestor
+    container_name: aviation-radar-swim-ingestor
     command: python -u -m Classes.Ingestors.faa.runFAASwim
     env_file:
       - .env
@@ -41,6 +41,8 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    profiles:
+      - swim
 
 volumes:
   redis_data:

@@ -5,6 +5,7 @@ data/airport-frequencies.csv
 
 # Python cache files
 __pycache__/
+**/__pycache__/
 *.py[cod]
 
 # Local runtime/deployment secrets
@@ -20,10 +21,24 @@ deploy.env
 .mypy_cache/
 .ruff_cache/
 
+# Databases and local data stores
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+
+# Archives and generated artifacts
+*.tar.gz
+*.zip
+*.bak
+backups/
+reports/
+
 # Local editor/OS noise
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
 
 # Claude Code local state (never commit)
 .claude/

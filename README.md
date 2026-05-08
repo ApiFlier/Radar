@@ -1,172 +1,258 @@
-# Radar / Airport Operations Dashboard
+# Aviation Radar
 
-A self-hosted, Docker-based radar and airport operations dashboard. Radar provides live aircraft tracking, configurable airport focus modes, aviation weather integrations, and system health monitoring in a professional, browser-based UI.
+A self-hosted live aircraft tracking and airport operations dashboard. Aviation Radar aggregates real-time data from public aviation feeds, correlates ADS-B and FAA flight plan data, and presents it through a browser-based map UI with alerts, ground ops, weather overlays, and system health monitoring.
 
----
-
-## Screenshots
-
-*(Placeholders for future screenshots)*
-- ![Radar map screenshot](docs/screenshots/radar.png)
-- ![Airport panel screenshot](docs/screenshots/airport-panel.png)
-
----
-
-## Features
-
-- **Live Aircraft Tracking**: Real-time tracking with smooth marker animation and zoom-based density adjustments.
-- **Airport Focus Mode**: Focus on a specific airport to highlight related flights, with configurable inbound and emergency alerts.
-- **Aviation Weather**: Airport weather cards load METAR and TAF data lazily to keep the dashboard fast.
-- **Weather Radar**: RainViewer precipitation overlay with crossfaded playback and adjustable opacity.
-- **Rich Aircraft Data**: Distinct icons for commercial, private, military, and helicopters, plus parked vs. taxiing states.
-- **Interactive UI**: Viewport-first loading, hover tooltips, and shift-click popup behaviors.
-- **Multiple Basemaps**: Choose from Dark, Light, Street, Satellite, and Hybrid (default) basemaps.
-- **Comprehensive Dashboards**: Dedicated pages for Alerts, Aircraft Search, Ground Ops, System Stats, and Health.
-- **Local Persistence**: User settings (basemap, weather layer, default airport) are saved locally.
-
----
-
-## Architecture
-
-Radar uses a modular, microservice architecture orchestrated via Docker Compose:
-
-- **App Service**: A unified Python/FastAPI service (`radar-app`) that serves both the browser-based UI and the internal REST API. As of Stage 2B-2, it runs both the **ADSB.lol Re-API** and **ADSB.lol Ground Sweep** ingestors as internal supervised background workers.
-- **Cache / Message Broker**: Redis (`radar-redis`) is used for internal state storage and fast message brokering between services.
-- **Ingestors**: Dedicated Python workers (`radar-swim-ingestor`) connecting to external data feeds.
-
-### Aircraft Data Path
-
-Aircraft data flows through the system in a standard canonical path:
-1. **Fetch/Receive**: Ingestors (internal or external) fetch data from sources (ADSB.lol, OpenSky, FAA SWIM).
-2. **Normalize**: Ingestors normalize raw source data into a standard snake_case schema.
-3. **Publish to live_planes**: Normalized data is published to the `live_planes` Redis channel.
-4. **CoreProcessor Fusion**: The `CoreProcessor` worker subscribes to `live_planes`, performs data fusion/correlation (e.g., matching ADS-B to FAA GUFI), and updates the canonical state in Redis (`state:*` and `profile:*` keys).
-5. **Publish to planes_out**: `CoreProcessor` publishes the fused aircraft object to the `planes_out` Redis channel.
-6. **SSE Stream**: The FastAPI `/api/stream` endpoint subscribes to `planes_out` and pushes real-time updates to the frontend via Server-Sent Events.
-7. **REST Snapshot**: The `/api?action=Planes` endpoint (used by `ApiPlanes.py`) scans Redis `state:*` and `adsblol:state:*` keys to provide a full snapshot for initial load and periodic fallback.
-
----
-
-## Worker Supervisor (Stage 2B)
-
-The `radar-app` contains an internal **Worker Supervisor** that manages ingestor tasks.
-
-- **Internal Workers**:
-  - `adsblol-reapi`: **ENABLED** by default.
-  - `adsblol-ground`: **ENABLED** by default (integrated into `radar-app`).
-  - `swim-ingestor`: **DISABLED** internally (runs as external container).
-- **Status Monitoring**: Detailed internal worker health is available at `/api/workers/status`.
-
----
-
-## Data Sources & Attribution
-
-Radar aggregates data from several sources. **All data is advisory only and must not be used for operational decision-making.**
-
-- **FAA SWIM**: Core flight data integration.
-- **ADSB.lol / OpenSky**: Airborne and ground-level ADS-B target feeds.
-- **RainViewer**: Public weather radar tiles (Advisory only; API limits may apply).
-- **AviationWeather.gov**: Source for METAR and TAF airport weather.
-- **api.weather.gov**: Source for active National Weather Service alerts.
+This is a production-style Docker deployment — not a demo app. All tracked aircraft are live, pulled from operational public data sources.
 
 ---
 
 ## Quick Start
 
-1. **Clone the repository and Configure your deployment environment and Build and start the containers:**
-   ```bash
-   git clone https://github.com/ApiFlier/aviation-radar radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
-   ```
-   ```bash
-   git clone https://github.com/ApiFlier/aviation-radar radar; sudo chown -R $USER:$USER ./radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
-   ```
+### 1. Install Docker
 
-2. **Access the application:**
-   Find the assigned web port:
-   ```bash
-   WEB_PORT=$(grep '^WEB_PORT=' .env | cut -d= -f2)
-   echo "Open http://127.0.0.1:${WEB_PORT} in your browser"
-   ```
+**Windows / macOS** — [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
----
+**Linux** — [Docker Engine](https://docs.docker.com/engine/install/) + Docker Compose plugin:
+```bash
+# Example for Ubuntu/Debian
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
 
-## Configuration
+### 2. Verify Docker
 
-Environment variables are configured in the `.env` file (copied from `deploy.env.example`).
+```bash
+docker --version
+docker compose version
+```
 
-Typical configuration variables include:
-- `FAA_USER` / `FAA_PASS`
-- `QUEUE_SFDPS`, `QUEUE_STDDS`, `QUEUE_TFMS`
-- `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` (Optional)
+Both commands must succeed before proceeding.
 
-**⚠️ SECURITY WARNING:** Never commit `.env` or `deploy.env` to version control. They contain sensitive credentials.
+### 3. Clone, configure, and run
 
----
+```bash
+git clone https://github.com/ApiFlier/aviation-radar.git radar
+cd radar
+cp deploy.env.example deploy.env
+nano deploy.env
+chmod +x setup.sh
+./setup.sh
+```
 
-## Pages & Routes
+`deploy.env` is **only for user-supplied values** such as API keys and credentials. `setup.sh` reads it and generates a complete `.env` with production-ready defaults, then builds and starts Docker.
 
-- `/` : Main Radar Map & Dashboard
-- `/aircraft` : Aircraft search, pagination, and filtering
-- `/airports` : Airport directories and metrics
-- `/ground` : Ground operations sweep data
-- `/alerts` : Operational and Data-Quality alerts
-- `/stats` : System statistics and flight data summaries
-- `/health` : Microservice health and status monitoring
-- `/settings` : User preference configuration
+### What setup.sh does
 
----
-
-## Usage Notes
-
-- **Map Controls**: Use the bottom-right buttons for zooming and the bottom-left control bar for switching basemaps or toggling the weather overlay.
-- **Weather Overlay**: Enable weather to see RainViewer data. Use the Play/Pause buttons to cycle through recent frames with smooth crossfading.
-- **Airport Focus**: Click an airport to open the side panel. Click "Focus Airport" to highlight inbound traffic and trigger proximity alerts.
-- **Aircraft Interaction**:
-  - *Hover*: View basic identification and state.
-  - *Click*: Open the detailed side panel.
-  - *Shift + Click*: Open a quick popup directly on the map.
+- Validates `deploy.env` for required values
+- Generates `.env` with sane defaults (Redis settings, polling intervals, feature flags)
+- Builds Docker images from source
+- Creates or reuses Docker-managed persistent storage (`aviation-radar_redis_data`)
+- Finds an available host port automatically (default 8080, increments if busy)
+- Starts the app and data ingest services
+- Prints the final local URL
+- Optionally deletes local source files — Docker containers and volumes keep running either way
 
 ---
 
-## Limitations
+## What Aviation Radar Does
 
-- **Not Certified**: This is not a certified aviation or weather source.
-- **NOTAMs**: Real NOTAM ingestion is not yet active and is planned for a future release.
-- **Coverage**: Aircraft coverage is strictly dependent on the availability and health of the configured feeds.
-- **Weather**: RainViewer public tiles have inherent limitations and update frequencies.
-- **Rate Limits**: OpenSky or other external APIs may enforce rate limits that could throttle data updates.
+Aviation Radar is a fully self-hosted flight tracking system that:
 
----
-
-## Security Notes
-
-- **Protect Credentials**: `.env` and `deploy.env` files contain sensitive information and must remain excluded from Git.
-- **No Secrets in Docs**: This README and other documentation files must never contain live passwords, tokens, or private URLs.
-- **Terms of Service**: Review the terms of service for all external data providers before utilizing this stack in any public or commercial capacity.
+- Displays live aircraft positions on an interactive Leaflet map with smooth animation
+- Ingests ADS-B position data from [ADSB.lol](https://adsb.lol) every 10 seconds
+- Runs a ground sweep to track aircraft taxiing at airports
+- Optionally ingests FAA SWIM (FDPS, STDDS, TFMS) flight plan and track data when credentials are configured
+- Fuses data from multiple sources into a single canonical aircraft state per tail/GUFI
+- Streams fused updates to the browser in real time via Server-Sent Events
+- Shows weather overlays (RainViewer precipitation), METAR/TAF cards, and NWS alerts
 
 ---
 
-## Troubleshooting
+## Key Features
 
-- **Containers not starting**: Verify Docker daemon is running and check `docker compose logs -f` for specific service failures.
-- **Routes not returning 200**: Ensure the API and Web services are fully built and bound to the correct ports.
-- **Weather unavailable**: Check browser DevTools for CORS issues or RainViewer/AviationWeather API outages.
-- **Aircraft not visible**: Verify that your ingestors (e.g., SWIM or ADSB.lol) are authenticating properly and receiving data.
-- **Settings not applying**: Ensure local storage is permitted in your browser, as settings are persisted client-side.
+- **Live Aircraft Tracking** — Real-time map with zoom-based density filtering and smooth marker animation
+- **Airport Focus Mode** — Click any airport to highlight inbound traffic and trigger proximity alerts
+- **Ground Operations** — ADS-B ground sweep tracks aircraft on airport surfaces
+- **Aviation Weather** — METAR and TAF cards loaded lazily per airport; RainViewer radar overlay with playback
+- **Alerts Dashboard** — Active NWS weather alerts and data-quality flags
+- **Aircraft Search** — Paginated aircraft list with filtering by callsign, type, origin, destination
+- **System Health** — Live worker status, Redis connectivity, ingestor metrics
+- **Multiple Basemaps** — Dark, Light, Street, Satellite, Hybrid (default)
+- **Local Settings** — Basemap, weather layer, and default airport persist in browser local storage
+
+---
+
+## Architecture
+
+Docker Compose orchestrates three services:
+
+```
+aviation-radar-app          FastAPI app — serves the UI, REST API, SSE stream,
+                            and runs internal ADS-B ingestor workers
+
+aviation-radar-redis        Redis — canonical aircraft state, pub/sub message bus
+
+aviation-radar-swim-ingestor  (optional) FAA SWIM consumer — connects to FAA
+                              Solace queues via stunnel TLS tunnel
+                              Only started when ENABLE_SWIM_INGESTOR=true
+```
+
+### Aircraft Data Path
+
+1. **Ingest** — Internal workers (ADS-B.lol Re-API, ground sweep) or the SWIM container fetch data from live sources
+2. **Normalize** — Raw source data is mapped to a standard snake_case schema and published to the `live_planes` Redis channel
+3. **Fuse** — `CoreProcessor` subscribes to `live_planes`, correlates ADS-B and FAA identifiers, and updates `state:*` and `profile:*` keys in Redis
+4. **Stream** — `/api/stream` subscribes to the `planes_out` channel and pushes updates to the browser via SSE
+5. **Snapshot** — `/api?action=Planes` scans Redis state keys for the full aircraft list (initial load and periodic fallback)
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| API / App server | Python 3.11, FastAPI, Uvicorn |
+| State / Messaging | Redis 7 (Alpine) |
+| FAA SWIM connectivity | Solace PubSub+ Python SDK, stunnel4 TLS tunnel |
+| ADS-B ingestion | ADSB.lol Re-API (HTTP polling) |
+| Frontend | Vanilla JS, Leaflet.js, SSE |
+| Containerization | Docker, Docker Compose v2 |
+
+---
+
+## Data Sources
+
+| Source | What it provides | Requires credentials? |
+|---|---|---|
+| [ADSB.lol Re-API](https://adsb.lol) | ADS-B airborne positions | IP must be a registered feeder |
+| ADSB.lol ground sweep | ADS-B ground positions at airports | Same as above |
+| [FAA SWIM](https://www.faa.gov/air_traffic/technology/swim) | FDPS/STDDS/TFMS flight plan and track data | Yes — FAA SWIM account required |
+| [AviationWeather.gov](https://aviationweather.gov) | METAR, TAF | No |
+| [api.weather.gov](https://api.weather.gov) | NWS active alerts | No |
+| [RainViewer](https://www.rainviewer.com) | Precipitation radar tiles | No (public API) |
+| [OpenSky Network](https://opensky-network.org) | Supplemental ADS-B coverage | Optional client credentials |
+
+**All data is advisory only. Do not use for operational flight safety decisions.**
+
+---
+
+## API Keys / Required Configuration
+
+### No keys needed to get started
+
+A fresh deployment works out of the box with public ADS-B data from ADSB.lol — provided your server's public IP is a registered ADS-B feeder on that network. No API keys are required for the base deployment.
+
+### Optional: OpenSky Network
+
+Adding OpenSky credentials improves coverage. Set in `deploy.env`:
+```
+OPENSKY_CLIENT_ID=your-client-id
+OPENSKY_CLIENT_SECRET=your-secret
+```
+
+### Optional: FAA SWIM (FDPS / STDDS / TFMS)
+
+FAA SWIM provides official FAA flight plan and en-route track data. This requires a free FAA SWIM account and approved queue subscriptions.
+
+To enable, set in `deploy.env`:
+```
+ENABLE_SWIM_INGESTOR=true
+
+FAA_USER=your.email@example.com
+FAA_PASS=your-swim-password
+QUEUE_SFDPS=your.email@example.com.FDPS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
+QUEUE_STDDS=your.email@example.com.STDDS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
+QUEUE_TFMS=your.email@example.com.TFMS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
+```
+
+When `ENABLE_SWIM_INGESTOR=false` (the default), the `aviation-radar-swim-ingestor` container is not started. This prevents the restart loop that occurs when FAA credentials are missing or rejected.
+
+Apply for SWIM access: [https://www.faa.gov/air_traffic/technology/swim](https://www.faa.gov/air_traffic/technology/swim)
+
+---
+
+## Runtime State and Persistence
+
+Docker Compose creates a named volume `aviation-radar_redis_data` for Redis persistence. This volume:
+
+- Survives container restarts and `docker compose down`
+- Is reused automatically on `./setup.sh` re-runs
+- Is **not** deleted when you delete the source files
+
+Aircraft state is ephemeral within Redis (TTL-based). There is no database for historical data in the current release.
+
+---
+
+## Pages and Routes
+
+| Route | Description |
+|---|---|
+| `/` | Main live map and dashboard |
+| `/aircraft` | Aircraft search, pagination, filtering |
+| `/airports` | Airport directory and metrics |
+| `/ground` | Ground operations sweep data |
+| `/alerts` | Operational and weather alerts |
+| `/stats` | System statistics and flight data summaries |
+| `/health` | Service health and worker status |
+| `/settings` | User preference configuration |
+| `/api/workers/status` | JSON worker health endpoint |
+
+---
+
+## Testing
+
+```bash
+# Confirm containers are running
+docker compose ps
+
+# Tail all service logs
+docker compose logs -f
+
+# Check live aircraft API response
+curl "http://localhost:8080/api?action=Planes" | python3 -m json.tool | head -40
+
+# Check worker health
+curl http://localhost:8080/api/workers/status | python3 -m json.tool
+```
+
+---
+
+## Deployment Notes
+
+- **setup.sh is idempotent** — safe to run again after changing `deploy.env`. It regenerates `.env` and rebuilds only changed layers.
+- **Port selection** — If port 8080 is busy, setup.sh finds the next available port automatically. The chosen port is written to `.env`.
+- **Source cleanup** — At the end of setup, you can delete the source directory. Containers keep running. To manage them without the source: `docker ps`, `docker logs aviation-radar-app`, `docker stop aviation-radar-app aviation-radar-redis`.
+- **ADSB.lol Re-API** — Requires your server's public IP to be a registered feeder on adsb.lol. Without this, the Re-API ingestor will still run but may return empty data.
+- **Firewall** — Open the chosen host port on your firewall if you want LAN or external access.
+
+---
+
+## Known Limitations
+
+- **No historical playback** — Aircraft state is live only. There is no database-backed history store yet.
+- **NOTAMs** — NOTAM ingestion is not yet active. Planned for a future release.
+- **ADSB.lol coverage** — ADS-B coverage depends on the global feeder network. Remote/oceanic coverage is limited.
+- **RainViewer** — Public radar tiles have rate limits and inherent update latency.
+- **Not certified** — This is not a certified aviation or weather source. Do not use for flight safety decisions.
 
 ---
 
 ## Roadmap
 
-- Implement real FAA FNS/SWIM NOTAM ingestion.
-- Add NOTAM map badges and layers following real ingestion.
-- Introduce historical flight and radar playback.
-- Expand weather provider options for increased reliability.
-- Integrate optional alert sounds or browser notifications.
-- Transition to a database-backed history store for long-term analytics.
+- FAA FNS/SWIM NOTAM ingestion and map display
+- Historical flight track playback
+- Database-backed long-term analytics store
+- Expanded weather provider support
+- Optional alert sounds and browser notifications
+
+---
+
+## Security Notes
+
+- `deploy.env` and `.env` are excluded from git via `.gitignore`. Never commit them.
+- Review the terms of service for all external data providers before using this stack in a public or commercial context.
 
 ---
 
 ## Disclaimer
 
-**All data presented by this application—including weather, frequencies, and aircraft positioning—is for display and advisory purposes only. It must not be used as the sole source for flight safety or operational decision-making. Always verify against official certified aviation sources.**
+All data presented by this application — including weather, aircraft positioning, and alerts — is for display and advisory purposes only. It must not be used as the sole source for flight safety or operational decision-making. Always verify against official certified aviation sources.

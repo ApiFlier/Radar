@@ -1,3 +1,0 @@
-flask
-httpx
-requests==2.32.3

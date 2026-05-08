@@ -107,7 +107,7 @@ class ApiWeather(ApiBase):
             if lat is not None and lon is not None:
                 try:
                     # User-Agent is required by api.weather.gov
-                    headers = {"User-Agent": "MeeksRadar/1.0 (meeks@example.com)"}
+                    headers = {"User-Agent": "AviationRadar/1.0 (github.com/ApiFlier/aviation-radar)"}
                     alerts_url = f"https://api.weather.gov/alerts/active?point={lat},{lon}"
                     r = client.get(alerts_url, headers=headers)
                     if r.status_code == 200:
