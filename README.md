@@ -75,10 +75,10 @@ Radar aggregates data from several sources. **All data is advisory only and must
 
 1. **Clone the repository and Configure your deployment environment and Build and start the containers:**
    ```bash
-   git clone https://github.com/ApiFlier/Radar radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
+   git clone https://github.com/ApiFlier/aviation-radar radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
    ```
    ```bash
-   git clone https://github.com/ApiFlier/Radar radar; sudo chown -R $USER:$USER ./radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
+   git clone https://github.com/ApiFlier/aviation-radar radar; sudo chown -R $USER:$USER ./radar; cd radar; cp deploy.env.example deploy.env; nano deploy.env; chmod +x setup.sh && ./setup.sh
    ```
 
 2. **Access the application:**
