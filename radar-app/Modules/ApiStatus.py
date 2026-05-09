@@ -34,17 +34,12 @@ class ApiStatus(ApiBase):
             sources["faa"]["feeds"] = faa.getSourceStats()
 
         if not sourceFilter or sourceFilter == "opensky":
+            import os as _os
+            has_opensky = bool(_os.getenv("OPENSKY_CLIENT_ID") and _os.getenv("OPENSKY_CLIENT_SECRET"))
             sources["opensky"] = {
                 "source": "opensky",
-                "status": "disabled",
-                "message": "OpenSky integration not yet configured"
-            }
-
-        if not sourceFilter or sourceFilter == "adsb":
-            sources["adsb"] = {
-                "source": "adsb-local",
-                "status": "disabled",
-                "message": "RTL-SDR ADS-B receiver not yet configured"
+                "status": "active" if has_opensky else "disabled",
+                "message": "Polling OpenSky Network API" if has_opensky else "No OpenSky credentials configured (optional)"
             }
 
         activeCount = sum(1 for s in sources.values() if s.get("status") == "active")

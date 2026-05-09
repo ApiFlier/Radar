@@ -560,7 +560,7 @@ class ApiPlanes(ApiBase):
             "AAL", "ACA", "AFR", "ASA", "ASH", "ATN", "AWI", "BAW", "DAL",
             "EDV", "ENY", "FFT", "FDX", "GJS", "JBU", "JIA", "KLM", "NKS",
             "QXE", "RPA", "SKW", "SWA", "UAL", "UPS", "VOI", "WJA", "AAY",
-            "SCX", "UCA", "ROU", "DLH", "AUA", "JZA", "ENY", "PDT", "UAL"
+            "SCX", "UCA", "ROU", "DLH", "AUA", "JZA", "PDT",
         }
 
         prefix = operator[:3] if len(operator) >= 3 else callsign[:3]

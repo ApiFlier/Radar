@@ -1,9 +1,12 @@
 import json
+import logging
 import time
 import math
 import threading
 from .BaseIngestor import BaseIngestor
 from Classes.Redis import getRedis
+
+logger = logging.getLogger("CoreProcessor")
 
 
 class CoreProcessor(BaseIngestor):
@@ -52,7 +55,7 @@ class CoreProcessor(BaseIngestor):
             try:
                 self._connect_and_listen()
             except Exception as e:
-                print(f"[CoreProcessor] Error: {e}, reconnecting in 2s...")
+                logger.error(f"Error: {e}, reconnecting in 2s...")
                 time.sleep(2)
     
     def _connect_and_listen(self):
@@ -61,8 +64,7 @@ class CoreProcessor(BaseIngestor):
         self.pubsub = self.pubsub_client.pubsub(ignore_subscribe_messages=True)
         self.pubsub.subscribe("live_planes")
         
-        print("[CoreProcessor] Subscribed to live_planes")
-        print("[CoreProcessor] Strategy: SFDPS=identity, STDDS=position, TFMS=enrichment")
+        logger.info("Subscribed to live_planes (strategy: SFDPS=identity, STDDS=position, TFMS=enrichment)")
         
         # Start ping thread to keep connection alive
         self._start_ping_thread()
@@ -78,7 +80,7 @@ class CoreProcessor(BaseIngestor):
                     data = json.loads(message["data"])
                     self.process(data)
                 except Exception as e:
-                    print(f"[CoreProcessor] Process error: {e}")
+                    logger.error(f"Process error: {e}")
         finally:
             self._stop_ping_thread()
             try:
@@ -104,8 +106,7 @@ class CoreProcessor(BaseIngestor):
     
     def process(self, data):
         source = (data.get("source") or "").lower()
-        # print(f"[CoreProcessor] Received message from {source}") 
-        
+
         if "sfdps" in source:
             self.process_sfdps(data)
         elif "stdds" in source:
@@ -121,11 +122,13 @@ class CoreProcessor(BaseIngestor):
         now = time.time()
         
         if now - self.last_heartbeat >= 60:
-            print(f"[CoreProcessor] Heartbeat: {self.processed_count} total | "
-                  f"SFDPS:{self.stats['sfdps']} STDDS-corr:{self.stats['stdds_corr']} "
-                  f"STDDS-new:{self.stats['stdds_new']} STDDS-dup:{self.stats['stdds_dup']} "
-                  f"TFMS:{self.stats['tfms']} OpenSky:{self.stats['opensky']} "
-                  f"ADSB.lol:{self.stats.get('adsblol', 0)}")
+            logger.info(
+                f"Heartbeat: {self.processed_count} total | "
+                f"SFDPS:{self.stats['sfdps']} STDDS-corr:{self.stats['stdds_corr']} "
+                f"STDDS-new:{self.stats['stdds_new']} STDDS-dup:{self.stats['stdds_dup']} "
+                f"TFMS:{self.stats['tfms']} OpenSky:{self.stats['opensky']} "
+                f"ADSB.lol:{self.stats.get('adsblol', 0)}"
+            )
             self.last_heartbeat = now
             stale_keys = [k for k, v in self.trail_timers.items() if now - v > self.TRAIL_TTL]
             for k in stale_keys:
@@ -470,7 +473,7 @@ class CoreProcessor(BaseIngestor):
         # Some sources like ADSB.lol provide 'seen' which might jitter or lag.
         # We allow updates up to 60s old if the current state is not significantly newer.
         if new_ts < old_ts - 60:
-            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Extremely stale (new={new_ts}, old={old_ts})")
+            logger.debug(f"REJECTED {flight_id} from {source}: Extremely stale (new={new_ts:.0f}, old={old_ts:.0f})")
             return
             
         # If new update is slightly older than current but current is very fresh, skip it
@@ -484,8 +487,7 @@ class CoreProcessor(BaseIngestor):
         
         # If current source is very fresh and has better priority, ignore lower priority updates
         if old_ts > now - 15 and new_priority > old_priority:
-            # We have a high-priority fresh source, ignore this lower priority one
-            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Lower priority than {current_source} ({new_priority} > {old_priority})")
+            logger.debug(f"REJECTED {flight_id} from {source}: lower priority than {current_source} ({new_priority} > {old_priority})")
             return
 
         # 3. Position sanity check
@@ -508,10 +510,8 @@ class CoreProcessor(BaseIngestor):
                 # Allow some slack for jitter/latency
                 slack = 1.8 
                 if implied_speed > max_speed * slack and dist_nm > 2.0 and dt < 300:
-                    # Sanity check failed, record but don't apply
-                    # Bypass if the previous position was long ago (dt > 300)
                     reason = f"Impossible speed: {int(implied_speed)} kts"
-                    print(f"[CoreProcessor] REJECTED {flight_id} from {source}: {reason} (dist={dist_nm:.2f}nm, dt={dt:.1f}s)")
+                    logger.debug(f"REJECTED {flight_id} from {source}: {reason} (dist={dist_nm:.2f}nm, dt={dt:.1f}s)")
                     self._record_history(history_key, now, source, lat, lon, data, False, reason)
                     return
 
@@ -520,8 +520,7 @@ class CoreProcessor(BaseIngestor):
         was_airborne = state.get("airborne") == "1"
         is_ground_source = "ground" in source
         if was_airborne and is_ground_source and old_ts > now - 60:
-            # Current track is airborne and fresh, ignore ground sweep
-            print(f"[CoreProcessor] REJECTED {flight_id} from {source}: Ground update for active airborne track")
+            logger.debug(f"REJECTED {flight_id} from {source}: ground update for fresh airborne track")
             return
 
         # Record the update attempt

@@ -1,9 +1,12 @@
+import logging
 import os
 import json
 import time
 import httpx
 from .BaseIngestor import BaseIngestor
 from Classes.Redis import getRedis
+
+logger = logging.getLogger("OpenSkyIngestor")
 
 
 class OpenSkyIngestor(BaseIngestor):
@@ -65,21 +68,21 @@ class OpenSkyIngestor(BaseIngestor):
                 token_data = resp.json()
                 self._token = token_data["access_token"]
                 self._token_expires_at = now + token_data.get("expires_in", 1800)
-                print("[OpenSky] Token refreshed")
+                logger.info("Token refreshed")
                 return self._token
         except Exception as e:
-            print(f"[OpenSky] Token fetch failed: {e}")
+            logger.error(f"Token fetch failed: {e}")
             return None
 
     def run(self):
         self.redis = getRedis()
 
         if not self.client_id or not self.client_secret:
-            print("[OpenSky] No credentials configured, skipping")
+            logger.info("No credentials configured, skipping")
             self._running = False
             return
 
-        print(f"[OpenSky] Starting — own@{self.POLL_INTERVAL_OWN}s / all@{self.POLL_INTERVAL_ALL}s")
+        logger.info(f"Starting — own@{self.POLL_INTERVAL_OWN}s / all@{self.POLL_INTERVAL_ALL}s")
 
         while self._running:
             now = time.time()
@@ -93,14 +96,14 @@ class OpenSkyIngestor(BaseIngestor):
                     self._last_poll_all = now
             except Exception as e:
                 self.stats["errors"] += 1
-                print(f"[OpenSky] Error: {e}")
+                logger.error(f"Poll error: {e}")
 
             time.sleep(1)
 
     def _fetch_states(self, url, params=None, source_label=""):
         token = self._get_token()
         if not token:
-            print(f"[OpenSky] No valid token, skipping {source_label}")
+            logger.warning(f"No valid token, skipping {source_label}")
             return None
         try:
             with httpx.Client(timeout=15) as client:
@@ -112,12 +115,12 @@ class OpenSkyIngestor(BaseIngestor):
                 resp.raise_for_status()
                 return resp.json()
         except httpx.HTTPStatusError as e:
-            print(f"[OpenSky] HTTP {e.response.status_code} on {source_label}")
+            logger.warning(f"HTTP {e.response.status_code} on {source_label}")
             if e.response.status_code == 401:
                 self._token = None
             return None
         except Exception as e:
-            print(f"[OpenSky] Request failed ({source_label}): {e}")
+            logger.error(f"Request failed ({source_label}): {e}")
             return None
 
     def poll_own(self):
@@ -132,8 +135,7 @@ class OpenSkyIngestor(BaseIngestor):
             self.process_state(state, now, source="opensky-own")
 
         if self.stats["polled_own"] % 18 == 0:  # log every ~3 min
-            print(f"[OpenSky/own] Polled {self.stats['polled_own']} times, "
-                  f"last batch: {self.stats['planes_own']} planes")
+            logger.info(f"own: polled {self.stats['polled_own']} times, last batch: {self.stats['planes_own']} planes")
 
     def poll_all(self):
         params = {
@@ -153,8 +155,7 @@ class OpenSkyIngestor(BaseIngestor):
             self.process_state(state, now, source="opensky")
 
         if self.stats["polled_all"] % 6 == 0:  # log every ~3 min
-            print(f"[OpenSky/all] Polled {self.stats['polled_all']} times, "
-                  f"last batch: {self.stats['planes_all']} planes")
+            logger.info(f"all: polled {self.stats['polled_all']} times, last batch: {self.stats['planes_all']} planes")
 
     def process_state(self, state, now, source="opensky"):
         icao24 = (state[0] or "").strip().upper()

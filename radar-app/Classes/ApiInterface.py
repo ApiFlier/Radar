@@ -17,7 +17,7 @@ class ApiInterface:
         body = request.get("BODY")
         
         try:
-            with httpx.Client(verify=False, timeout=timeout) as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.request(
                     method=request["METHOD"],
                     url=request["URL"],
@@ -58,7 +58,7 @@ class ApiInterface:
     async def sendRestAsync(self, requests: list, timeout: int = 120) -> dict:
         results = {}
         
-        async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             tasks = []
             for req in requests:
                 headers = req.get("HEADERS", {"Content-Type": "application/json"})
@@ -98,7 +98,7 @@ class ApiInterface:
         headers = request.get("HEADERS", {"Content-Type": "application/json"})
         
         try:
-            with httpx.Client(verify=False) as client:
+            with httpx.Client() as client:
                 response = client.post(
                     request["URL"],
                     headers=headers,
@@ -141,7 +141,7 @@ class ApiInterface:
             soapXml = body
         
         try:
-            with httpx.Client(verify=False) as client:
+            with httpx.Client() as client:
                 response = client.post(request["URL"], headers=headers, content=soapXml)
         except httpx.RequestError as e:
             self.handleError(400, f"SOAP request failed: {str(e)}")
@@ -202,7 +202,7 @@ class ApiInterface:
         headers = {"Content-Type": "application/json"}
         
         try:
-            with httpx.Client(verify=False, timeout=timeout) as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.post(request["URL"], headers=headers, json=payload)
         except httpx.RequestError as e:
             self.handleError(400, f"RPC JSON request failed: {str(e)}")

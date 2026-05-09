@@ -49,11 +49,11 @@ async def lifespan(app: FastAPI):
 
     if ENABLE_INGESTORS:
         from Classes.Ingestors import getProcessor
-        logger.info("[API] Starting legacy ingestors...")
+        logger.info("[API] Starting core processor and OpenSky ingestor...")
         getProcessor().start()
         from Classes.Ingestors import getOpenSkyIngestor
         getOpenSkyIngestor().start()
-        logger.info("[API] Legacy ingestors started")
+        logger.info("[API] Core processor and OpenSky ingestor started")
     
     yield
     
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 
     if ENABLE_INGESTORS:
         from Classes.Ingestors import getProcessor
-        logger.info("[API] Stopping legacy ingestors...")
+        logger.info("[API] Stopping core processor...")
         getProcessor().stop()
 
 
@@ -134,37 +134,35 @@ async def healthCheck():
 
 @api_router.get("/debug/aircraft/sample")
 async def debugAircraftSample(sources: int = 1):
+    if not DEBUG:
+        from fastapi.responses import JSONResponse as _JSONResponse
+        return _JSONResponse(status_code=403, content={"error": "Debug mode is not enabled"})
     from Classes.Redis import getRedis
     r = getRedis()
-    
-    # Get source counts
+
     source_counts = {}
     samples = {}
-    
-    # Scan standard states
+
     for key in r.scan_iter(match="state:*", count=1000):
         state = r.hgetall(key)
         source = state.get("source", "unknown")
         source_counts[source] = source_counts.get(source, 0) + 1
-        
         if sources:
             if source not in samples:
                 samples[source] = []
             if len(samples[source]) < 3:
                 samples[source].append(state)
-                
-    # Scan ADSB.lol states
+
     for key in r.scan_iter(match="adsblol:state:*", count=1000):
         state = r.hgetall(key)
         source = state.get("source", "adsblol-unknown")
         source_counts[source] = source_counts.get(source, 0) + 1
-        
         if sources:
             if source not in samples:
                 samples[source] = []
             if len(samples[source]) < 3:
                 samples[source].append(state)
-                
+
     return {
         "timestamp": time.time(),
         "source_counts": source_counts,
@@ -173,30 +171,30 @@ async def debugAircraftSample(sources: int = 1):
 
 @api_router.get("/debug/aircraft/{icao}")
 async def debugAircraftIcao(icao: str):
-    import json # redundant but safe
+    if not DEBUG:
+        from fastapi.responses import JSONResponse as _JSONResponse
+        return _JSONResponse(status_code=403, content={"error": "Debug mode is not enabled"})
     from Classes.Redis import getRedis
     r = getRedis()
     icao = icao.strip().upper()
-    print(f"DEBUG: Fetching aircraft {icao}")
-    
-    # Find flight_id from ICAO correlation
+    logger.debug(f"Fetching aircraft state for ICAO: {icao}")
+
     flight_id = r.get(f"corr:icao:{icao}")
-    print(f"DEBUG: flight_id={flight_id}")
+    logger.debug(f"Resolved flight_id={flight_id}")
     if not flight_id:
-        # Fallback to direct ICAO key
         flight_id = f"icao:{icao}"
-        
+
     profile = r.hgetall(f"profile:{flight_id}")
     state = r.hgetall(f"state:{flight_id}")
     history_raw = r.lrange(f"history:{flight_id}", 0, -1)
-    print(f"DEBUG: history_raw count={len(history_raw)}")
+    logger.debug(f"History entries: {len(history_raw)}")
     history = []
     for h in history_raw:
         try:
             history.append(json.loads(h))
         except Exception as e:
-            print(f"DEBUG: history load error: {e}")
-    
+            logger.debug(f"History parse error: {e}")
+
     return {
         "icao": icao,
         "flight_id": flight_id,

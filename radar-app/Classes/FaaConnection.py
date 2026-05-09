@@ -116,23 +116,6 @@ class FaaConnection:
         status = self.getStatus()
         return status["status"] == "active"
 
-    def getRecentPlanes(self, seconds: int = 60) -> int:
-        count = 0
-        cutoff = time.time() - seconds
-
-        for key in self.redis.scan_iter(match="state:*", count=1000):
-            state = self.redis.hgetall(key)
-            source = state.get("source", "").lower()
-
-            if not self._is_faa_source(source):
-                continue
-
-            lastUpdate = float(state.get("last_update", 0) or 0)
-            if lastUpdate > cutoff:
-                count += 1
-
-        return count
-
 
 _faaConnection: Optional[FaaConnection] = None
 

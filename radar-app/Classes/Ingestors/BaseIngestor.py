@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -36,9 +37,10 @@ class BaseIngestor(ABC):
             self._thread.join(timeout=5)
     
     def _run_wrapper(self):
+        _log = logging.getLogger(self.__class__.__name__)
         while self._running:
             try:
                 self.run()
             except Exception as e:
-                print(f"[{self.__class__.__name__}] Error: {e}")
+                _log.error(f"Unhandled error: {e}")
                 time.sleep(5)

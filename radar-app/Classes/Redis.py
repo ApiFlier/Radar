@@ -60,9 +60,6 @@ class RedisClient:
     def exists(self, key: str) -> bool:
         return self.client.exists(key) > 0
     
-    def keys(self, pattern: str) -> list:
-        return self.client.keys(pattern)
-    
     def scan_iter(self, match: str = None, count: int = 100):
         return self.client.scan_iter(match=match, count=count)
     
