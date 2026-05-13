@@ -39,10 +39,12 @@ class OpenSkyIngestor(BaseIngestor):
         self.redis = None
         self.client_id     = os.getenv("OPENSKY_CLIENT_ID", "")
         self.client_secret = os.getenv("OPENSKY_CLIENT_SECRET", "")
+        self.auth_mode = "authenticated" if (self.client_id and self.client_secret) else "anonymous"
         self.stats = {
             "polled_all": 0, "polled_own": 0,
             "planes_all": 0, "planes_own": 0,
-            "errors": 0
+            "errors": 0,
+            "auth_mode": self.auth_mode
         }
         self._token = None
         self._token_expires_at = 0
@@ -50,6 +52,8 @@ class OpenSkyIngestor(BaseIngestor):
         self._last_poll_own = 0
 
     def _get_token(self):
+        if self.auth_mode == "anonymous":
+            return None
         now = time.time()
         if self._token and now < self._token_expires_at - 60:
             return self._token
@@ -77,17 +81,12 @@ class OpenSkyIngestor(BaseIngestor):
     def run(self):
         self.redis = getRedis()
 
-        if not self.client_id or not self.client_secret:
-            logger.info("No credentials configured, skipping")
-            self._running = False
-            return
-
-        logger.info(f"Starting — own@{self.POLL_INTERVAL_OWN}s / all@{self.POLL_INTERVAL_ALL}s")
+        logger.info(f"Starting in {self.auth_mode} mode — own@{self.POLL_INTERVAL_OWN}s / all@{self.POLL_INTERVAL_ALL}s")
 
         while self._running:
             now = time.time()
             try:
-                if now - self._last_poll_own >= self.POLL_INTERVAL_OWN:
+                if self.auth_mode == "authenticated" and now - self._last_poll_own >= self.POLL_INTERVAL_OWN:
                     self.poll_own()
                     self._last_poll_own = now
 
@@ -101,17 +100,24 @@ class OpenSkyIngestor(BaseIngestor):
             time.sleep(1)
 
     def _fetch_states(self, url, params=None, source_label=""):
-        token = self._get_token()
-        if not token:
-            logger.warning(f"No valid token, skipping {source_label}")
-            return None
+        headers = {}
+        if self.auth_mode == "authenticated":
+            token = self._get_token()
+            if not token:
+                logger.warning(f"No valid token, skipping {source_label}")
+                return None
+            headers["Authorization"] = f"Bearer {token}"
+            
         try:
             with httpx.Client(timeout=15) as client:
                 resp = client.get(
                     url,
                     params=params,
-                    headers={"Authorization": f"Bearer {token}"}
+                    headers=headers
                 )
+                if resp.status_code == 429:
+                    logger.warning(f"HTTP 429 Rate Limited on {source_label}")
+                    return None
                 resp.raise_for_status()
                 return resp.json()
         except httpx.HTTPStatusError as e:

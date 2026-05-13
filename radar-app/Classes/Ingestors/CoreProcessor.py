@@ -363,6 +363,9 @@ class CoreProcessor(BaseIngestor):
             }
             
             pipe = r.pipeline()
+            # Clear any lingering trail for this ID to ensure tactical freshness
+            self._clear_trail(pipe, flight_id)
+
             pipe.hset(f"profile:{flight_id}", mapping=profile)
             pipe.expire(f"profile:{flight_id}", self.PROFILE_TTL)
             pipe.hset(f"state:{flight_id}", mapping=state)
@@ -375,6 +378,11 @@ class CoreProcessor(BaseIngestor):
             out = {**profile, **state, "last_update": now}
             pipe.publish("planes_out", json.dumps(out))
             pipe.execute()
+
+    def _clear_trail(self, pipe, flight_id):
+        """Clear the tactical trail for a flight."""
+        pipe.delete(f"trail:{flight_id}")
+        self.trail_timers.pop(flight_id, None)
 
     def process_adsblol(self, data):
         """ADSB.lol provides high-frequency ADS-B data."""
@@ -441,6 +449,9 @@ class CoreProcessor(BaseIngestor):
             }
             
             pipe = r.pipeline()
+            # Clear any lingering trail for this ID to ensure tactical freshness
+            self._clear_trail(pipe, flight_id)
+
             pipe.hset(f"profile:{flight_id}", mapping=profile)
             pipe.expire(f"profile:{flight_id}", self.PROFILE_TTL)
             pipe.hset(f"state:{flight_id}", mapping=state)
@@ -462,12 +473,12 @@ class CoreProcessor(BaseIngestor):
         profile_key = f"profile:{flight_id}"
         history_key = f"history:{flight_id}"
         
-        state = r.hgetall(state_key) or {}
+        existing_state = r.hgetall(state_key) or {}
         profile = r.hgetall(profile_key) or {}
         
         source = (data.get("source") or "unknown").lower()
         new_ts = float(data.get("last_update") or now)
-        old_ts = float(state.get("last_update", 0))
+        old_ts = float(existing_state.get("last_update", 0))
         
         # 1. Timestamp validation: ignore VERY stale updates
         # Some sources like ADSB.lol provide 'seen' which might jitter or lag.
@@ -481,7 +492,7 @@ class CoreProcessor(BaseIngestor):
             return
             
         # 2. Source priority check
-        current_source = (state.get("position_source") or "unknown").lower()
+        current_source = (existing_state.get("position_source") or "unknown").lower()
         new_priority = self._get_priority(source)
         old_priority = self._get_priority(current_source)
         
@@ -491,8 +502,8 @@ class CoreProcessor(BaseIngestor):
             return
 
         # 3. Position sanity check
-        old_lat = float(state.get("lat") or 0)
-        old_lon = float(state.get("lon") or 0)
+        old_lat = float(existing_state.get("lat") or 0)
+        old_lon = float(existing_state.get("lon") or 0)
         
         if old_lat != 0 and old_lon != 0:
             dist_nm = self._haversine(old_lat, old_lon, lat, lon)
@@ -503,7 +514,7 @@ class CoreProcessor(BaseIngestor):
                 
                 # Check for impossible jumps
                 max_speed = self.MAX_SPEED_KTS
-                is_ground = "ground" in source or state.get("airborne") == "0"
+                is_ground = "ground" in source or existing_state.get("airborne") == "0"
                 if is_ground:
                     max_speed = self.MAX_GROUND_SPEED_KTS
                 
@@ -517,7 +528,7 @@ class CoreProcessor(BaseIngestor):
 
         # 4. Ground vs Airborne protection
         # If we have a reliable airborne track, don't let a ground sweep point pull it down
-        was_airborne = state.get("airborne") == "1"
+        was_airborne = existing_state.get("airborne") == "1"
         is_ground_source = "ground" in source
         if was_airborne and is_ground_source and old_ts > now - 60:
             logger.debug(f"REJECTED {flight_id} from {source}: ground update for fresh airborne track")
@@ -526,12 +537,19 @@ class CoreProcessor(BaseIngestor):
         # Record the update attempt
         self._record_history(history_key, now, source, lat, lon, data, True, "")
         
+        state = {**existing_state}
         state["flight_id"] = flight_id
         state["lat"] = str(lat)
         state["lon"] = str(lon)
         state["last_update"] = str(new_ts)
         state["position_source"] = source
         state["source"] = source
+        state["position_time"] = str(new_ts)
+        state["source_confidence"] = "high" if new_priority <= 2 else "medium" if new_priority <= 5 else "low"
+        
+        if source != current_source:
+            state["previous_position_source"] = current_source
+            state["last_source_switch_at"] = str(now)
         
         # Merge other fields
         for field in ["speed", "heading", "alt", "vertical_rate", "callsign", "icao_hex", "registration", "aircraft_type", "ground_cluster", "source_facility"]:
@@ -545,6 +563,14 @@ class CoreProcessor(BaseIngestor):
         state["airborne"] = "1" if is_airborne else "0"
         
         pipe = r.pipeline()
+
+        # Tactical Trail Management:
+        # 1. Clear trail if transitioning from airborne to ground (landed).
+        # 2. Clear trail if this is a fresh session for the processor (no existing state).
+        # This ensures trails are short-lived, tactical, and reset appropriately.
+        if (not existing_state) or (was_airborne and not is_airborne):
+            self._clear_trail(pipe, flight_id)
+
         pipe.hset(state_key, mapping=state)
         pipe.expire(state_key, self.STATE_AIR_TTL if state["airborne"] == "1" else self.STATE_GROUND_TTL)
         
@@ -643,6 +669,9 @@ class CoreProcessor(BaseIngestor):
         state["airborne"] = "1" if speed >= self.AIRBORNE_SPEED else "0"
         
         pipe = r.pipeline()
+        # Clear any lingering trail for this ID to ensure tactical freshness
+        self._clear_trail(pipe, flight_id)
+
         pipe.hset(f"profile:{flight_id}", mapping=profile)
         pipe.expire(f"profile:{flight_id}", self.PROFILE_TTL)
         pipe.hset(f"state:{flight_id}", mapping=state)

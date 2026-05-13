@@ -42,6 +42,15 @@ async def lifespan(app: FastAPI):
     supervisor = getSupervisor()
     supervisor.register_worker("adsblol-reapi", AdsbLolReApiIngestor, "ENABLE_INTERNAL_ADSBLOL_REAPI", health_window=45)
     supervisor.register_worker("adsblol-ground", AdsbLolGroundSweepIngestor, "ENABLE_INTERNAL_ADSBLOL_GROUND", health_window=600)
+    
+    # Auto-detect SWIM
+    user = os.getenv("FAA_USER")
+    passwd = os.getenv("FAA_PASS")
+    queues = [os.getenv("QUEUE_SFDPS"), os.getenv("QUEUE_STDDS"), os.getenv("QUEUE_TFMS")]
+    has_swim_creds = bool(user and passwd and any(queues))
+    if has_swim_creds:
+        os.environ["ENABLE_INTERNAL_SWIM"] = "true"
+    
     supervisor.register_worker("swim-ingestor", SwimIngestor, "ENABLE_INTERNAL_SWIM", health_window=60)
     
     # Start supervisor

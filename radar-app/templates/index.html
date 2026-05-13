@@ -2486,6 +2486,12 @@
                         }
                         if (shouldDrawTrail(planeData[fid])) {
                             showTrail(fid);
+                        } else {
+                            if (activeTrail) {
+                                map.removeLayer(activeTrail);
+                                activeTrail = null;
+                            }
+                            activeFlightId = fid;
                         }
                         openAircraftPanel(fid);
                     };
@@ -3226,6 +3232,11 @@
             if (activeFlightId && planeData[activeFlightId]) {
                 if (shouldDrawTrail(planeData[activeFlightId])) {
                     showTrail(activeFlightId);
+                } else {
+                    if (activeTrail) {
+                        map.removeLayer(activeTrail);
+                        activeTrail = null;
+                    }
                 }
             }
         }, 15000);
