@@ -40,22 +40,39 @@ chmod +x setup.sh
 
 `deploy.env` is **only for user-supplied values** such as API keys and credentials. `setup.sh` reads it and generates a complete `.env` with production-ready defaults, then builds and starts Docker.
 
-### What setup.sh does
+### 4. Updating
 
-- Validates `deploy.env` for required values
-- Generates `.env` with sane defaults (Redis settings, polling intervals, feature flags)
-- Builds Docker images from source
-- Creates or reuses Docker-managed persistent storage (`aviation-radar_redis_data`)
-- Finds an available host port automatically (default 8080, increments if busy)
-- Starts the app and data ingest services
-- Prints the final local URL
-- Optionally deletes local source files — Docker containers and volumes keep running either way
+For servers where the repository folder is intentionally kept, use the update script to pull the latest code and rebuild containers:
+
+```bash
+./update.sh
+```
+
+The update script preserves all Docker volumes and your `.env` configuration.
+
+---
+
+## Deployment Workflow
+
+### setup.sh vs update.sh
+
+- **setup.sh** is for the **initial installation**. It generates the environment configuration, validates credentials, and performs the first build. It also offers to delete source files after completion if you only need the runtime containers.
+- **update.sh** is for **ongoing updates** on development or test servers where the source repository is preserved. It pulls the latest code from git, rebuilds the images, and recreates the containers without losing data.
+
+### Resource Guardrails
+
+Aviation Radar includes built-in guardrails to ensure system stability:
+
+- **Disk Space Checks** — Both setup and update scripts check for available disk space (Warn: 25GB, Critical: 10GB).
+- **Docker Logging** — Container logs are capped at 10MB per file with a maximum of 3 files to prevent disk exhaustion.
+- **Redis Memory Management** — Redis is configured with a memory limit (default 512MB) and an LRU eviction policy (`allkeys-lru`) suitable for ephemeral aircraft state.
+- **Docker Cleanup** — Use `./scripts/docker-cleanup.sh` to safely prune build cache and unused images.
 
 ---
 
 ## What Aviation Radar Does
 
-Aviation Radar is a fully self-hosted flight tracking system that:
+Aviation Radar is a fully self-hosted flight tracking system. **All data is advisory only. Do not use for operational flight safety decisions. This application is not a certified aviation or weather source.**
 
 - Displays live aircraft positions on an interactive Leaflet map with smooth animation
 - Ingests ADS-B position data from [ADSB.lol](https://adsb.lol) every 10 seconds
@@ -131,7 +148,7 @@ aviation-radar-swim-ingestor  (optional) FAA SWIM consumer — connects to FAA
 | [RainViewer](https://www.rainviewer.com) | Precipitation radar tiles | No (public API) |
 | [OpenSky Network](https://opensky-network.org) | Supplemental ADS-B coverage | Optional client credentials |
 
-**All data is advisory only. Do not use for operational flight safety decisions.**
+**All data is advisory only. Do not use for operational flight safety decisions. This application is not a certified aviation or weather source.**
 
 ---
 

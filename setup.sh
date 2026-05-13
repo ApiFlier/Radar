@@ -56,6 +56,32 @@ fi
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+check_disk_space() {
+    local min_warn
+    local min_critical
+    local free_gb
+
+    min_warn="$(get_env_value MIN_FREE_GB_WARN)"
+    min_critical="$(get_env_value MIN_FREE_GB_CRITICAL)"
+    min_warn="${min_warn:-25}"
+    min_critical="${min_critical:-10}"
+
+    free_gb=$(df -BG "$RADAR_DIR" | awk 'NR==2 {print $4}' | sed 's/G//')
+
+    if [ "$free_gb" -lt "$min_critical" ]; then
+        warn "CRITICAL: Very low disk space available: ${free_gb}GB (Threshold: ${min_critical}GB)"
+        printf "Continue anyway? [y/N] "
+        read -r CONTINUE < /dev/tty || true
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+            error "Setup aborted due to low disk space."
+        fi
+    elif [ "$free_gb" -lt "$min_warn" ]; then
+        warn "Low disk space available: ${free_gb}GB (Threshold: ${min_warn}GB)"
+    else
+        info "Disk space check passed: ${free_gb}GB available."
+    fi
+}
+
 get_file_value() {
     local file="$1"
     local key="$2"
@@ -239,6 +265,10 @@ prepare_env() {
     import_deploy_env
 
     echo ""
+    info "Checking system resources..."
+    check_disk_space
+
+    echo ""
     info "Adding defaults..."
 
     ensure_default "WEB_BIND" "0.0.0.0"
@@ -246,6 +276,11 @@ prepare_env() {
 
     ensure_default "REDIS_HOST" "redis"
     ensure_default "REDIS_PORT" "6379"
+    ensure_default "REDIS_MAXMEMORY" "512mb"
+    ensure_default "REDIS_MAXMEMORY_POLICY" "allkeys-lru"
+
+    ensure_default "MIN_FREE_GB_WARN" "25"
+    ensure_default "MIN_FREE_GB_CRITICAL" "10"
     normalize_value "REDIS_HOST" "flight-redis" "redis"
     normalize_value "REDIS_HOST" "radar-redis" "redis"
     normalize_value "REDIS_HOST" "aviation-radar-redis" "redis"

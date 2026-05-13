@@ -5,8 +5,14 @@ services:
     image: redis:alpine
     container_name: aviation-radar-redis
     restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "${REDIS_MAXMEMORY_POLICY:-allkeys-lru}"]
     volumes:
       - redis_data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app:
     image: aviation-radar-app
@@ -25,6 +31,11 @@ services:
     ports:
       - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8080}:8081"
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   swim-ingestor:
     image: aviation-radar-app
@@ -43,6 +54,11 @@ services:
     restart: unless-stopped
     profiles:
       - swim
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   redis_data:
