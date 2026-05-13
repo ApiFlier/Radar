@@ -17,18 +17,30 @@ class ApiHealth(ApiBase):
         
         planeCount = 0
         airborneCount = 0
+        onGroundCount = 0
+        parkedCount = 0
         sourceCounts = {}
         
         adsbLolCount = 0
         adsbLolHeartbeat = {}
 
+        now = time.time()
         if redisOk:
             for key in redis.scan_iter(match="state:*", count=1000):
                 planeCount += 1
                 state = redis.hgetall(key)
 
-                if state.get("airborne") == "1" or float(state.get("speed", 0) or 0) >= 40:
+                last_update = float(state.get("lastUpdate", 0) or 0)
+                age = now - last_update if last_update > 1e9 else 999999
+                is_airborne = state.get("airborne") == "1" or float(state.get("speed", 0) or 0) >= 40
+
+                if is_airborne:
                     airborneCount += 1
+                else:
+                    if age < 300:
+                        onGroundCount += 1
+                    else:
+                        parkedCount += 1
 
                 source = state.get("source", "unknown")
                 sourceCounts[source] = sourceCounts.get(source, 0) + 1
@@ -46,7 +58,9 @@ class ApiHealth(ApiBase):
             },
             "planes": {
                 "total": planeCount,
-                "airborne": airborneCount
+                "airborne": airborneCount,
+                "onGround": onGroundCount,
+                "parked": parkedCount
             },
             "sources": sourceCounts,
             "adsbLol": {

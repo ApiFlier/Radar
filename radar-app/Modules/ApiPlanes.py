@@ -703,6 +703,7 @@ class ApiPlanes(ApiBase):
 
         inbound = []
         outbound = []
+        parked = []
         nearby = []
         
         # Simple airport code matching for ground clusters
@@ -716,6 +717,7 @@ class ApiPlanes(ApiBase):
             dep = (p.get("dep") or "").strip().upper()
             arr = (p.get("arr") or "").strip().upper()
             cluster = (p.get("groundCluster") or "").upper()
+            is_live = bool(p.get("isLiveGround"))
             
             p_lat = self.safeFloat(p.get("lat"))
             p_lon = self.safeFloat(p.get("lon"))
@@ -730,31 +732,40 @@ class ApiPlanes(ApiBase):
             elif dep == airport:
                 outbound.append(p)
             elif dist is not None and dist <= 5.0:
-                # Close enough to be active ground ops
+                # Close enough to be ground ops
                 # Only attribute as ground ops if not already assigned to another airport
                 if not dep and not arr:
                     if alt < 500 or speed < 40:
-                        outbound.append(p)
+                        if is_live:
+                            outbound.append(p)
+                        else:
+                            parked.append(p)
                     else:
                         nearby.append(p)
             elif apt_short in cluster:
                 # Matched by cluster but not by exact pos or distance
                 if not dep and not arr:
-                    nearby.append(p)
+                    if is_live:
+                        nearby.append(p)
+                    else:
+                        parked.append(p)
 
         inbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
         outbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
+        parked.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
         nearby.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
 
         return {
             "airport": airport,
-            "count": len(inbound) + len(outbound), # Primary activity count
+            "count": len(inbound) + len(outbound), # Primary active activity count
             "total": total_count,
             "inboundCount": len(inbound),
             "outboundCount": len(outbound),
+            "parkedCount": len(parked),
             "nearbyCount": len(nearby),
             "inbound": self._pickFields(inbound[:50], "table"),
             "outbound": self._pickFields(outbound[:50], "table"),
+            "parked": self._pickFields(parked[:50], "table"),
             "nearby": self._pickFields(nearby[:50], "table"),
         }
 
@@ -945,6 +956,7 @@ class ApiPlanes(ApiBase):
         airborne = 0
         on_ground = 0
         ground_sweep = 0
+        parked = 0
         class_counts = {"commercial": 0, "private": 0, "military": 0, "helicopter": 0, "ground": 0, "unknown": 0}
         route_coverage = {"withRoute": 0, "none": 0}
         airline_counts = {}
@@ -954,18 +966,26 @@ class ApiPlanes(ApiBase):
         coords = self._getAptCoords()
 
         for p in planes:
-            if self._isGroundPlane(p):
-                ground_sweep += 1
+            is_ground = self._isGroundPlane(p)
+            is_live = bool(p.get("isLiveGround"))
+
+            if is_ground:
                 class_counts["ground"] += 1
-                # Ground-sweep targets are always on ground
-                on_ground += 1
+                if is_live:
+                    ground_sweep += 1
+                    on_ground += 1
+                else:
+                    parked += 1
             else:
                 ac = p.get("aircraftClass", "unknown")
                 class_counts[ac] = class_counts.get(ac, 0) + 1
                 if p.get("airborne") == "1" or self.safeFloat(p.get("speed", 0)) >= 40:
                     airborne += 1
                 else:
-                    on_ground += 1
+                    if is_live:
+                        on_ground += 1
+                    else:
+                        parked += 1
 
             dep = (p.get("dep") or "").strip().upper()
             arr = (p.get("arr") or "").strip().upper()
@@ -1005,11 +1025,13 @@ class ApiPlanes(ApiBase):
         dest_counts = dict(sorted(dest_counts.items(), key=lambda x: x[1], reverse=True)[:100])
 
         return {
-            "total": len(planes),
-            "airborne": airborne,
-            "onGround": on_ground,
-            "groundSweep": ground_sweep,
-            "classCounts": class_counts,
+            "total":         len(planes),
+            "airborne":      airborne,
+            "onGround":      on_ground,
+            "groundSweep":   ground_sweep,
+            "parked":        parked,
+            "classes":       class_counts,
+
             "routeCoverage": route_coverage,
             "airlineCounts": airline_counts,
             "originCounts": origin_counts,
