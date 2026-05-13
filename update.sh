@@ -105,8 +105,13 @@ check_disk_space() {
 update_repo() {
     info "Checking repository state..."
 
-    if [ "$(git status --porcelain)" ] && [ "$FORCE" = false ]; then
-        error "Working tree is dirty. Commit, stash, or run with --force."
+    local is_dirty=false
+    if [ -n "$(git status --porcelain)" ]; then
+        is_dirty=true
+    fi
+
+    if [ "$is_dirty" = true ] && [ "$FORCE" = false ]; then
+        error "Working tree is dirty. Commit, stash, or run with --force to discard changes."
     fi
 
     local upstream
@@ -124,9 +129,19 @@ update_repo() {
         info "Using upstream: $upstream"
     fi
 
-    info "Pulling latest code from $upstream..."
+    info "Fetching latest code from origin..."
     git fetch origin
-    git reset --hard "$upstream"
+
+    if [ "$FORCE" = true ]; then
+        warn "FORCE enabled: Resetting to $upstream. Any local changes will be lost!"
+        git reset --hard "$upstream"
+    else
+        info "Pulling latest code (fast-forward only) from $upstream..."
+        if ! git merge-base --is-ancestor HEAD "$upstream"; then
+             error "Local branch has diverged from $upstream. Run with --force to overwrite, or merge manually."
+        fi
+        git merge --ff-only "$upstream"
+    fi
 }
 
 # ── Docker Update ─────────────────────────────────────────────────────────────
@@ -222,6 +237,12 @@ show_status() {
     fi
 
     check_disk_space
+
+    echo ""
+    info "Running optional resource cleanup..."
+    if [ -f "$RADAR_DIR/scripts/docker-cleanup.sh" ]; then
+        bash "$RADAR_DIR/scripts/docker-cleanup.sh"
+    fi
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
