@@ -152,34 +152,38 @@ aviation-radar-swim-ingestor  (optional) FAA SWIM consumer — connects to FAA
 
 ---
 
-## Required Configuration
+## API Keys / Required Configuration
 
-### No keys needed to boot
-A fresh deployment works out of the box with zero credentials. However, without a data source configured, you will only see static data (airports, weather). 
+### No keys needed to get started
 
-### Recommended: FAA SWIM (No hardware required)
-FAA SWIM is the recommended data source for serious tracking. It provides official FAA flight plan and en-route track data without requiring you to install ADS-B receiver hardware. This requires a free FAA SWIM account and approved queue subscriptions.
+A fresh deployment works out of the box with public ADS-B data from ADSB.lol — provided your server's public IP is a registered ADS-B feeder on that network. No API keys are required for the base deployment.
 
-To enable, simply add your credentials to `deploy.env`:
+### Optional: OpenSky Network
+
+Adding OpenSky credentials improves coverage. Set in `deploy.env`:
 ```
+OPENSKY_CLIENT_ID=your-client-id
+OPENSKY_CLIENT_SECRET=your-secret
+```
+
+### Optional: FAA SWIM (FDPS / STDDS / TFMS)
+
+FAA SWIM provides official FAA flight plan and en-route track data. This requires a free FAA SWIM account and approved queue subscriptions.
+
+To enable, set in `deploy.env`:
+```
+ENABLE_SWIM_INGESTOR=true
+
 FAA_USER=your.email@example.com
 FAA_PASS=your-swim-password
 QUEUE_SFDPS=your.email@example.com.FDPS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
 QUEUE_STDDS=your.email@example.com.STDDS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
 QUEUE_TFMS=your.email@example.com.TFMS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
 ```
-The app will automatically detect these credentials and enable the internal SWIM ingestor gracefully.
+
+When `ENABLE_SWIM_INGESTOR=false` (the default), the `aviation-radar-swim-ingestor` container is not started. This prevents the restart loop that occurs when FAA credentials are missing or rejected.
 
 Apply for SWIM access: [https://www.faa.gov/air_traffic/technology/swim](https://www.faa.gov/air_traffic/technology/swim)
-
-### Optional Enhancements: ADSB.lol & OpenSky
-
-- **ADSB.lol**: If your server's public IP is a registered ADS-B feeder on ADSB.lol, the app automatically pulls high-frequency ADS-B airborne and ground-sweep data. This is optional and enhances coverage.
-- **OpenSky Network**: OpenSky operates in a limited anonymous mode by default. Adding credentials significantly improves supplemental coverage. Set in `deploy.env`:
-```
-OPENSKY_CLIENT_ID=your-client-id
-OPENSKY_CLIENT_SECRET=your-secret
-```
 
 ---
 

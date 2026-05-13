@@ -228,6 +228,15 @@ show_status() {
     docker ps --filter "name=aviation-radar" || true
     echo ""
     info "URL: http://localhost:${port}"
+    
+    local swim_enabled
+    swim_enabled="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    swim_enabled="${swim_enabled:-false}"
+    if [ "$swim_enabled" = "true" ]; then
+        info "SWIM: Enabled"
+    else
+        info "SWIM: Disabled"
+    fi
 
     check_disk_space
 
@@ -239,13 +248,6 @@ show_status() {
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-
-check_disk_space
-update_repo
-update_containers
-check_health
-show_status
-�──────────────────────────────────────
 
 check_disk_space
 update_repo

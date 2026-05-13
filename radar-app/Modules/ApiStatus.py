@@ -29,23 +29,28 @@ class ApiStatus(ApiBase):
         
         sources = {}
 
-        # 1. FAA SWIM
-        swim_worker = supervisor_status.get("swim-ingestor", {})
+        # 1. FAA SWIM (external container — reads data written to Redis by aviation-radar-swim-ingestor)
         has_swim_creds = bool(os.getenv("FAA_USER") and os.getenv("FAA_PASS"))
-        swim_configured = has_swim_creds and (os.getenv("QUEUE_SFDPS") or os.getenv("QUEUE_STDDS") or os.getenv("QUEUE_TFMS"))
-        
+        swim_configured = has_swim_creds and bool(os.getenv("QUEUE_SFDPS") or os.getenv("QUEUE_STDDS") or os.getenv("QUEUE_TFMS"))
+
         faa = getFaaConnection()
         faa_feeds = faa.getSourceStats()
         faa_active = any(f.get("count", 0) > 0 and time.time() - f.get("lastUpdate", 0) < 300 for f in faa_feeds.values())
-        
+
+        if not swim_configured:
+            swim_status = "not_configured"
+        elif faa_active:
+            swim_status = "healthy"
+        else:
+            swim_status = "configured_no_data"
+
         sources["faa-swim"] = {
-            "configured": bool(swim_configured),
-            "enabled": swim_worker.get("enabled", False),
-            "healthy": swim_worker.get("status") == "RUNNING" or faa_active,
-            "status": "healthy" if faa_active else ("not_configured" if not swim_configured else swim_worker.get("status", "DISABLED").lower()),
+            "configured": swim_configured,
+            "enabled": swim_configured,
+            "healthy": faa_active,
+            "status": swim_status,
             "auth_mode": "authenticated",
-            "last_error": str(swim_worker.get("last_error") or ""),
-            "advisory": "Requires FAA credentials and active queue subscriptions."
+            "advisory": "" if swim_configured else "Requires FAA credentials and active queue subscriptions."
         }
 
         # 2. ADSB.lol Re-API

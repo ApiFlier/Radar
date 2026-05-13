@@ -311,9 +311,22 @@ prepare_env() {
 
     MISSING_REQUIRED=0
 
-    # FAA SWIM credentials are only required when the SWIM ingestor is enabled.
+    # FAA SWIM: auto-detect credentials; ENABLE_SWIM_INGESTOR=true overrides if already set.
     SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
     SWIM_ENABLED="${SWIM_ENABLED:-false}"
+
+    if [ "$SWIM_ENABLED" != "true" ]; then
+        local _faa_user _faa_pass _q1 _q2 _q3
+        _faa_user="$(get_env_value FAA_USER)"
+        _faa_pass="$(get_env_value FAA_PASS)"
+        _q1="$(get_env_value QUEUE_SFDPS)"
+        _q2="$(get_env_value QUEUE_STDDS)"
+        _q3="$(get_env_value QUEUE_TFMS)"
+        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+            info "FAA credentials detected — enabling SWIM ingestor automatically."
+            SWIM_ENABLED="true"
+        fi
+    fi
 
     if [ "$SWIM_ENABLED" = "true" ]; then
         info "FAA SWIM ingestor enabled — validating FAA credentials..."
@@ -323,8 +336,7 @@ prepare_env() {
         require_env "QUEUE_STDDS"
         require_env "QUEUE_TFMS"
     else
-        info "FAA SWIM ingestor disabled (ENABLE_SWIM_INGESTOR=false). FAA credentials not required."
-        info "To enable SWIM, set ENABLE_SWIM_INGESTOR=true and add FAA credentials in deploy.env."
+        info "FAA SWIM ingestor not configured. To enable, add FAA_USER, FAA_PASS, and QUEUE_* to deploy.env."
     fi
 
     if [ "$MISSING_REQUIRED" = "1" ]; then
@@ -347,6 +359,20 @@ start_containers() {
 
     SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
     SWIM_ENABLED="${SWIM_ENABLED:-false}"
+
+    # Auto-detect FAA credentials if ENABLE_SWIM_INGESTOR is not already true
+    if [ "$SWIM_ENABLED" != "true" ]; then
+        local _faa_user _faa_pass _q1 _q2 _q3
+        _faa_user="$(get_env_value FAA_USER)"
+        _faa_pass="$(get_env_value FAA_PASS)"
+        _q1="$(get_env_value QUEUE_SFDPS)"
+        _q2="$(get_env_value QUEUE_STDDS)"
+        _q3="$(get_env_value QUEUE_TFMS)"
+        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+            info "FAA credentials detected — enabling SWIM profile..."
+            SWIM_ENABLED="true"
+        fi
+    fi
 
     echo ""
     if [ "$SWIM_ENABLED" = "true" ]; then
@@ -406,6 +432,19 @@ show_summary() {
     SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
     SWIM_ENABLED="${SWIM_ENABLED:-false}"
 
+    # Auto-detect for summary display
+    if [ "$SWIM_ENABLED" != "true" ]; then
+        local _faa_user _faa_pass _q1 _q2 _q3
+        _faa_user="$(get_env_value FAA_USER)"
+        _faa_pass="$(get_env_value FAA_PASS)"
+        _q1="$(get_env_value QUEUE_SFDPS)"
+        _q2="$(get_env_value QUEUE_STDDS)"
+        _q3="$(get_env_value QUEUE_TFMS)"
+        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+            SWIM_ENABLED="true"
+        fi
+    fi
+
     echo ""
     echo "================================================"
     echo -e "${GREEN}   Aviation Radar setup complete!${NC}"
@@ -417,6 +456,11 @@ show_summary() {
     echo "  Running containers:"
     echo "    aviation-radar-app"
     echo "    aviation-radar-redis"
+    if [ "$SWIM_ENABLED" = "true" ]; then
+        echo "    aviation-radar-swim-ingestor"
+    else
+        echo "    (aviation-radar-swim-ingestor not started — no FAA credentials detected)"
+    fi
     echo ""
     echo "  ADSB.lol note:"
     echo "    re-api access requires this server's public IP to have feeder access."
