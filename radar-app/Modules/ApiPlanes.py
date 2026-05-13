@@ -278,8 +278,15 @@ class ApiPlanes(ApiBase):
             source = plane.get("source", "unknown") or "unknown"
             sourceCounts[source] = sourceCounts.get(source, 0) + 1
             planeKey = plane.get("flightId") or flightId
-            planesByKey[planeKey] = plane
             icao = (plane.get("icaoHex") or "").upper()
+
+            if icao and icao in icaoIndex:
+                existingKey = icaoIndex[icao]
+                if not self._icaoRecordWins(plane, planesByKey[existingKey]):
+                    continue          # existing record is newer/better; drop this zombie
+                del planesByKey[existingKey]   # incoming is newer/better; displace old
+
+            planesByKey[planeKey] = plane
             if icao:
                 icaoIndex[icao] = planeKey
 
@@ -328,6 +335,26 @@ class ApiPlanes(ApiBase):
             "adsbHeartbeat": redis.hgetall("adsblol:heartbeat"),
             "ts":            time.time(),
         }
+
+    def _icaoRecordWins(self, incoming: dict, existing: dict) -> bool:
+        """Return True if incoming should replace existing for the same ICAO hex.
+
+        Newer lastUpdate wins. On a tie (within 1 s), higher-priority source wins.
+        This prevents stale ground-sweep zombies from surviving alongside live records.
+        """
+        ts_in = float(incoming.get("lastUpdate") or 0)
+        ts_ex = float(existing.get("lastUpdate")  or 0)
+        if abs(ts_in - ts_ex) > 1:
+            return ts_in > ts_ex
+        return self._sourcePriorityRank(incoming) < self._sourcePriorityRank(existing)
+
+    def _sourcePriorityRank(self, plane: dict) -> int:
+        """Lower rank = higher priority. Mirrors CoreProcessor.SOURCE_PRIORITY."""
+        src = (plane.get("source") or plane.get("positionSource") or "unknown").lower()
+        for fragment, rank in (("sfdps", 1), ("stdds", 2), ("adsb-lol-reapi", 3), ("opensky", 4), ("ground-sweep", 5)):
+            if fragment in src:
+                return rank
+        return 10
 
     def _hasLegacyFilters(self) -> bool:
         """True when the request sets explicit per-request filters beyond view defaults."""
