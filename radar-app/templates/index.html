@@ -3116,7 +3116,8 @@
             }
         }
 
-        fetch('/static/airports.json')
+        // Phase 1: load core airports (large/medium/scheduled, ~740 KB) — fast initial render
+        fetch('/static/airports-core.json')
             .then(function(res) { return res.json(); })
             .then(function(json) {
                 airportData = json.airports || [];
@@ -3139,6 +3140,15 @@
                             if (!isNaN(_daLat) && !isNaN(_daLon)) {
                                 map.setView([_daLat, _daLon],
                                     (!isNaN(_daZoom) && _daZoom >= 3 && _daZoom <= 16) ? _daZoom : 10);
+                                // Cache resolved coords so next visit starts here without waiting for file load
+                                try {
+                                    var _cSt = JSON.parse(localStorage.getItem('radar.settings') || '{}');
+                                    _cSt.defaultAirportLat = _daLat;
+                                    _cSt.defaultAirportLon = _daLon;
+                                    localStorage.setItem('radar.settings', JSON.stringify(_cSt));
+                                    _RS.defaultAirportLat = _daLat;
+                                    _RS.defaultAirportLon = _daLon;
+                                } catch(e) {}
                             }
                         }
                     }
@@ -3147,6 +3157,24 @@
             .catch(function(err) {
                 console.log('Airport layer failed to load', err);
             });
+
+        // Phase 2: load full airport dataset (all types incl. small/heliport) when user first zooms to ≥ 11
+        var _fullAirportsLoaded = false;
+        function maybeLoadFullAirports() {
+            if (_fullAirportsLoaded || map.getZoom() < 11) return;
+            _fullAirportsLoaded = true;
+            fetch('/static/airports.json')
+                .then(function(res) { return res.json(); })
+                .then(function(json) {
+                    airportData = json.airports || [];
+                    buildAirportLookup();
+                    syncAirportMarkers();
+                })
+                .catch(function(err) {
+                    _fullAirportsLoaded = false;
+                    console.log('Full airport layer failed to load', err);
+                });
+        }
 
 
         var _moveRefreshTimer = null;
@@ -3161,6 +3189,7 @@
             scheduleBoundsRefresh();
         });
         map.on('zoomend', function() {
+            maybeLoadFullAirports();
             syncVisiblePlanes();
             syncAirportMarkers();
             updateAllMarkerDensity();
