@@ -75,7 +75,9 @@ class ApiSearch(ApiBase):
             plane.get("operator", ""),
             plane.get("dep", ""),
             plane.get("arr", ""),
+            plane.get("icaoHex", ""),
             plane.get("icao_hex", ""),
+            plane.get("groundCluster", ""),
             plane.get("gufi", ""),
             flightId
         ]
@@ -98,8 +100,9 @@ class ApiSearch(ApiBase):
             "alt": self.safeFloat(plane.get("alt", 0)),
             "speed": self.safeFloat(plane.get("speed", 0)),
             "heading": self.safeFloat(plane.get("heading", 0)),
-            "icaoHex": plane.get("icao_hex", ""),
+            "icaoHex": plane.get("icaoHex", plane.get("icao_hex", "")),
             "source": plane.get("source", ""),
+            "groundCluster": plane.get("groundCluster", plane.get("ground_cluster", "")),
             "lastUpdate": self.safeFloat(plane.get("last_update", 0))
         }
     

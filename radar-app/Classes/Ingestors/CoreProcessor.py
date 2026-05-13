@@ -534,10 +534,10 @@ class CoreProcessor(BaseIngestor):
         state["source"] = source
         
         # Merge other fields
-        for field in ["speed", "heading", "alt", "vertical_rate", "callsign", "icao_hex"]:
+        for field in ["speed", "heading", "alt", "vertical_rate", "callsign", "icao_hex", "registration", "aircraft_type", "ground_cluster", "source_facility"]:
             val = data.get(field)
             if val:
-                state[field] = str(val).strip().upper()
+                state[field] = str(val).strip().upper() if field in ["callsign", "icao_hex", "registration"] else str(val)
         
         speed = float(state.get("speed", 0) or 0)
         # Authoritative airborne flag: if source says airborne or speed > threshold
@@ -630,7 +630,14 @@ class CoreProcessor(BaseIngestor):
             "vertical_rate": str(data.get("vertical_rate", "") or ""),
             "last_update": str(now),
             "source": data.get("source", ""),
+            "position_source": data.get("source", ""),
         }
+        
+        # Merge extra metadata if present
+        for field in ["icao_hex", "registration", "aircraft_type", "ground_cluster", "source_facility"]:
+            val = data.get(field)
+            if val:
+                state[field] = str(val).strip().upper() if field in ["icao_hex", "registration"] else str(val)
         
         speed = float(state.get("speed", 0) or 0)
         state["airborne"] = "1" if speed >= self.AIRBORNE_SPEED else "0"

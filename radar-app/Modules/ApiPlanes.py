@@ -366,6 +366,7 @@ class ApiPlanes(ApiBase):
             "positionSource": _src,
             "enrichmentSource": _profile_src,
             "sourceFacility": plane.get("source_facility", ""),
+            "groundCluster": plane.get("ground_cluster", ""),
             "trackKey": plane.get("track_key", ""),
             "gufi": plane.get("gufi", ""),
             "lat": self.safeFloat(plane.get("lat", 0)),
@@ -466,22 +467,21 @@ class ApiPlanes(ApiBase):
             "squawk",
             "emergency",
             "category",
-            "dbFlags"
+            "dbFlags",
+            "groundCluster"
         ]:
             if field in adsbPlane:
                 merged[field] = adsbPlane[field]
 
         # Prefer ADSB callsign/registration/type when present, keep FAA fields otherwise.
-        for field in ["callsign", "operator", "registration", "aircraftType", "icaoHex"]:
+        for field in ["callsign", "operator", "registration", "aircraftType", "icaoHex", "source", "sourceFacility"]:
             if adsbPlane.get(field):
                 merged[field] = adsbPlane[field]
 
-        merged["source"] = "adsb-lol-reapi"
-        merged["positionSource"] = "adsb-lol-reapi"
+        merged["positionSource"] = adsbPlane.get("source", "adsb-lol-reapi")
         merged["enrichmentSource"] = faaPlane.get("source", "")
         merged["faaFlightId"] = faaPlane.get("flightId", "")
         merged["adsbFlightId"] = adsbPlane.get("flightId", "")
-        merged["sourceFacility"] = adsbPlane.get("sourceFacility", "adsb.lol re-api")
 
         return merged
 
@@ -573,6 +573,10 @@ class ApiPlanes(ApiBase):
             aircraft_class = "helicopter"
             aircraft_role = "helicopter"
             icon_type = "helicopter"
+        elif (plane.get("source") or "").lower() == "adsblol-ground-sweep" or plane.get("groundCluster"):
+            aircraft_class = "ground"
+            aircraft_role = "ground"
+            icon_type = "private"
         elif prefix in commercial_prefixes:
             aircraft_class = "commercial"
             aircraft_role = "airline"
@@ -584,10 +588,6 @@ class ApiPlanes(ApiBase):
         elif callsign and not callsign.startswith("track:") and len(callsign) > 3:
             aircraft_class = "private"
             aircraft_role = "general"
-            icon_type = "private"
-        elif (plane.get("source") or "").lower() == "adsblol-ground-sweep" or plane.get("groundCluster"):
-            aircraft_class = "ground"
-            aircraft_role = "ground"
             icon_type = "private"
         else:
             aircraft_class = "unknown"
@@ -649,7 +649,7 @@ class ApiPlanes(ApiBase):
     })
 
     def _isGroundPlane(self, plane: dict) -> bool:
-        return bool(plane.get("groundCluster"))
+        return bool(plane.get("groundCluster")) or plane.get("aircraftClass") == "ground"
 
     def _pickFields(self, planes: list, view: str) -> list:
         if view == "ground":
@@ -674,15 +674,25 @@ class ApiPlanes(ApiBase):
 
         inbound = []
         outbound = []
+        
+        # Simple airport code matching for ground clusters
+        # e.g. "PIT" in "DTW_CLE_PIT_CMH"
+        apt_short = airport[1:] if len(airport) == 4 and airport.startswith("K") else airport
 
         for p in planes:
             dep = (p.get("dep") or "").strip().upper()
             arr = (p.get("arr") or "").strip().upper()
+            cluster = (p.get("groundCluster") or "").upper()
 
             if arr == airport:
                 inbound.append(p)
-            if dep == airport:
+            elif dep == airport:
                 outbound.append(p)
+            elif apt_short in cluster:
+                # If ground aircraft matched by cluster and no conflicting route, 
+                # show in outbound (as active ground ops).
+                if not dep and not arr:
+                    outbound.append(p)
 
         inbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
         outbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
@@ -917,6 +927,15 @@ class ApiPlanes(ApiBase):
                 origin_counts[dep] = origin_counts.get(dep, 0) + 1
             if arr:
                 dest_counts[arr] = dest_counts.get(arr, 0) + 1
+                
+            # Ground cluster attribution (fallback for summary)
+            if not dep and not arr:
+                cluster = (p.get("groundCluster") or "").upper()
+                if cluster:
+                    # Attribute to all airports in the cluster for activity awareness
+                    for part in cluster.split("_"):
+                        if 3 <= len(part) <= 4:
+                            origin_counts[part] = origin_counts.get(part, 0) + 1
 
         airline_counts = dict(sorted(airline_counts.items(), key=lambda x: x[1], reverse=True)[:50])
         origin_counts = dict(sorted(origin_counts.items(), key=lambda x: x[1], reverse=True)[:100])
