@@ -678,8 +678,6 @@ function render(d) {
     /* ── Endpoint Status ── */
     const endpoints = [
         { label: 'API Health',   url: '/api/health',        expect: r => r.status === 'ok' },
-        { label: 'API Stream',   url: '/api/stream',        expect: null, skip: true },
-        { label: 'Health (web)', url: '/health.json',       expect: r => r.status === 'ok' },
         { label: 'Health Data',  url: '/api/?action=Health',expect: r => {
             const d = r && r.response && r.response.data ? r.response.data : r;
             return d.status === 'ok' || d.status === 'degraded';

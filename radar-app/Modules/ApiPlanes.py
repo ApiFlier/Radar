@@ -1134,3 +1134,16 @@ class ApiPlanes(ApiBase):
         a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
         return R * c
+
+
+def get_planes_snapshot():
+    """Return the shared plane snapshot if it is within its cache TTL, else None.
+
+    Intended for sibling modules (e.g. ApiHealth) that want to avoid their own
+    Redis scan when the snapshot is already warm.  Callers must not mutate the
+    returned dict or its nested lists — they are shared references.
+    """
+    with _planes_cache_lock:
+        if _planes_cache is not None and (time.time() - _planes_cache_ts) < _PLANES_CACHE_TTL:
+            return _planes_cache
+    return None

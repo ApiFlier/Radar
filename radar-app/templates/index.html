@@ -1797,25 +1797,36 @@
             var icao   = String(p.icaoHex      || '').trim();
             var cls    = String(p.aircraftClass || '').toLowerCase();
             var al     = airlineInfo(p);
-            
+
             var state = aircraftDisplayState(p);
             var stateSuffix = (state === 'parked') ? ' (Parked)' : (state === 'ground_moving') ? ' (Taxiing)' : '';
 
+            var dep = String(p.dep || '').trim().toUpperCase();
+            var arr = String(p.arr || '').trim().toUpperCase();
+            var route = '';
+            if (dep && arr) {
+                route = '<br><span style="opacity:0.6;font-weight:400">' + dep + ' → ' + arr + '</span>';
+            } else if (dep) {
+                route = '<br><span style="opacity:0.6;font-weight:400">' + dep + ' →</span>';
+            } else if (arr) {
+                route = '<br><span style="opacity:0.6;font-weight:400">→ ' + arr + '</span>';
+            }
+
             if (isMil || cls === 'military') {
                 var ident = cs || reg || icao;
-                return 'Military' + (ident ? ' · ' + ident : '') + stateSuffix;
+                return 'Military' + (ident ? ' · ' + ident : '') + stateSuffix + route;
             }
             if (isHeli || cls === 'helicopter') {
                 var ident = reg || cs;
-                return (ident ? ident + ' · Helicopter' : 'Helicopter') + stateSuffix;
+                return (ident ? ident + ' · Helicopter' : 'Helicopter') + stateSuffix + route;
             }
             if (al) {
-                return (cs || (al.prefix + al.number)) + ' · ' + al.airline + stateSuffix;
+                return (cs || (al.prefix + al.number)) + ' · ' + al.airline + stateSuffix + route;
             }
-            if (cs)   return cs + stateSuffix;
-            if (reg)  return reg + stateSuffix;
-            if (icao) return 'ICAO ' + icao.toUpperCase() + stateSuffix;
-            return (p.flightId || '') + stateSuffix;
+            if (cs)   return cs + stateSuffix + route;
+            if (reg)  return reg + stateSuffix + route;
+            if (icao) return 'ICAO ' + icao.toUpperCase() + stateSuffix + route;
+            return (p.flightId || '') + stateSuffix + route;
         }
 
         function makePlaneIcon(id, heading, color, opacity) {
