@@ -332,9 +332,10 @@ prepare_env() {
         info "FAA SWIM ingestor enabled — validating FAA credentials..."
         require_env "FAA_USER"
         require_env "FAA_PASS"
-        require_env "QUEUE_SFDPS"
-        require_env "QUEUE_STDDS"
-        require_env "QUEUE_TFMS"
+        if [ -z "$(get_env_value QUEUE_SFDPS)" ] && [ -z "$(get_env_value QUEUE_STDDS)" ] && [ -z "$(get_env_value QUEUE_TFMS)" ]; then
+            echo -e "${RED}[ERROR]${NC} Missing required value in deploy.env: at least one of QUEUE_SFDPS, QUEUE_STDDS, QUEUE_TFMS"
+            MISSING_REQUIRED=1
+        fi
     else
         info "FAA SWIM ingestor not configured. To enable, add FAA_USER, FAA_PASS, and QUEUE_* to deploy.env."
     fi

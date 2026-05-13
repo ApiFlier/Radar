@@ -232,6 +232,17 @@ show_status() {
     local swim_enabled
     swim_enabled="$(get_env_value ENABLE_SWIM_INGESTOR)"
     swim_enabled="${swim_enabled:-false}"
+    if [ "$swim_enabled" != "true" ]; then
+        local _faa_user _faa_pass _q1 _q2 _q3
+        _faa_user="$(get_deploy_value FAA_USER)"
+        _faa_pass="$(get_deploy_value FAA_PASS)"
+        _q1="$(get_deploy_value QUEUE_SFDPS)"
+        _q2="$(get_deploy_value QUEUE_STDDS)"
+        _q3="$(get_deploy_value QUEUE_TFMS)"
+        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+            swim_enabled="true"
+        fi
+    fi
     if [ "$swim_enabled" = "true" ]; then
         info "SWIM: Enabled"
     else
