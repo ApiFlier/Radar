@@ -1,8 +1,20 @@
 # Aviation Radar
 
+[Live Demo](https://radar.meeks.cc)
+
 A self-hosted live aircraft tracking and airport operations dashboard. Aviation Radar aggregates real-time data from public aviation feeds, correlates ADS-B and FAA flight plan data, and presents it through a browser-based map UI with alerts, ground ops, weather overlays, and system health monitoring.
 
 This is a production-style Docker deployment — not a demo app. All tracked aircraft are live, pulled from operational public data sources.
+
+---
+
+## What this demonstrates
+
+- **Distributed Architecture** — Isolation of long-lived, high-bandwidth FAA SWIM consumers from the user-facing API and frontend.
+- **Data Fusion & Normalization** — Correlating disparate data sources (ADS-B vs. FAA) into a unified canonical state using Redis-backed ephemeral storage.
+- **Resilient Engineering** — Graceful degradation when external data sources are unavailable, coupled with automated health monitoring and resource guardrails.
+- **Production-Ready Operations** — Automated setup/update pipelines, standardized environment management, and containerized deployment with predictable resource usage.
+- **Aviation Technology Expertise** — Practical implementation of FAA SWIM (SFDPS/STDDS/TFMS) protocols and ADS-B data handling in a modern tech stack.
 
 ---
 
@@ -72,7 +84,7 @@ Aviation Radar includes built-in guardrails to ensure system stability:
 
 ## What Aviation Radar Does
 
-Aviation Radar is a fully self-hosted flight tracking system. **All data is advisory only. Do not use for operational flight safety decisions. This application is not a certified aviation or weather source.**
+Aviation Radar is a fully self-hosted system for **tactical live aircraft awareness**. **All data is advisory only. Do not use for operational flight safety decisions. This application is not a certified aviation or weather source.**
 
 - Displays live aircraft positions on an interactive Leaflet map with smooth animation
 - Ingests ADS-B position data from [ADSB.lol](https://adsb.lol) every 10 seconds
@@ -172,8 +184,6 @@ FAA SWIM provides official FAA flight plan and en-route track data. This require
 
 To enable, set in `deploy.env`:
 ```
-ENABLE_SWIM_INGESTOR=true
-
 FAA_USER=your.email@example.com
 FAA_PASS=your-swim-password
 QUEUE_SFDPS=your.email@example.com.FDPS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
@@ -181,7 +191,7 @@ QUEUE_STDDS=your.email@example.com.STDDS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OU
 QUEUE_TFMS=your.email@example.com.TFMS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
 ```
 
-When `ENABLE_SWIM_INGESTOR=false` (the default), the `aviation-radar-swim-ingestor` container is not started. This prevents the restart loop that occurs when FAA credentials are missing or rejected.
+**Auto-detection:** `setup.sh` and `update.sh` automatically detect these credentials and start the `aviation-radar-swim-ingestor` container using the Docker `--profile swim` flag. To explicitly disable the ingestor even if credentials are present, set `ENABLE_SWIM_INGESTOR=false`.
 
 Apply for SWIM access: [https://www.faa.gov/air_traffic/technology/swim](https://www.faa.gov/air_traffic/technology/swim)
 
