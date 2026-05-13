@@ -3125,6 +3125,16 @@
                 syncAirportMarkers();
                 syncVisiblePlanes();
 
+                // Restore Airport Focus from localStorage if active and no deep link conflicts
+                if (!_hasDeepLink) {
+                    try {
+                        var _sf = JSON.parse(localStorage.getItem('radar.focus') || 'null');
+                        if (_sf && _sf.airport && (Date.now() - (_sf.ts || 0)) < 14400000) {
+                            enterAirportFocus(_sf.airport);
+                        }
+                    } catch(e) {}
+                }
+
                 // Apply saved default airport as startup center (no panel, no HUD).
                 // Skip when coords were already cached from settings (map started there),
                 // or when a URL deep link is present.
@@ -4546,6 +4556,22 @@
             }
         }
 
+        function _updateFocusNavLinks(code) {
+            var focusPaths = ['/aircraft', '/ground', '/alerts'];
+            document.querySelectorAll('#sidebar .nav-item').forEach(function(el) {
+                var base = el.getAttribute('data-base-href');
+                if (!base) {
+                    base = (el.getAttribute('href') || '').split('?')[0];
+                    el.setAttribute('data-base-href', base);
+                }
+                if (focusPaths.indexOf(base) !== -1) {
+                    el.setAttribute('href', code
+                        ? base + '?airport=' + encodeURIComponent(code) + '&focus=1'
+                        : base);
+                }
+            });
+        }
+
         function enterAirportFocus(code) {
             code = (code || '').toUpperCase().trim();
             if (!code) return;
@@ -4562,6 +4588,11 @@
             focusAptLon    = NaN;
 
             focusAirportCode = code;
+
+            // Persist focus across tabs and reloads
+            try { localStorage.setItem('radar.focus', JSON.stringify({airport: code, ts: Date.now()})); } catch(e) {}
+            // Update sidebar links to carry focus context to other pages
+            _updateFocusNavLinks(code);
 
             // Open/re-render airport panel
             if (panelMode !== 'airport' || selectedAptCode !== code) {
@@ -4609,6 +4640,10 @@
             focusAirportCode = null;
             focusAptLat      = NaN;
             focusAptLon      = NaN;
+
+            // Clear persisted focus state and restore sidebar links
+            try { localStorage.removeItem('radar.focus'); } catch(e) {}
+            _updateFocusNavLinks(null);
 
             // Remove radius rings
             focusRings.forEach(function(r) { try { map.removeLayer(r); } catch(e) {} });

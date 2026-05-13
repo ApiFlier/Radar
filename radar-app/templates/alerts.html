@@ -73,6 +73,20 @@
         .nav-item.soon:hover { color: #636363; background: rgba(255,255,255,0.02); }
         .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,0.06); margin: 3px 0; }
 
+        /* ── Airport Focus banner ── */
+        .focus-banner {
+            background: rgba(0,255,204,0.06); border-bottom: 1px solid rgba(0,255,204,0.16);
+            padding: 6px 20px; display: flex; align-items: center; gap: 12px; font-size: 12px; color: #999;
+        }
+        .focus-banner strong { color: #00ffcc; font-weight: 600; }
+        .focus-banner a { color: #7aadee; text-decoration: none; }
+        .focus-banner a:hover { text-decoration: underline; }
+        .focus-banner .fb-clear {
+            margin-left: auto; background: none; border: 1px solid rgba(255,255,255,0.14);
+            color: #777; font-size: 11px; padding: 2px 9px; border-radius: 4px; cursor: pointer; font-family: inherit;
+        }
+        .focus-banner .fb-clear:hover { color: #ccc; border-color: rgba(255,255,255,0.28); }
+
         /* ── Main ── */
         .main { max-width: 1600px; margin: 0 auto; padding: 24px 20px 48px; }
 
@@ -309,6 +323,19 @@
             <button class="refresh-btn" onclick="doRefresh()">Refresh</button>
         </div>
     </header>
+    <script>(function(){
+        var _f;try{_f=JSON.parse(localStorage.getItem('radar.focus')||'null');}catch(e){}
+        if(!_f||!_f.airport||(Date.now()-(_f.ts||0))>14400000)return;
+        var c=String(_f.airport).replace(/[^A-Z0-9]/g,'');
+        if(!c)return;
+        var b=document.createElement('div');b.className='focus-banner';
+        b.innerHTML='<strong>Airport Focus: '+c+'</strong>'
+            +'<span>advisory display · public near-live data</span>'
+            +'<a href="/?airport='+encodeURIComponent(c)+'&focus=1">View on Radar</a>'
+            +'<button class="fb-clear" onclick="(function(){try{localStorage.removeItem(\'radar.focus\');}catch(e){}this.closest(\'.focus-banner\').remove();}).call(this)">Clear Focus</button>';
+        var h=document.querySelector('.page-header');
+        if(h&&h.parentNode)h.parentNode.insertBefore(b,h.nextSibling);
+    })();</script>
 
     <div class="main">
 
