@@ -223,7 +223,9 @@ show_status() {
 
     echo ""
     info "Final Status:"
-    docker compose ps --filter "name=aviation-radar"
+    # Use standard docker ps to avoid Compose version filter incompatibilities.
+    # We wrap in || true so a display error doesn't mark the whole update as failed.
+    docker ps --filter "name=aviation-radar" || true
     echo ""
     info "URL: http://localhost:${port}"
     
