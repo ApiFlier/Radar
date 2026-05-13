@@ -417,11 +417,6 @@ show_summary() {
     echo "  Running containers:"
     echo "    aviation-radar-app"
     echo "    aviation-radar-redis"
-    if [ "$SWIM_ENABLED" = "true" ]; then
-        echo "    aviation-radar-swim-ingestor"
-    else
-        echo "    (aviation-radar-swim-ingestor not started — ENABLE_SWIM_INGESTOR=false)"
-    fi
     echo ""
     echo "  ADSB.lol note:"
     echo "    re-api access requires this server's public IP to have feeder access."
