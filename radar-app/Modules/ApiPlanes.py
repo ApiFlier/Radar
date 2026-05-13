@@ -1,6 +1,8 @@
 import os
 import time
 import threading
+import json
+import math
 from Classes.ApiBase import ApiBase
 from Classes.Redis import getRedis
 
@@ -18,6 +20,10 @@ _summary_cache_lock = threading.Lock()
 _summary_cache      = None
 _summary_cache_ts   = 0.0
 _SUMMARY_CACHE_TTL  = 15.0   # seconds
+
+# ── Airport coordinates (Lazy loaded) ────────────────────────────────────────
+_apt_coords_lock = threading.Lock()
+_apt_coords      = None
 
 
 class ApiPlanes(ApiBase):
@@ -555,6 +561,7 @@ class ApiPlanes(ApiBase):
         is_pia = bool(db_flags & 4)
         is_ladd = bool(db_flags & 8)
         is_helicopter = self.isHelicopterType(aircraft_type)
+        prefix = operator[:3] if len(operator) >= 3 else callsign[:3]
 
         commercial_prefixes = {
             "AAL", "ACA", "AFR", "ASA", "ASH", "ATN", "AWI", "BAW", "DAL",
@@ -563,8 +570,11 @@ class ApiPlanes(ApiBase):
             "SCX", "UCA", "ROU", "DLH", "AUA", "JZA", "PDT",
         }
 
-        prefix = operator[:3] if len(operator) >= 3 else callsign[:3]
-
+        is_ground_source = (plane.get("source") or "").lower() == "adsblol-ground-sweep"
+        has_cluster = bool(plane.get("groundCluster"))
+        speed = self.safeFloat(plane.get("speed"))
+        alt = self.safeFloat(plane.get("alt"))
+        
         if is_military:
             aircraft_class = "military"
             aircraft_role = "military"
@@ -573,7 +583,7 @@ class ApiPlanes(ApiBase):
             aircraft_class = "helicopter"
             aircraft_role = "helicopter"
             icon_type = "helicopter"
-        elif (plane.get("source") or "").lower() == "adsblol-ground-sweep" or plane.get("groundCluster"):
+        elif (is_ground_source or has_cluster) and alt < 500 and speed < 100:
             aircraft_class = "ground"
             aircraft_role = "ground"
             icon_type = "private"
@@ -669,42 +679,65 @@ class ApiPlanes(ApiBase):
                 "total": total_count,
                 "inbound": [],
                 "outbound": [],
+                "nearby": [],
                 "message": "Missing airport parameter",
             }
 
         inbound = []
         outbound = []
+        nearby = []
         
         # Simple airport code matching for ground clusters
         # e.g. "PIT" in "DTW_CLE_PIT_CMH"
         apt_short = airport[1:] if len(airport) == 4 and airport.startswith("K") else airport
+        
+        coords = self._getAptCoords()
+        apt_pos = coords.get(airport) or coords.get(apt_short)
 
         for p in planes:
             dep = (p.get("dep") or "").strip().upper()
             arr = (p.get("arr") or "").strip().upper()
             cluster = (p.get("groundCluster") or "").upper()
+            
+            p_lat = self.safeFloat(p.get("lat"))
+            p_lon = self.safeFloat(p.get("lon"))
+            alt   = self.safeFloat(p.get("alt"))
+            speed = self.safeFloat(p.get("speed"))
+            dist = None
+            if apt_pos and p_lat and p_lon:
+                dist = self._haversine(apt_pos[0], apt_pos[1], p_lat, p_lon)
 
             if arr == airport:
                 inbound.append(p)
             elif dep == airport:
                 outbound.append(p)
-            elif apt_short in cluster:
-                # If ground aircraft matched by cluster and no conflicting route, 
-                # show in outbound (as active ground ops).
+            elif dist is not None and dist <= 5.0:
+                # Close enough to be active ground ops
+                # Only attribute as ground ops if not already assigned to another airport
                 if not dep and not arr:
-                    outbound.append(p)
+                    if alt < 500 or speed < 40:
+                        outbound.append(p)
+                    else:
+                        nearby.append(p)
+            elif apt_short in cluster:
+                # Matched by cluster but not by exact pos or distance
+                if not dep and not arr:
+                    nearby.append(p)
 
         inbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
         outbound.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
+        nearby.sort(key=lambda p: self.safeFloat(p.get("lastUpdate", 0)), reverse=True)
 
         return {
             "airport": airport,
-            "count": len(inbound) + len(outbound),
+            "count": len(inbound) + len(outbound), # Primary activity count
             "total": total_count,
             "inboundCount": len(inbound),
             "outboundCount": len(outbound),
+            "nearbyCount": len(nearby),
             "inbound": self._pickFields(inbound[:50], "table"),
             "outbound": self._pickFields(outbound[:50], "table"),
+            "nearby": self._pickFields(nearby[:50], "table"),
         }
 
     def _buildRadarView(self, planes: list, min_lat, max_lat, min_lon, max_lon,
@@ -900,10 +933,14 @@ class ApiPlanes(ApiBase):
         origin_counts = {}
         dest_counts = {}
 
+        coords = self._getAptCoords()
+
         for p in planes:
             if self._isGroundPlane(p):
                 ground_sweep += 1
                 class_counts["ground"] += 1
+                # Ground-sweep targets are always on ground
+                on_ground += 1
             else:
                 ac = p.get("aircraftClass", "unknown")
                 class_counts[ac] = class_counts.get(ac, 0) + 1
@@ -928,14 +965,22 @@ class ApiPlanes(ApiBase):
             if arr:
                 dest_counts[arr] = dest_counts.get(arr, 0) + 1
                 
-            # Ground cluster attribution (fallback for summary)
+            # Distance-aware cluster attribution for summary (conservative)
             if not dep and not arr:
                 cluster = (p.get("groundCluster") or "").upper()
                 if cluster:
-                    # Attribute to all airports in the cluster for activity awareness
-                    for part in cluster.split("_"):
-                        if 3 <= len(part) <= 4:
-                            origin_counts[part] = origin_counts.get(part, 0) + 1
+                    p_lat = self.safeFloat(p.get("lat"))
+                    p_lon = self.safeFloat(p.get("lon"))
+                    if p_lat != 0 and p_lon != 0:
+                        for part in cluster.split("_"):
+                            if 3 <= len(part) <= 4:
+                                apt_ident = part if part.startswith("K") else "K" + part
+                                apt_pos = coords.get(apt_ident) or coords.get(part)
+                                if apt_pos:
+                                    dist = self._haversine(apt_pos[0], apt_pos[1], p_lat, p_lon)
+                                    if dist <= 5.0:
+                                        origin_counts[part] = origin_counts.get(part, 0) + 1
+                                        break # Assign to the first close one
 
         airline_counts = dict(sorted(airline_counts.items(), key=lambda x: x[1], reverse=True)[:50])
         origin_counts = dict(sorted(origin_counts.items(), key=lambda x: x[1], reverse=True)[:100])
@@ -989,3 +1034,36 @@ class ApiPlanes(ApiBase):
 
     def requiresGet(self):
         return True
+
+    def _getAptCoords(self) -> dict:
+        global _apt_coords
+        with _apt_coords_lock:
+            if _apt_coords is not None:
+                return _apt_coords
+            
+            coords = {}
+            path = "static/airports.json"
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        data = json.load(f)
+                        for a in data.get("airports", []):
+                            ident = a.get("ident")
+                            lat = self.safeFloat(a.get("lat"))
+                            lon = self.safeFloat(a.get("lon"))
+                            if ident and lat and lon:
+                                coords[ident] = (lat, lon)
+                except Exception:
+                    pass
+            _apt_coords = coords
+            return coords
+
+    def _haversine(self, lat1, lon1, lat2, lon2):
+        """Calculate the great circle distance in nautical miles."""
+        R = 3440.065 # Earth radius in NM
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return R * c

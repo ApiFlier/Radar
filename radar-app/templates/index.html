@@ -3946,7 +3946,7 @@
             
             var fCache = aptFlightsCache[code];
             if (fCache && fCache.inbound !== undefined) {
-                renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound);
+                renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound, fCache.nearby);
             }
             
             var wCache = aptWeatherCache[code];
@@ -4064,7 +4064,7 @@
             var cache = aptFlightsCache[code];
             if (cache && (now - cache.ts) < APT_FLIGHTS_TTL) {
                 if (selectedAptCode === code && panelMode === 'airport') {
-                    renderAptFlightsInPanel(code, cache.inbound, cache.outbound);
+                    renderAptFlightsInPanel(code, cache.inbound, cache.outbound, cache.nearby);
                 }
                 return;
             }
@@ -4074,9 +4074,10 @@
                     var data     = ((json.response || {}).data) || {};
                     var inbound  = data.inbound  || [];
                     var outbound = data.outbound || [];
-                    aptFlightsCache[code] = { ts: Date.now(), inbound: inbound, outbound: outbound };
+                    var nearby   = data.nearby   || [];
+                    aptFlightsCache[code] = { ts: Date.now(), inbound: inbound, outbound: outbound, nearby: nearby };
                     if (selectedAptCode === code && panelMode === 'airport') {
-                        renderAptFlightsInPanel(code, inbound, outbound);
+                        renderAptFlightsInPanel(code, inbound, outbound, nearby);
                     }
                 })
                 .catch(function() {
@@ -4085,11 +4086,11 @@
                 });
         }
 
-        function renderAptFlightsInPanel(code, inbound, outbound) {
+        function renderAptFlightsInPanel(code, inbound, outbound, nearby) {
             var box = document.getElementById('dp-flights-' + code);
             if (!box) return;
 
-            if (!inbound.length && !outbound.length) {
+            if (!inbound.length && !outbound.length && (!nearby || !nearby.length)) {
                 box.innerHTML = '<div class="dp-flights-loading" style="color:#555">No active aircraft for ' +
                                 htmlEscape(code) + '</div>';
                 return;
@@ -4183,9 +4184,16 @@
             html += '<span style="color:#aaa">' + inbound.length  + ' inbound</span>';
             html += '<span style="color:#444">·</span>';
             html += '<span style="color:#aaa">' + outbound.length + ' outbound</span>';
+            if (nearby && nearby.length) {
+                html += '<span style="color:#444">·</span>';
+                html += '<span style="color:#aaa">' + nearby.length + ' nearby</span>';
+            }
             html += '</div>';
             html += groupHtml(inbound,  'Inbound to '    + code, true);
             html += groupHtml(outbound, 'Outbound from ' + code, false);
+            if (nearby && nearby.length) {
+                html += groupHtml(nearby, 'Nearby/Regional tracks', false);
+            }
             if (inbound.length) {
                 html += '<div class="dp-flights-disclaimer">ETA est. from live position and groundspeed. Not official airline schedule data.</div>';
             }
