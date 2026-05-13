@@ -1,1 +1,1 @@
-from .SwimIngestor import SwimIngestor, getSwimIngestor
+# FAA SWIM Ingestor package
