@@ -1683,7 +1683,14 @@
                 return age <= getVisibleAirMaxAge() ? 1.0 : 0.0;
             }
 
-            return age <= getVisibleGroundMaxAge() ? 0.85 : 0.0;
+            // Ground aircraft logic
+            var max = getVisibleGroundMaxAge();
+            if (age > max) return 0.0;
+
+            // Parked/stale ground aircraft are dimmer
+            if (age > 300) return 0.45;
+
+            return 0.85;
         }
 
         function isAirbornePlane(p) {
@@ -2179,10 +2186,19 @@
             return m[label] || 'fn-unknown';
         }
 
-        function stateLabel(state) {
+        function stateLabel(state, p) {
             if (state === 'airborne')      return 'Airborne';
             if (state === 'ground_moving') return 'Taxiing';
-            if (state === 'parked')        return 'Parked';
+            if (state === 'parked') {
+                if (p) {
+                    var age = getPlaneAgeSeconds(p);
+                    if (age > 120) {
+                        var m = Math.floor(age / 60);
+                        if (m >= 1) return 'Parked ' + m + 'm ago';
+                    }
+                }
+                return 'Parked';
+            }
             return '';
         }
 
@@ -2339,7 +2355,7 @@
             var aircraftClass = displayAircraftClass(p);
             var iconType = displayIconType(p);
             var state = aircraftDisplayState(p);
-            var stateLbl = stateLabel(state);
+            var stateLbl = stateLabel(state, p);
 
             var tags = [];
             if (boolField(p.isMilitary)) tags.push('Military');
@@ -2587,7 +2603,7 @@
         }
 
         function getVisibleGroundMaxAge() {
-            return typeof VISIBLE_GROUND_MAX_AGE !== 'undefined' ? VISIBLE_GROUND_MAX_AGE : 900;
+            return typeof VISIBLE_GROUND_MAX_AGE !== 'undefined' ? VISIBLE_GROUND_MAX_AGE : 14400;
         }
 
         function getGroundDisplayMinZoom() {
@@ -3806,7 +3822,7 @@
             var airline      = airlineInfo(p);
             var acClass      = displayAircraftClass(p);
             var state        = aircraftDisplayState(p);
-            var stateLbl     = stateLabel(state);
+            var stateLbl     = stateLabel(state, p);
             var icao         = String(p.icaoHex || '').trim().toUpperCase();
             var csRaw        = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
             var isFollowing  = (followFlightId === flightId);

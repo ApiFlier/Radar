@@ -3,6 +3,7 @@ import logging
 import time
 import math
 import threading
+import os
 from .BaseIngestor import BaseIngestor
 from Classes.Redis import getRedis
 
@@ -15,11 +16,11 @@ class CoreProcessor(BaseIngestor):
     """
     
     TRAIL_MAX = 500
-    TRAIL_TTL = 14400
-    STATE_AIR_TTL = 600
-    STATE_GROUND_TTL = 1800
-    PROFILE_TTL = 86400
-    CORR_TTL = 172800
+    TRAIL_TTL = int(os.getenv("TRAIL_TTL_SECONDS", "14400"))
+    STATE_AIR_TTL = int(os.getenv("STATE_AIR_TTL_SECONDS", "600"))
+    STATE_GROUND_TTL = int(os.getenv("STATE_GROUND_TTL_SECONDS", "14400")) # 4 hours for parked
+    PROFILE_TTL = int(os.getenv("PROFILE_TTL_SECONDS", "86400"))
+    CORR_TTL = int(os.getenv("CORR_TTL_SECONDS", "172800"))
     TRAIL_INTERVAL = 20
     AIRBORNE_SPEED = 40
     

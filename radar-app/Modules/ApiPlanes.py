@@ -604,6 +604,19 @@ class ApiPlanes(ApiBase):
             aircraft_role = "unknown"
             icon_type = "private"
 
+        # Determine ground status for ground-classified aircraft
+        ground_status = None
+        is_live_ground = False
+        if aircraft_class == "ground":
+            now = time.time()
+            last_update = self.safeFloat(plane.get("lastUpdate", 0))
+            age = now - last_update if last_update > 1e9 else 0
+            is_live_ground = age < 300  # 5 minute threshold for 'live'
+            if speed > 2 and is_live_ground:
+                ground_status = "taxiing"
+            else:
+                ground_status = "parked"
+
         return {
             "aircraftClass": aircraft_class,
             "aircraftRole": aircraft_role,
@@ -612,6 +625,8 @@ class ApiPlanes(ApiBase):
             "isPia": is_pia,
             "isLadd": is_ladd,
             "isHelicopter": is_helicopter,
+            "groundStatus": ground_status,
+            "isLiveGround": is_live_ground,
         }
 
     _GROUND_FIELDS = frozenset({
@@ -620,6 +635,7 @@ class ApiPlanes(ApiBase):
         "source", "positionSource", "sourceFacility", "groundCluster",
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
+        "groundStatus", "isLiveGround",
     })
 
     _ALERTS_FIELDS = frozenset({
@@ -629,6 +645,7 @@ class ApiPlanes(ApiBase):
         "airborne", "squawk", "emergency", "dep", "arr", "operator", "dbFlags",
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
+        "groundStatus", "isLiveGround",
     })
 
     _TABLE_FIELDS = frozenset({
@@ -639,11 +656,12 @@ class ApiPlanes(ApiBase):
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
         "depTime", "eta", "flightStatus", "assignedAlt", "verticalRate",
+        "groundStatus", "isLiveGround",
     })
 
     # Freshness thresholds — must match index.html VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE
-    _AIR_MAX_AGE    = 120   # seconds — radar display cutoff for airborne aircraft
-    _GROUND_MAX_AGE = 900   # seconds — radar display cutoff for ground-sweep aircraft
+    _AIR_MAX_AGE    = int(os.getenv("VISIBLE_AIR_MAX_AGE_SECONDS", "120"))
+    _GROUND_MAX_AGE = int(os.getenv("VISIBLE_GROUND_MAX_AGE_SECONDS", "14400")) # 4 hours
     _DQ_STALE_SECS  = 180   # seconds — DQ stale flag (broader than radar cutoff; matches alerts.html STALE_SECS)
     _RADAR_PAD      = 0.5   # degrees lat/lon padding around requested bounds
 
@@ -655,7 +673,7 @@ class ApiPlanes(ApiBase):
         "source", "positionSource", "enrichmentSource", "sourceFacility",
         "isMilitary", "isHelicopter", "isLadd", "isPia",
         "airborne", "lastUpdate", "assignedAlt", "squawk", "emergency",
-        "groundCluster",
+        "groundCluster", "groundStatus", "isLiveGround",
     })
 
     def _isGroundPlane(self, plane: dict) -> bool:
