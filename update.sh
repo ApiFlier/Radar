@@ -105,13 +105,8 @@ check_disk_space() {
 update_repo() {
     info "Checking repository state..."
 
-    local is_dirty=false
-    if [ -n "$(git status --porcelain)" ]; then
-        is_dirty=true
-    fi
-
-    if [ "$is_dirty" = true ] && [ "$FORCE" = false ]; then
-        error "Working tree is dirty. Commit, stash, or run with --force to discard changes."
+    if [ -n "$(git status --porcelain)" ] && [ "$FORCE" = false ]; then
+        error "Working tree is dirty. Commit, stash, or run with --force to discard local changes."
     fi
 
     local upstream
@@ -126,14 +121,18 @@ update_repo() {
         else
             error "Could not determine upstream branch."
         fi
-        info "Using upstream: $upstream"
+        info "Using fallback upstream: $upstream"
     fi
 
-    info "Fetching latest code from origin..."
-    git fetch origin
+    # Split upstream into remote and branch
+    local remote="${upstream%%/*}"
+    local branch="${upstream#*/}"
+
+    info "Fetching latest code from $remote..."
+    git fetch "$remote" "$branch"
 
     if [ "$FORCE" = true ]; then
-        warn "FORCE enabled: Resetting to $upstream. Any local changes will be lost!"
+        warn "FORCE enabled: Resetting to $upstream. Any local changes or commits will be lost!"
         git reset --hard "$upstream"
     else
         info "Pulling latest code (fast-forward only) from $upstream..."
@@ -190,7 +189,8 @@ check_health() {
     local success=false
 
     while [ "$count" -lt "$attempts" ]; do
-        if curl -s "http://localhost:${port}/health" > /dev/null; then
+        # Use -fsS to fail on HTTP errors and be silent otherwise
+        if curl -fsS -o /dev/null "http://localhost:${port}/health"; then
             success=true
             break
         fi
@@ -203,7 +203,7 @@ check_health() {
     if [ "$success" = true ]; then
         info "Application is healthy."
         
-        # Optional worker status check
+        # Optional worker status check (only if health succeeded)
         if curl -s "http://localhost:${port}/api/workers/status" | grep -q "status"; then
             info "Worker status check passed."
         else
@@ -238,9 +238,9 @@ show_status() {
 
     check_disk_space
 
-    echo ""
-    info "Running optional resource cleanup..."
     if [ -f "$RADAR_DIR/scripts/docker-cleanup.sh" ]; then
+        echo ""
+        info "Running resource cleanup..."
         bash "$RADAR_DIR/scripts/docker-cleanup.sh"
     fi
 }
