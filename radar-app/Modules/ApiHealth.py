@@ -26,24 +26,34 @@ class ApiHealth(ApiBase):
 
         now = time.time()
         if redisOk:
-            for key in redis.scan_iter(match="state:*", count=1000):
-                planeCount += 1
-                state = redis.hgetall(key)
+            # Process both primary state and ADSB.lol state for accurate counts
+            for pattern in ["state:*", "adsblol:state:icao:*"]:
+                for key in redis.scan_iter(match=pattern, count=1000):
+                    planeCount += 1
+                    state = redis.hgetall(key)
 
-                last_update = float(state.get("lastUpdate", 0) or 0)
-                age = now - last_update if last_update > 1e9 else 999999
-                is_airborne = state.get("airborne") == "1" or float(state.get("speed", 0) or 0) >= 40
+                    last_update = float(state.get("last_update", state.get("lastUpdate", 0)) or 0)
+                    age = now - last_update if last_update > 1e9 else 999999
+                    
+                    # Use same airborne logic as CoreProcessor/ApiPlanes
+                    speed = float(state.get("speed", 0) or 0)
+                    is_airborne = state.get("airborne") == "1" or speed >= 40
+                    
+                    # Check ground_cluster or ground source to match ApiPlanes _isGroundPlane
+                    is_ground = bool(state.get("ground_cluster", state.get("groundCluster"))) or \
+                                (state.get("source") == "adsblol-ground-sweep")
 
-                if is_airborne:
-                    airborneCount += 1
-                else:
-                    if age < 300:
-                        onGroundCount += 1
+                    if is_airborne and not is_ground:
+                        airborneCount += 1
                     else:
-                        parkedCount += 1
+                        # Ground target: active vs parked
+                        if age < 300:
+                            onGroundCount += 1
+                        else:
+                            parkedCount += 1
 
-                source = state.get("source", "unknown")
-                sourceCounts[source] = sourceCounts.get(source, 0) + 1
+                    source = state.get("source", "unknown")
+                    sourceCounts[source] = sourceCounts.get(source, 0) + 1
 
             for _ in redis.scan_iter(match="adsblol:state:icao:*", count=1000):
                 adsbLolCount += 1
