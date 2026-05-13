@@ -467,7 +467,7 @@ class CoreProcessor(BaseIngestor):
             pipe.execute()
 
     def _update_position(self, flight_id, data, lat, lon, now):
-        """Update position and speed on existing flight."""
+        """Update position and speed on existing flight with monotonic freshness and source stickiness."""
         r = self.redis.client
         
         state_key = f"state:{flight_id}"
@@ -475,34 +475,35 @@ class CoreProcessor(BaseIngestor):
         history_key = f"history:{flight_id}"
         
         existing_state = r.hgetall(state_key) or {}
-        profile = r.hgetall(profile_key) or {}
         
         source = (data.get("source") or "unknown").lower()
-        new_ts = float(data.get("last_update") or now)
+        new_ts = float(data.get("last_update") or data.get("position_time") or now)
         old_ts = float(existing_state.get("last_update", 0))
         
-        # 1. Timestamp validation: ignore VERY stale updates
-        # Some sources like ADSB.lol provide 'seen' which might jitter or lag.
-        # We allow updates up to 60s old if the current state is not significantly newer.
-        if new_ts < old_ts - 60:
-            logger.debug(f"REJECTED {flight_id} from {source}: Extremely stale (new={new_ts:.0f}, old={old_ts:.0f})")
-            return
-            
-        # If new update is slightly older than current but current is very fresh, skip it
-        if new_ts < old_ts and old_ts > now - 5:
-            return
-            
-        # 2. Source priority check
+        # 1. Monotonicity: Do not let an older position timestamp overwrite a newer one.
+        # Allow a small buffer (2s) for source-time jitter, but never overwrite a very fresh state with an older one.
+        if new_ts < old_ts:
+            if old_ts > now - 60: # If current state is fresh, reject older updates
+                return
+            elif new_ts < old_ts - 300: # If update is ancient, reject always
+                logger.debug(f"REJECTED {flight_id} from {source}: Ancient (new={new_ts:.0f}, old={old_ts:.0f})")
+                return
+
+        # 2. Source priority & stickiness
         current_source = (existing_state.get("position_source") or "unknown").lower()
         new_priority = self._get_priority(source)
         old_priority = self._get_priority(current_source)
         
-        # If current source is very fresh and has better priority, ignore lower priority updates
-        if old_ts > now - 15 and new_priority > old_priority:
-            logger.debug(f"REJECTED {flight_id} from {source}: lower priority than {current_source} ({new_priority} > {old_priority})")
+        # Fresh high-priority source wins. 
+        # Stale high-priority source should not beat fresh lower-priority source.
+        # We define "fresh" as 30s for high priority, 15s for others.
+        is_old_fresh = (now - old_ts < 30) if old_priority <= 2 else (now - old_ts < 15)
+        
+        if is_old_fresh and new_priority > old_priority:
+            # Current source is fresh and better; stick with it.
             return
 
-        # 3. Position sanity check
+        # 3. Position sanity check (Jump rejection)
         old_lat = float(existing_state.get("lat") or 0)
         old_lon = float(existing_state.get("lon") or 0)
         
@@ -510,29 +511,24 @@ class CoreProcessor(BaseIngestor):
             dist_nm = self._haversine(old_lat, old_lon, lat, lon)
             dt = new_ts - old_ts
             
-            if dt > 0.1:
+            # Reject impossible jumps unless new source is significantly newer and higher priority
+            if dt > 0:
                 implied_speed = (dist_nm / dt) * 3600
+                is_airborne = existing_state.get("airborne") == "1"
+                max_speed = self.MAX_SPEED_KTS if is_airborne else self.MAX_GROUND_SPEED_KTS
                 
-                # Check for impossible jumps
-                max_speed = self.MAX_SPEED_KTS
-                is_ground = "ground" in source or existing_state.get("airborne") == "0"
-                if is_ground:
-                    max_speed = self.MAX_GROUND_SPEED_KTS
-                
-                # Allow some slack for jitter/latency
-                slack = 1.8 
-                if implied_speed > max_speed * slack and dist_nm > 2.0 and dt < 300:
-                    reason = f"Impossible speed: {int(implied_speed)} kts"
-                    logger.debug(f"REJECTED {flight_id} from {source}: {reason} (dist={dist_nm:.2f}nm, dt={dt:.1f}s)")
+                # If jump is > 5nm in < 30s and speed is impossible, reject
+                if dt < 30 and dist_nm > 5.0 and implied_speed > max_speed * 2:
+                    reason = f"Impossible jump: {int(implied_speed)} kts ({dist_nm:.1f}nm in {dt:.1f}s)"
+                    logger.debug(f"REJECTED {flight_id} from {source}: {reason}")
                     self._record_history(history_key, now, source, lat, lon, data, False, reason)
                     return
 
         # 4. Ground vs Airborne protection
-        # If we have a reliable airborne track, don't let a ground sweep point pull it down
+        # Parked/last-observed ground position must not overwrite fresh live airborne position.
         was_airborne = existing_state.get("airborne") == "1"
-        is_ground_source = "ground" in source
-        if was_airborne and is_ground_source and old_ts > now - 60:
-            logger.debug(f"REJECTED {flight_id} from {source}: ground update for fresh airborne track")
+        is_ground_source = "ground" in source or "sweep" in source
+        if was_airborne and is_ground_source and old_ts > now - 120:
             return
 
         # Record the update attempt
@@ -560,16 +556,16 @@ class CoreProcessor(BaseIngestor):
         
         speed = float(state.get("speed", 0) or 0)
         # Authoritative airborne flag: if source says airborne or speed > threshold
-        is_airborne = data.get("airborne") == "1" or speed >= self.AIRBORNE_SPEED
-        state["airborne"] = "1" if is_airborne else "0"
+        # When aircraft becomes airborne again, fresh airborne state supersedes parked state.
+        is_airborne_now = data.get("airborne") == "1" or speed >= self.AIRBORNE_SPEED
+        state["airborne"] = "1" if is_airborne_now else "0"
         
         pipe = r.pipeline()
 
         # Tactical Trail Management:
         # 1. Clear trail if transitioning from airborne to ground (landed).
         # 2. Clear trail if this is a fresh session for the processor (no existing state).
-        # This ensures trails are short-lived, tactical, and reset appropriately.
-        if (not existing_state) or (was_airborne and not is_airborne):
+        if (not existing_state) or (was_airborne and not is_airborne_now):
             self._clear_trail(pipe, flight_id)
 
         pipe.hset(state_key, mapping=state)
@@ -578,6 +574,8 @@ class CoreProcessor(BaseIngestor):
         if state["airborne"] == "1":
             self._append_trail(pipe, flight_id, lat, lon, state.get("alt", ""), now)
         
+        # Merge profile for outbound message
+        profile = r.hgetall(profile_key) or {}
         out = {**profile, **state, "last_update": now}
         pipe.publish("planes_out", json.dumps(out))
         pipe.execute()
