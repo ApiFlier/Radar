@@ -315,10 +315,10 @@
         <div class="cards-row" id="cards-row">
             <div class="card dim"><div class="value">—</div><div class="label">Ground Aircraft</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Taxiing</div></div>
-            <div class="card dim"><div class="value">—</div><div class="label">Slow / Rolling</div></div>
-            <div class="card dim"><div class="value">—</div><div class="label">Parked / Stopped</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Holding / Recently Stopped</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Stopped on Ground</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Parked / Last Observed</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Helicopters</div></div>
-            <div class="card dim"><div class="value">—</div><div class="label">No Flight ID</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">No Identity</div></div>
         </div>
 
@@ -328,11 +328,12 @@
                 <div class="section-head">
                     <h2>Ground Aircraft</h2>
                     <div class="filter-tabs" id="filter-tabs">
-                        <button class="filter-btn active" data-f="all"    onclick="setFilter('all')">All</button>
-                        <button class="filter-btn"        data-f="moving" onclick="setFilter('moving')">Taxiing</button>
-                        <button class="filter-btn"        data-f="slow"   onclick="setFilter('slow')">Slow</button>
-                        <button class="filter-btn"        data-f="parked" onclick="setFilter('parked')">Parked</button>
-                        <button class="filter-btn"        data-f="heli"   onclick="setFilter('heli')">Helicopters</button>
+                        <button class="filter-btn active"  data-f="all"     onclick="setFilter('all')">All</button>
+                        <button class="filter-btn"         data-f="moving"  onclick="setFilter('moving')">Taxiing</button>
+                        <button class="filter-btn"         data-f="holding" onclick="setFilter('holding')">Holding</button>
+                        <button class="filter-btn"         data-f="stopped" onclick="setFilter('stopped')">Stopped</button>
+                        <button class="filter-btn"         data-f="parked"  onclick="setFilter('parked')">Parked</button>
+                        <button class="filter-btn"         data-f="heli"    onclick="setFilter('heli')">Helicopters</button>
                     </div>
                     <div class="search-wrap">
                         <input class="search-input" id="ground-search" type="text"
@@ -497,10 +498,24 @@ function noIdentity(p) {
 }
 
 function speedCategory(p) {
+    const gs = (p.groundStatus || '').toLowerCase();
+    if (gs === 'taxiing') return 'moving';
+    if (gs === 'holding') return 'holding';
+    if (gs === 'stopped') return 'stopped';
+    if (gs === 'parked')  return 'parked';
+    // Fallback when no groundStatus (e.g. non-ground-sweep aircraft)
     const s = n(p.speed) || 0;
-    if (s > TAXI_THRESHOLD) return 'moving';
-    if (s > 0)              return 'slow';
+    if (s >= TAXI_THRESHOLD) return 'moving';
+    if (s > 0)               return 'holding';
     return 'parked';
+}
+
+function groundStatusLabel(p) {
+    const cat = speedCategory(p);
+    if (cat === 'moving')  return 'Taxiing';
+    if (cat === 'holding') return 'Holding / Recently Stopped';
+    if (cat === 'stopped') return 'Stopped on Ground';
+    return 'Parked / Last Observed';
 }
 
 /* ── Filter & Sort ── */
@@ -520,11 +535,12 @@ function applyFilters() {
     let vis = 0;
     for (const row of tbl.querySelectorAll('tbody tr.clickable-row')) {
         const catMatch =
-            activeFilter === 'all'    ||
-            (activeFilter === 'moving' && row.dataset.cat === 'moving') ||
-            (activeFilter === 'slow'   && row.dataset.cat === 'slow')   ||
-            (activeFilter === 'parked' && row.dataset.cat === 'parked') ||
-            (activeFilter === 'heli'   && row.dataset.heli === '1');
+            activeFilter === 'all'     ||
+            (activeFilter === 'moving'  && row.dataset.cat === 'moving')  ||
+            (activeFilter === 'holding' && row.dataset.cat === 'holding') ||
+            (activeFilter === 'stopped' && row.dataset.cat === 'stopped') ||
+            (activeFilter === 'parked'  && row.dataset.cat === 'parked')  ||
+            (activeFilter === 'heli'    && row.dataset.heli === '1');
 
         const srch = row.dataset.srch || '';
         const qMatch = !q || srch.includes(q);
@@ -578,12 +594,12 @@ function thHtml(label, col, isRight) {
 
 /* ── Render ── */
 function renderCards(ground, total) {
-    const moving = ground.filter(p => speedCategory(p) === 'moving').length;
-    const slow   = ground.filter(p => speedCategory(p) === 'slow').length;
-    const parked = ground.filter(p => speedCategory(p) === 'parked').length;
-    const heli   = ground.filter(p => p.isHelicopter).length;
-    const noId   = ground.filter(noFlightId).length;
-    const noIden = ground.filter(noIdentity).length;
+    const taxiing = ground.filter(p => speedCategory(p) === 'moving').length;
+    const holding = ground.filter(p => speedCategory(p) === 'holding').length;
+    const stopped = ground.filter(p => speedCategory(p) === 'stopped').length;
+    const parked  = ground.filter(p => speedCategory(p) === 'parked').length;
+    const heli    = ground.filter(p => p.isHelicopter).length;
+    const noIden  = ground.filter(noIdentity).length;
 
     document.getElementById('cards-row').innerHTML = `
         <div class="card">
@@ -591,29 +607,29 @@ function renderCards(ground, total) {
             <div class="label">Ground Aircraft</div>
             <div class="sub">of ${total.toLocaleString()} total tracked</div>
         </div>
-        <div class="card">
-            <div class="value">${moving.toLocaleString()}</div>
+        <div class="card ${taxiing > 0 ? '' : 'dim'}">
+            <div class="value">${taxiing.toLocaleString()}</div>
             <div class="label">Taxiing</div>
-            <div class="sub">speed > ${TAXI_THRESHOLD} kt</div>
+            <div class="sub">speed ≥ ${TAXI_THRESHOLD} kt</div>
         </div>
         <div class="card dim">
-            <div class="value">${slow.toLocaleString()}</div>
-            <div class="label">Slow / Rolling</div>
-            <div class="sub">0 – ${TAXI_THRESHOLD} kt</div>
+            <div class="value">${holding.toLocaleString()}</div>
+            <div class="label">Holding / Recently Stopped</div>
+            <div class="sub">live · last moved &lt; 10 min ago</div>
+        </div>
+        <div class="card dim">
+            <div class="value">${stopped.toLocaleString()}</div>
+            <div class="label">Stopped on Ground</div>
+            <div class="sub">live · not moved ≥ 10 min</div>
         </div>
         <div class="card dim">
             <div class="value">${parked.toLocaleString()}</div>
-            <div class="label">Parked / Stopped</div>
-            <div class="sub">speed = 0</div>
+            <div class="label">Parked / Last Observed</div>
+            <div class="sub">no longer reporting fresh</div>
         </div>
         <div class="card ${heli > 0 ? '' : 'dim'}">
             <div class="value">${heli.toLocaleString()}</div>
             <div class="label">Helicopters</div>
-        </div>
-        <div class="card ${noId > 0 ? 'dim' : 'dim'}">
-            <div class="value">${noId.toLocaleString()}</div>
-            <div class="label">No Flight ID</div>
-            <div class="sub">callsign = ICAO hex</div>
         </div>
         <div class="card ${noIden > 0 ? 'warn' : 'dim'}">
             <div class="value">${noIden.toLocaleString()}</div>
@@ -621,6 +637,16 @@ function renderCards(ground, total) {
             <div class="sub">no callsign or reg</div>
         </div>
     `;
+}
+
+function fmtLastMoved(ts) {
+    const v = n(ts);
+    if (!v || v < 1e9) return null;
+    const secs = Math.floor(Date.now() / 1000 - v);
+    if (secs < 60)  return secs + 's ago';
+    const m = Math.floor(secs / 60);
+    if (m < 60) return m + 'm ago';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
 }
 
 function buildGroundRowHtml(p, detailId) {
@@ -666,6 +692,8 @@ function buildGroundRowHtml(p, detailId) {
             <div class="dp-field"><div class="dp-label">Source</div><div class="dp-value">${srcLabel}</div></div>
             ${cluster ? `<div class="dp-field"><div class="dp-label">Cluster</div><div class="dp-value mono">${cluster}</div></div>` : ''}
             ${facility ? `<div class="dp-field"><div class="dp-label">Facility</div><div class="dp-value mono">${facility}</div></div>` : ''}
+            <div class="dp-field"><div class="dp-label">Ground Status</div><div class="dp-value">${groundStatusLabel(p)}</div></div>
+            ${fmtLastMoved(p.lastGroundMovement) ? `<div class="dp-field"><div class="dp-label">Last Moved</div><div class="dp-value">${fmtLastMoved(p.lastGroundMovement)}</div></div>` : ''}
             <div class="dp-field"><div class="dp-label">Last Update</div><div class="dp-value">${age.txt}</div></div>
             ${p.icaoHex ? `<div class="dp-actions" style="margin-top:8px;display:flex;gap:8px">
                 <a class="dp-action primary" href="/?icao=${(p.icaoHex||'').toUpperCase()}" title="Open on radar map" style="font-size:10px;font-weight:600;color:#00ffcc;border:1px solid rgba(0,255,204,0.3);border-radius:3px;padding:3px 10px;text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;background:rgba(0,255,204,0.04)">Open on Radar</a>
@@ -831,23 +859,23 @@ function renderFocusGround(data) {
         groundPlanes.push(p);
     }
 
-    const live   = groundPlanes.filter(p => p.isLiveGround).sort((a,b) => (n(b.speed)||0)-(n(a.speed)||0));
-    const parked = groundPlanes.filter(p => !p.isLiveGround).sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
-
-    const taxiing  = live.filter(p => speedCategory(p) === 'moving').length;
-    const slow     = live.filter(p => speedCategory(p) === 'slow').length;
+    const taxiing = groundPlanes.filter(p => speedCategory(p) === 'moving').sort((a,b) => (n(b.speed)||0)-(n(a.speed)||0));
+    const holding = groundPlanes.filter(p => speedCategory(p) === 'holding').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
+    const stopped = groundPlanes.filter(p => speedCategory(p) === 'stopped').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
+    const parked  = groundPlanes.filter(p => speedCategory(p) === 'parked').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
 
     document.getElementById('cards-row').innerHTML = `
-        <div class="card"><div class="value">${live.length.toLocaleString()}</div><div class="label">Live Ground</div><div class="sub">confirmed on surface</div></div>
-        <div class="card ${taxiing ? '' : 'dim'}"><div class="value">${taxiing.toLocaleString()}</div><div class="label">Taxiing</div><div class="sub">speed > ${TAXI_THRESHOLD} kt</div></div>
-        <div class="card dim"><div class="value">${slow.toLocaleString()}</div><div class="label">Slow / Rolling</div><div class="sub">0 – ${TAXI_THRESHOLD} kt</div></div>
-        <div class="card dim"><div class="value">${parked.length.toLocaleString()}</div><div class="label">Parked / Last Observed</div><div class="sub">not in current sweep</div></div>
+        <div class="card ${taxiing.length ? '' : 'dim'}"><div class="value">${taxiing.length.toLocaleString()}</div><div class="label">Taxiing</div><div class="sub">speed ≥ ${TAXI_THRESHOLD} kt</div></div>
+        <div class="card dim"><div class="value">${holding.length.toLocaleString()}</div><div class="label">Holding / Recently Stopped</div><div class="sub">live · last moved &lt; 10 min</div></div>
+        <div class="card dim"><div class="value">${stopped.length.toLocaleString()}</div><div class="label">Stopped on Ground</div><div class="sub">live · not moved ≥ 10 min</div></div>
+        <div class="card dim"><div class="value">${parked.length.toLocaleString()}</div><div class="label">Parked / Last Observed</div><div class="sub">no longer reporting fresh</div></div>
         <div class="card dim"><div class="value">${data.inboundCount ?? (data.inbound||[]).length}</div><div class="label">Inbound</div><div class="sub">via flight plan</div></div>
         <div class="card dim"><div class="value">${data.outboundCount ?? (data.outbound||[]).length}</div><div class="label">Outbound</div><div class="sub">via flight plan</div></div>
     `;
 
     document.getElementById('ground-content').innerHTML =
-        focusSectionHtml('Live Ground / Taxiing at ' + FOCUS_CODE, live) +
+        focusSectionHtml('Taxiing at ' + FOCUS_CODE, taxiing) +
+        focusSectionHtml('Holding / Recently Stopped at ' + FOCUS_CODE, [...holding, ...stopped]) +
         focusSectionHtml('Parked / Last Observed at ' + FOCUS_CODE, parked) +
         `<div class="sec-note" style="margin-top:16px;color:#444">Airport Focus · advisory display · public near-live data · may be delayed or incomplete</div>`;
 

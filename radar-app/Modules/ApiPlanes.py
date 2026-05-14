@@ -410,7 +410,8 @@ class ApiPlanes(ApiBase):
             "assignedAlt": plane.get("assigned_alt", ""),
             "verticalRate": plane.get("vertical_rate", ""),
             "airborne": plane.get("airborne", "0"),
-            "lastUpdate": self.safeFloat(plane.get("last_update", 0))
+            "lastUpdate": self.safeFloat(plane.get("last_update", 0)),
+            "lastGroundMovement": self.safeFloat(plane.get("last_ground_movement", 0)),
         }
 
         if normalized["lat"] == 0 and normalized["lon"] == 0:
@@ -473,6 +474,7 @@ class ApiPlanes(ApiBase):
             "verticalRate": plane.get("vertical_rate", ""),
             "airborne": plane.get("airborne", "0"),
             "lastUpdate": self.safeFloat(plane.get("lastUpdate", plane.get("last_update", 0))),
+            "lastGroundMovement": self.safeFloat(plane.get("last_ground_movement", 0)),
             "squawk": plane.get("squawk", ""),
             "emergency": plane.get("emergency", ""),
             "category": plane.get("category", ""),
@@ -632,17 +634,30 @@ class ApiPlanes(ApiBase):
             icon_type = "private"
 
         # Determine ground status for ground-classified aircraft
+        GROUND_MOVING_SPEED_KT = 3
+        GROUND_STOPPED_THRESHOLD_SECONDS = 600  # 10 minutes without movement → stopped
         ground_status = None
         is_live_ground = False
+        last_ground_movement_ts = 0.0
         if aircraft_class == "ground":
             now = time.time()
             last_update = self.safeFloat(plane.get("lastUpdate", 0))
             age = now - last_update if last_update > 1e9 else 0
-            is_live_ground = age < 300  # 5 minute threshold for 'live'
-            if speed > 2 and is_live_ground:
-                ground_status = "taxiing"
-            else:
+            is_live_ground = age < 300  # 5-minute freshness threshold
+
+            last_ground_movement_ts = self.safeFloat(plane.get("lastGroundMovement", 0))
+            has_movement_history = last_ground_movement_ts > 1e9
+            secs_since_movement = (now - last_ground_movement_ts) if has_movement_history else 999999
+
+            if not is_live_ground:
                 ground_status = "parked"
+            elif speed >= GROUND_MOVING_SPEED_KT:
+                ground_status = "taxiing"
+            elif has_movement_history and secs_since_movement >= GROUND_STOPPED_THRESHOLD_SECONDS:
+                ground_status = "stopped"
+            else:
+                # Live, not currently moving, either recently moved or no movement history
+                ground_status = "holding"
 
         return {
             "aircraftClass": aircraft_class,
@@ -654,6 +669,7 @@ class ApiPlanes(ApiBase):
             "isHelicopter": is_helicopter,
             "groundStatus": ground_status,
             "isLiveGround": is_live_ground,
+            "lastGroundMovement": last_ground_movement_ts if last_ground_movement_ts > 1e9 else None,
         }
 
     _GROUND_FIELDS = frozenset({
@@ -662,7 +678,7 @@ class ApiPlanes(ApiBase):
         "source", "positionSource", "sourceFacility", "groundCluster",
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
-        "groundStatus", "isLiveGround",
+        "groundStatus", "isLiveGround", "lastGroundMovement",
     })
 
     _ALERTS_FIELDS = frozenset({
@@ -672,7 +688,7 @@ class ApiPlanes(ApiBase):
         "airborne", "squawk", "emergency", "dep", "arr", "operator", "dbFlags",
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
-        "groundStatus", "isLiveGround",
+        "groundStatus", "isLiveGround", "lastGroundMovement",
     })
 
     _TABLE_FIELDS = frozenset({
@@ -683,7 +699,7 @@ class ApiPlanes(ApiBase):
         "aircraftClass", "aircraftRole", "iconType",
         "isMilitary", "isPia", "isLadd", "isHelicopter",
         "depTime", "eta", "flightStatus", "assignedAlt", "verticalRate",
-        "groundStatus", "isLiveGround",
+        "groundStatus", "isLiveGround", "lastGroundMovement",
     })
 
     # Freshness thresholds — must match index.html VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE
@@ -700,7 +716,7 @@ class ApiPlanes(ApiBase):
         "source", "positionSource", "enrichmentSource", "sourceFacility",
         "isMilitary", "isHelicopter", "isLadd", "isPia",
         "airborne", "lastUpdate", "assignedAlt", "squawk", "emergency",
-        "groundCluster", "groundStatus", "isLiveGround",
+        "groundCluster", "groundStatus", "isLiveGround", "lastGroundMovement",
     })
 
     def _isGroundPlane(self, plane: dict) -> bool:

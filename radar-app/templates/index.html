@@ -1713,6 +1713,13 @@
 
             if (isAirbornePlane(p)) return 'airborne';
 
+            var gs = String(p.groundStatus || p.ground_status || '').toLowerCase();
+            if (gs === 'taxiing') return 'ground_moving';
+            if (gs === 'holding') return 'ground_holding';
+            if (gs === 'stopped') return 'ground_stopped';
+            if (gs === 'parked')  return 'parked';
+
+            // Fallback: speed-based
             var speed = parseFloat(p.speed) || 0;
             if (speed >= 3) return 'ground_moving';
 
@@ -1799,7 +1806,11 @@
             var al     = airlineInfo(p);
 
             var state = aircraftDisplayState(p);
-            var stateSuffix = (state === 'parked') ? ' (Parked)' : (state === 'ground_moving') ? ' (Taxiing)' : '';
+            var stateSuffix = (state === 'parked')        ? ' (Parked / Last Observed)'
+                            : (state === 'ground_moving')  ? ' (Taxiing)'
+                            : (state === 'ground_holding') ? ' (Holding)'
+                            : (state === 'ground_stopped') ? ' (Stopped on Ground)'
+                            : '';
 
             var dep = String(p.dep || '').trim().toUpperCase();
             var arr = String(p.arr || '').trim().toUpperCase();
@@ -2198,17 +2209,19 @@
         }
 
         function stateLabel(state, p) {
-            if (state === 'airborne')      return 'Airborne';
-            if (state === 'ground_moving') return 'Taxiing';
+            if (state === 'airborne')       return 'Airborne';
+            if (state === 'ground_moving')  return 'Taxiing';
+            if (state === 'ground_holding') return 'Holding / Recently Stopped';
+            if (state === 'ground_stopped') return 'Stopped on Ground';
             if (state === 'parked') {
                 if (p) {
                     var age = getPlaneAgeSeconds(p);
                     if (age > 120) {
                         var m = Math.floor(age / 60);
-                        if (m >= 1) return 'Parked ' + m + 'm ago';
+                        if (m >= 1) return 'Last observed ' + m + 'm ago';
                     }
                 }
-                return 'Parked';
+                return 'Parked / Last Observed';
             }
             return '';
         }

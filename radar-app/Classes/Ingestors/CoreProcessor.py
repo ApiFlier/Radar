@@ -506,7 +506,8 @@ class CoreProcessor(BaseIngestor):
         # 3. Position sanity check (Jump rejection)
         old_lat = float(existing_state.get("lat") or 0)
         old_lon = float(existing_state.get("lon") or 0)
-        
+        dist_nm = 0.0
+
         if old_lat != 0 and old_lon != 0:
             dist_nm = self._haversine(old_lat, old_lon, lat, lon)
             dt = new_ts - old_ts
@@ -559,6 +560,13 @@ class CoreProcessor(BaseIngestor):
         # When aircraft becomes airborne again, fresh airborne state supersedes parked state.
         is_airborne_now = data.get("airborne") == "1" or speed >= self.AIRBORNE_SPEED
         state["airborne"] = "1" if is_airborne_now else "0"
+
+        # Track when this aircraft was last meaningfully moving on the ground.
+        # Used by ApiPlanes to distinguish taxiing / holding / stopped ground states.
+        GROUND_MOVING_SPEED_KT = 3
+        GROUND_MOVE_DISTANCE_NM = 0.04
+        if not is_airborne_now and (speed >= GROUND_MOVING_SPEED_KT or dist_nm >= GROUND_MOVE_DISTANCE_NM):
+            state["last_ground_movement"] = str(now)
         
         pipe = r.pipeline()
 
