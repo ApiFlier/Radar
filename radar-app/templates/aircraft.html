@@ -488,9 +488,13 @@ if (FOCUS_CODE) {
         try { localStorage.removeItem('radar.focus'); } catch(e) {}
         location.href = '/aircraft';
     };
-    // Hide global class filter tabs — not meaningful for airport-scoped view
+    // Hide global class filter tabs and checkboxes — not meaningful for airport-scoped view
     const _ft = document.getElementById('class-filter-tabs');
     if (_ft) _ft.style.display = 'none';
+    ['chk-route', 'chk-noid', 'chk-mappable'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el && el.closest('label')) el.closest('label').style.display = 'none';
+    });
 }
 
 /* ── State ── */
@@ -828,7 +832,7 @@ function renderFocusSections(data) {
         <th>Route</th><th class="r">Alt</th><th class="r">Speed</th><th>State</th><th>Source</th>
     </tr></thead>`;
 
-    function sectionHtml(title, planes, emptyMsg) {
+    function sectionHtml(title, planes, emptyMsg, totalCount) {
         if (!planes.length) {
             return `<div class="focus-section">
                 <div class="sec-head"><h2>${title}</h2><span class="sec-badge">0</span></div>
@@ -841,19 +845,23 @@ function renderFocusSections(data) {
             planeMap.set(detailId, p);
             rows += buildRowHtml(p, detailId);
         });
+        const capNote = (totalCount > planes.length)
+            ? `<div class="sec-note">Showing ${planes.length} of ${totalCount} observed aircraft · most recent first</div>`
+            : '';
         return `<div class="focus-section">
             <div class="sec-head"><h2>${title}</h2><span class="sec-badge">${planes.length}</span></div>
             <div style="overflow-x:auto"><table class="ac-table">
                 ${thead}<tbody>${rows}</tbody>
             </table></div>
+            ${capNote}
         </div>`;
     }
 
     document.getElementById('ac-content').innerHTML =
-        sectionHtml('Inbound to ' + code, data.inbound   || [], 'No inbound aircraft observed')
-        + sectionHtml('Outbound from ' + code, data.outbound || [], 'No outbound aircraft observed')
-        + sectionHtml('Parked / Last Observed at ' + code, data.parked  || [], 'No parked aircraft observed')
-        + sectionHtml('Nearby / Regional', data.nearby  || [], 'No nearby aircraft observed')
+        sectionHtml('Inbound to ' + code,              data.inbound  || [], 'No inbound aircraft observed',         data.inboundCount  || 0)
+        + sectionHtml('Outbound from ' + code,         data.outbound || [], 'No outbound aircraft observed',        data.outboundCount || 0)
+        + sectionHtml('Parked / Last Observed at ' + code, data.parked|| [], 'No parked aircraft observed',         data.parkedCount   || 0)
+        + sectionHtml('Nearby / Regional',             data.nearby   || [], 'No nearby aircraft observed',          data.nearbyCount   || 0)
         + `<div class="sec-note">Airport Focus · advisory display · public near-live data · may be delayed or incomplete</div>`;
 
     document.getElementById('show-more-wrap').style.display = 'none';
