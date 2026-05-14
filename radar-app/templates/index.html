@@ -2762,6 +2762,12 @@
             target.isPia = source.isPia !== undefined ? source.isPia : (source.is_pia !== undefined ? source.is_pia : target.isPia);
             target.isLadd = source.isLadd !== undefined ? source.isLadd : (source.is_ladd !== undefined ? source.is_ladd : target.isLadd);
             target.isHelicopter = source.isHelicopter !== undefined ? source.isHelicopter : (source.is_helicopter !== undefined ? source.is_helicopter : target.isHelicopter);
+            // Ground status fields — needed by aircraftDisplayState() for correct state labeling
+            if (source.groundStatus !== undefined) target.groundStatus = source.groundStatus;
+            else if (source.ground_status !== undefined) target.groundStatus = source.ground_status;
+            if (source.isLiveGround !== undefined) target.isLiveGround = source.isLiveGround;
+            if (source.lastGroundMovement !== undefined) target.lastGroundMovement = source.lastGroundMovement;
+            else if (source.last_ground_movement !== undefined) target.lastGroundMovement = source.last_ground_movement;
             // source, airborne, onGround, lastUpdate are position-adjacent and managed
             // exclusively by processPlane to prevent stale merges from corrupting them.
         }
@@ -3684,19 +3690,20 @@
             hud._timer = setTimeout(function() { hud.style.display = 'none'; }, 8000);
         }
 
-        /* ── Deep-link support: /?icao=HEX, /?callsign=CALL, /?airport=CODE ── */
+        /* ── Deep-link support: /?icao=HEX, /?flight=FLIGHTID, /?callsign=CALL, /?airport=CODE ── */
         function applyDeepLink() {
             // Guard: runs at most once per page load regardless of how many refreshes fire
             if (deepLinkApplied) return;
             deepLinkApplied = true;
 
-            var params       = new URLSearchParams(window.location.search);
-            var icaoParam    = (params.get('icao')     || '').toUpperCase().trim();
-            var callParam    = (params.get('callsign') || '').toUpperCase().trim();
-            var airportParam = (params.get('airport')  || '').toUpperCase().trim();
-            var focusParam   = params.get('focus') === '1';
+            var params        = new URLSearchParams(window.location.search);
+            var icaoParam     = (params.get('icao')     || '').toUpperCase().trim();
+            var callParam     = (params.get('callsign') || '').toUpperCase().trim();
+            var airportParam  = (params.get('airport')  || '').toUpperCase().trim();
+            var flightParam   = (params.get('flight')   || '').trim();
+            var focusParam    = params.get('focus') === '1';
 
-            if (!icaoParam && !callParam && !airportParam) return;
+            if (!icaoParam && !callParam && !airportParam && !flightParam) return;
 
             // Airport deep-link — center map; does not require aircraft data
             if (airportParam) {
@@ -3705,13 +3712,14 @@
                 return;
             }
 
-            showStatusHUD('Finding aircraft ' + (icaoParam || callParam) + '…', 'info');
+            showStatusHUD('Finding aircraft ' + (icaoParam || flightParam || callParam) + '…', 'info');
 
             // Immediately fetch view=target so the aircraft appears in planeData even if it
             // is outside the current map bounds (which the radar view would exclude).
             var targetQs = '/api/?action=Planes&view=target&_=' + Date.now();
-            if (icaoParam)  targetQs += '&icao='     + encodeURIComponent(icaoParam);
-            if (callParam)  targetQs += '&callsign=' + encodeURIComponent(callParam);
+            if (icaoParam)   targetQs += '&icao='     + encodeURIComponent(icaoParam);
+            if (flightParam) targetQs += '&flight='   + encodeURIComponent(flightParam);
+            if (callParam)   targetQs += '&callsign=' + encodeURIComponent(callParam);
             fetch(targetQs)
                 .then(function(r) { return r.json(); })
                 .then(function(json) {
@@ -3727,6 +3735,8 @@
                 var targetId = null;
                 for (var id in planeData) {
                     var pd = planeData[id];
+                    // Exact flightId match is most specific — avoids ICAO collision on merged records
+                    if (flightParam && (pd.flightId || '') === flightParam) { targetId = id; break; }
                     if (icaoParam && (pd.icaoHex || '').toUpperCase() === icaoParam) { targetId = id; break; }
                     if (callParam && (pd.callsign || '').toUpperCase() === callParam) { targetId = id; break; }
                 }

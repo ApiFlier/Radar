@@ -635,7 +635,10 @@ function isMappable(p) {
     const maxAge = airborne ? RADAR_AIR_MAX_AGE : RADAR_GROUND_MAX_AGE;
     const isStale = ageS > maxAge;
 
-    const link = icao ? `/?icao=${icao}` : (call ? `/?callsign=${encodeURIComponent(call)}` : null);
+    const flightEnc = (p.flightId || '').trim() ? encodeURIComponent(p.flightId.trim()) : '';
+    const link = icao
+        ? `/?icao=${icao}` + (flightEnc ? `&flight=${flightEnc}` : '')
+        : (flightEnc ? `/?flight=${flightEnc}` : (call ? `/?callsign=${encodeURIComponent(call)}` : null));
 
     let reason = null;
     if (!hasId)       reason = 'No identifier';

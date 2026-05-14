@@ -145,6 +145,11 @@ class ApiPlanes(ApiBase):
             "description": "For view=ground: filter by ground status (taxiing/holding/stopped/parked).",
             "required": False,
             "type": "string"
+        },
+        "flight": {
+            "description": "For view=target: exact flightId / GUFI for single-aircraft lookup.",
+            "required": False,
+            "type": "string"
         }
     }
 
@@ -222,9 +227,10 @@ class ApiPlanes(ApiBase):
             return
 
         if view == "target":
-            icao_t = (self.params.get("icao") or "").strip().upper()
-            call_t = (self.params.get("callsign") or "").strip().upper()
-            self.responseData = self._buildTargetView(planes, icao_t, call_t, total_count)
+            icao_t   = (self.params.get("icao")      or "").strip().upper()
+            call_t   = (self.params.get("callsign")  or "").strip().upper()
+            flight_t = (self.params.get("flight")    or "").strip()
+            self.responseData = self._buildTargetView(planes, icao_t, call_t, total_count, flight_t)
             self.sendResponse(self.SUCCESS)
             return
 
@@ -869,9 +875,13 @@ class ApiPlanes(ApiBase):
             "planes": result,
         }
 
-    def _buildTargetView(self, planes: list, icao: str, callsign: str, total_count: int) -> dict:
-        """Return at most one aircraft matching the given ICAO hex or callsign — for deep-link resolution."""
+    def _buildTargetView(self, planes: list, icao: str, callsign: str, total_count: int,
+                         flight: str = "") -> dict:
+        """Return at most one aircraft matching flightId, ICAO hex, or callsign — for deep-link resolution.
+        flightId is checked first as it is the most specific identifier."""
         for p in planes:
+            if flight and (p.get("flightId") or "") == flight:
+                return {"count": 1, "total": total_count, "planes": [p]}
             if icao and (p.get("icaoHex") or "").upper() == icao:
                 return {"count": 1, "total": total_count, "planes": [p]}
             if callsign and (p.get("callsign") or "").upper() == callsign:

@@ -524,7 +524,7 @@ function speedCategory(p) {
 
 function groundStatusLabel(p) {
     const cat = speedCategory(p);
-    if (cat === 'moving')  return 'Taxiing';
+    if (cat === 'taxiing') return 'Taxiing';
     if (cat === 'holding') return 'Holding / Recently Stopped';
     if (cat === 'stopped') return 'Stopped on Ground';
     return 'Parked / Last Observed';
@@ -628,6 +628,17 @@ function fmtLastMoved(ts) {
     return Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
 }
 
+function fmtDuration(ts) {
+    const v = n(ts);
+    if (!v || v < 1e9) return null;
+    const secs = Math.max(0, Math.floor(Date.now() / 1000 - v));
+    if (secs < 60) return secs + 's';
+    const m = Math.floor(secs / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+}
+
 function buildGroundRowHtml(p, detailId) {
     const spd  = fmtSpeed(p.speed);
     const age  = fmtAge(p.lastUpdate);
@@ -647,6 +658,17 @@ function buildGroundRowHtml(p, detailId) {
     const srcLabel = friendlySource(p.source || p.positionSource || '');
     const cluster = (p.groundCluster || '').trim();
     const facility = (p.sourceFacility || '').trim();
+    const isParked = cat === 'parked';
+    const airport  = cluster || (p.arr || '').trim().toUpperCase() || (p.dep || '').trim().toUpperCase();
+    const lastObsDur    = fmtDuration(p.lastUpdate);
+    const stationaryDur = fmtDuration(p.lastGroundMovement);
+
+    // Build radar link — prefer ICAO hex, include flightId for exact target lookup
+    const icaoUpper = (p.icaoHex || '').toUpperCase();
+    const flightEnc = p.flightId ? encodeURIComponent(p.flightId) : '';
+    const radarHref = icaoUpper
+        ? `/?icao=${icaoUpper}` + (flightEnc ? `&flight=${flightEnc}` : '')
+        : (flightEnc ? `/?flight=${flightEnc}` : null);
 
     return `<tr class="clickable-row" data-cat="${cat}" data-heli="${isHeli}" data-srch="${srch}" onclick="toggleGroundDetail('${detailId}')">
             ${callsignHtml}
@@ -664,18 +686,21 @@ function buildGroundRowHtml(p, detailId) {
             <div class="dp-field"><div class="dp-label">ICAO Hex</div><div class="dp-value mono">${p.icaoHex || '—'}</div></div>
             ${type ? `<div class="dp-field"><div class="dp-label">Aircraft Type</div><div class="dp-value">${type}</div></div>` : ''}
             <div class="dp-field"><div class="dp-label">Class</div><div class="dp-value" style="text-transform:capitalize">${cls}</div></div>
-            <div class="dp-field"><div class="dp-label">Speed</div><div class="dp-value accent">${spd.txt}</div></div>
-            <div class="dp-field"><div class="dp-label">Heading</div><div class="dp-value">${fmtHeading(p.heading)}</div></div>
+            <div class="dp-field"><div class="dp-label">Ground Status</div><div class="dp-value">${groundStatusLabel(p)}</div></div>
+            ${isParked && airport ? `<div class="dp-field"><div class="dp-label">Airport</div><div class="dp-value mono">${airport}</div></div>` : ''}
+            ${isParked && lastObsDur ? `<div class="dp-field"><div class="dp-label">Last Observed</div><div class="dp-value">${lastObsDur} ago</div></div>` : ''}
+            ${isParked && stationaryDur ? `<div class="dp-field"><div class="dp-label">Stationary For</div><div class="dp-value">${stationaryDur}</div></div>` : ''}
+            ${!isParked ? `<div class="dp-field"><div class="dp-label">Speed</div><div class="dp-value accent">${spd.txt}</div></div>` : ''}
+            ${!isParked ? `<div class="dp-field"><div class="dp-label">Heading</div><div class="dp-value">${fmtHeading(p.heading)}</div></div>` : ''}
             <div class="dp-field"><div class="dp-label">Altitude</div><div class="dp-value">${fmtAlt(p.alt)}</div></div>
             <div class="dp-field"><div class="dp-label">Position</div><div class="dp-value mono">${fmtCoord(p.lat)}, ${fmtCoord(p.lon)}</div></div>
             <div class="dp-field"><div class="dp-label">Source</div><div class="dp-value">${srcLabel}</div></div>
             ${cluster ? `<div class="dp-field"><div class="dp-label">Cluster</div><div class="dp-value mono">${cluster}</div></div>` : ''}
             ${facility ? `<div class="dp-field"><div class="dp-label">Facility</div><div class="dp-value mono">${facility}</div></div>` : ''}
-            <div class="dp-field"><div class="dp-label">Ground Status</div><div class="dp-value">${groundStatusLabel(p)}</div></div>
-            ${fmtLastMoved(p.lastGroundMovement) ? `<div class="dp-field"><div class="dp-label">Last Moved</div><div class="dp-value">${fmtLastMoved(p.lastGroundMovement)}</div></div>` : ''}
+            ${!isParked && fmtLastMoved(p.lastGroundMovement) ? `<div class="dp-field"><div class="dp-label">Last Moved</div><div class="dp-value">${fmtLastMoved(p.lastGroundMovement)}</div></div>` : ''}
             <div class="dp-field"><div class="dp-label">Last Update</div><div class="dp-value">${age.txt}</div></div>
-            ${p.icaoHex ? `<div class="dp-actions" style="margin-top:8px;display:flex;gap:8px">
-                <a class="dp-action primary" href="/?icao=${(p.icaoHex||'').toUpperCase()}" title="Open on radar map" style="font-size:10px;font-weight:600;color:#00ffcc;border:1px solid rgba(0,255,204,0.3);border-radius:3px;padding:3px 10px;text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;background:rgba(0,255,204,0.04)">Open on Radar</a>
+            ${radarHref ? `<div class="dp-actions" style="margin-top:8px;display:flex;gap:8px">
+                <a class="dp-action primary" href="${radarHref}" title="Open on radar map" style="font-size:10px;font-weight:600;color:#00ffcc;border:1px solid rgba(0,255,204,0.3);border-radius:3px;padding:3px 10px;text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;background:rgba(0,255,204,0.04)">Open on Radar</a>
             </div>` : ''}
         </div></td></tr>`;
 }
@@ -842,7 +867,7 @@ function renderFocusGround(data) {
         groundPlanes.push(p);
     }
 
-    const taxiing = groundPlanes.filter(p => speedCategory(p) === 'moving').sort((a,b) => (n(b.speed)||0)-(n(a.speed)||0));
+    const taxiing = groundPlanes.filter(p => speedCategory(p) === 'taxiing').sort((a,b) => (n(b.speed)||0)-(n(a.speed)||0));
     const holding = groundPlanes.filter(p => speedCategory(p) === 'holding').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
     const stopped = groundPlanes.filter(p => speedCategory(p) === 'stopped').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
     const parked  = groundPlanes.filter(p => speedCategory(p) === 'parked').sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));

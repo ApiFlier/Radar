@@ -806,9 +806,13 @@ function buildDetailPanel(alert) {
             ${field('Last Update', lu)}
         </div>`;
 
-        if (icao) {
+        const flightId = (p.flightId || '').trim();
+        const radarHref = icao
+            ? '/?icao=' + icao + (flightId ? '&flight=' + encodeURIComponent(flightId) : '')
+            : (flightId ? '/?flight=' + encodeURIComponent(flightId) : null);
+        if (radarHref) {
             body += `<div class="dp-actions">
-                <a class="dp-action primary" href="/?icao=${icao}">Open on Radar</a>
+                <a class="dp-action primary" href="${radarHref}">Open on Radar</a>
                 <a class="dp-action" href="/aircraft" title="Browse all aircraft">All Aircraft</a>
             </div>`;
         }
