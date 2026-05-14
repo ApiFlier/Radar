@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radar — Alerts</title>
+    <title>Radar — Advisories</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -298,9 +298,9 @@
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="9" y1="1" x2="9" y2="12"/><line x1="5" y1="6" x2="13" y2="6"/><line x1="3" y1="10.5" x2="15" y2="10.5"/><line x1="2" y1="15" x2="16" y2="15"/></svg>
             <span>Ground</span>
         </a>
-        <a class="nav-item active" href="/alerts" title="Alerts">
+        <a class="nav-item active" href="/alerts" title="Advisories">
             <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 3 C5.8 3 3.5 5.8 3.5 9.5 L3.5 13 L14.5 13 L14.5 9.5 C14.5 5.8 12.2 3 9 3 Z"/><line x1="9" y1="1.5" x2="9" y2="3"/><path d="M7.5 14.5 Q7.5 16 9 16 Q10.5 16 10.5 14.5"/></svg>
-            <span>Alerts</span>
+            <span>Advisories</span>
         </a>
     </div>
     <div class="sidebar-bottom">
@@ -317,7 +317,7 @@
 
 <div class="page-content">
     <header class="page-header">
-        <h1>Alerts</h1>
+        <h1>Advisories</h1>
         <div class="header-right">
             <span id="last-update">Loading…</span>
             <button class="refresh-btn" onclick="doRefresh()">Refresh</button>
@@ -340,7 +340,7 @@
     <div class="main">
 
         <div class="cards-row" id="cards-row">
-            <div class="card dim"><div class="value">—</div><div class="label">Active Alerts</div></div>
+            <div class="card dim"><div class="value">—</div><div class="label">Advisories</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Emergency</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Military</div></div>
             <div class="card dim"><div class="value">—</div><div class="label">Helicopter</div></div>
@@ -351,7 +351,7 @@
 
         <div class="section">
             <div class="section-head">
-                <h2>Alert Feed</h2>
+                <h2>Advisory Feed</h2>
                 <div class="filter-tabs" id="cat-filter-tabs">
                     <button class="filter-btn active" data-f="operational"   onclick="setCatFilter('operational')">Operational</button>
                     <button class="filter-btn"        data-f="all"           onclick="setCatFilter('all')">All</button>
@@ -364,7 +364,7 @@
                 </div>
                 <div class="search-wrap">
                     <input class="search-input" id="alert-search" type="text"
-                           placeholder="callsign, ICAO, alert text…" oninput="applyFilters()">
+                           placeholder="callsign, ICAO, advisory text…" oninput="applyFilters()">
                 </div>
                 <span class="count-badge" id="alert-count"></span>
             </div>
@@ -400,6 +400,42 @@ let lastPlanes  = [];   // stored for lazy DQ generation
 const _validTabs = ['operational','all','emergency','military','helicopter','ground','data-quality','source-health'];
 let catFilter   = _validTabs.includes(RS.defaultAlertsTab) ? RS.defaultAlertsTab : 'operational';
 const DQ_CAP    = 150;  // max per-type DQ rows to avoid DOM overload
+
+/* ── Airport Focus ── */
+const FOCUS_CODE = (function() {
+    const p = new URLSearchParams(location.search);
+    const ua = (p.get('airport') || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+    if (ua && p.get('focus') === '1') return ua;
+    try {
+        const f = JSON.parse(localStorage.getItem('radar.focus') || 'null');
+        if (f && f.airport && (Date.now() - (f.ts || 0)) < 14400000)
+            return String(f.airport).replace(/[^A-Z0-9]/g, '');
+    } catch(e) {}
+    return '';
+})();
+
+if (FOCUS_CODE) {
+    document.title = 'Radar — ' + FOCUS_CODE + ' Advisories';
+    const _h1 = document.querySelector('.page-header h1');
+    if (_h1) _h1.textContent = FOCUS_CODE + ' Advisories';
+    // Make Clear Focus redirect to unfiltered advisories
+    const _clr = document.querySelector('.focus-banner .fb-clear');
+    if (_clr) _clr.onclick = function() {
+        try { localStorage.removeItem('radar.focus'); } catch(e) {}
+        location.href = '/alerts';
+    };
+}
+
+function filterAdvisoriesForFocus(alerts) {
+    // Source-health advisories are global; aircraft advisories filter by dep/arr
+    return alerts.filter(function(a) {
+        if (a.category === 'source-health') return true;
+        const p = a.plane;
+        if (!p) return false;
+        return (p.dep || '').toUpperCase() === FOCUS_CODE ||
+               (p.arr || '').toUpperCase() === FOCUS_CODE;
+    });
+}
 
 /* ── Helpers ── */
 function n(v) { const f = parseFloat(v); return isNaN(f) ? null : f; }
@@ -682,7 +718,7 @@ function renderCards(alerts) {
     document.getElementById('cards-row').innerHTML = `
         <div class="card ${hasCrit ? 'crit' : hasWarn ? 'warn' : total > 0 ? '' : 'dim'}">
             <div class="value">${total.toLocaleString()}</div>
-            <div class="label">Active Alerts</div>
+            <div class="label">Advisories</div>
         </div>
         <div class="card ${emrg > 0 ? 'crit' : 'dim'}">
             <div class="value">${emrg.toLocaleString()}</div>
@@ -833,10 +869,10 @@ function renderTable(alerts) {
         document.getElementById('alerts-content').innerHTML = `
             <div class="empty-state">
                 <div class="icon">✓</div>
-                <div class="msg">No operational alerts detected.</div>
+                <div class="msg">No operational advisories.</div>
                 <div class="sub">Emergency, military, helicopter, and ground notices appear here. Data Quality Notes are non-operational completeness and normalization notes.</div>
             </div>`;
-        document.getElementById('alert-count').textContent = '0 alerts';
+        document.getElementById('alert-count').textContent = '0 advisories';
         return;
     }
 
@@ -859,7 +895,7 @@ function renderTable(alerts) {
         </table>
         </div>`;
 
-    document.getElementById('alert-count').textContent = `${alerts.length} alert${alerts.length === 1 ? '' : 's'}`;
+    document.getElementById('alert-count').textContent = `${alerts.length} advisor${alerts.length === 1 ? 'y' : 'ies'}`;
     applyFilters();
 }
 
@@ -943,8 +979,9 @@ async function doRefresh() {
 
         allAlerts = buildAlerts(planes, health);
         if (serverDQ) dqSummary = serverDQ;  // override with accurate server-side DQ counts (buildAlerts resets them)
-        renderCards(allAlerts);
-        renderTable(allAlerts);
+        const displayAlerts = FOCUS_CODE ? filterAdvisoriesForFocus(allAlerts) : allAlerts;
+        renderCards(displayAlerts);
+        renderTable(displayAlerts);
 
         // If current filter already needs DQ rows, load them immediately after re-render
         if (catFilter === 'all' || catFilter === 'data-quality') loadDQIfNeeded();
