@@ -364,11 +364,12 @@
         if(!_f||!_f.airport||(Date.now()-(_f.ts||0))>14400000)return;
         var c=String(_f.airport).replace(/[^A-Z0-9]/g,'');
         if(!c)return;
+        ['#sidebar a[href="/stats"]','#sidebar a[href="/airports"]','#sidebar .nav-sep'].forEach(function(s){var e=document.querySelector(s);if(e)e.style.display='none';});
         var b=document.createElement('div');b.className='focus-banner';
         b.innerHTML='<strong>Airport Focus: '+c+'</strong>'
             +'<span>advisory display · public near-live data</span>'
             +'<a href="/?airport='+encodeURIComponent(c)+'&focus=1">View on Radar</a>'
-            +'<button class="fb-clear" onclick="(function(){try{localStorage.removeItem(\'radar.focus\');}catch(e){}this.closest(\'.focus-banner\').remove();}).call(this)">Clear Focus</button>';
+            +'<button class="fb-clear" onclick="(function(){try{localStorage.removeItem(\'radar.focus\');}catch(e){}this.closest(\'.focus-banner\').remove();document.querySelectorAll(\'#sidebar a[href=\\\'/stats\\\'],#sidebar a[href=\\\'/airports\\\'],#sidebar .nav-sep\').forEach(function(e){e.style.display=\'\';});}).call(this)">Clear Focus</button>';
         var h=document.querySelector('.page-header');
         if(h&&h.parentNode)h.parentNode.insertBefore(b,h.nextSibling);
     })();</script>

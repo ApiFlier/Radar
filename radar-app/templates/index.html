@@ -4570,7 +4570,8 @@
         }
 
         function _updateFocusNavLinks(code) {
-            var focusPaths = ['/aircraft', '/ground', '/alerts'];
+            var focusPaths  = ['/aircraft', '/ground', '/alerts'];
+            var globalPaths = ['/stats', '/airports'];
             document.querySelectorAll('#sidebar .nav-item').forEach(function(el) {
                 var base = el.getAttribute('data-base-href');
                 if (!base) {
@@ -4582,7 +4583,12 @@
                         ? base + '?airport=' + encodeURIComponent(code) + '&focus=1'
                         : base);
                 }
+                if (globalPaths.indexOf(base) !== -1) {
+                    el.style.display = code ? 'none' : '';
+                }
             });
+            var _sep = document.querySelector('#sidebar .nav-sep');
+            if (_sep) _sep.style.display = code ? 'none' : '';
         }
 
         function enterAirportFocus(code) {
