@@ -612,11 +612,17 @@ class ApiPlanes(ApiBase):
             "SCX", "UCA", "ROU", "DLH", "AUA", "JZA", "PDT",
         }
 
+        # ADSB.lol's static dbFlags military bit can be stale or incorrect for aircraft
+        # whose registrations have been sold/transferred or were briefly government-owned.
+        # Recognized commercial carrier callsign/operator is authoritative — clear the bit.
+        if is_military and prefix in commercial_prefixes:
+            is_military = False
+
         is_ground_source = (plane.get("source") or "").lower() == "adsblol-ground-sweep"
         has_cluster = bool(plane.get("groundCluster"))
         speed = self.safeFloat(plane.get("speed"))
         alt = self.safeFloat(plane.get("alt"))
-        
+
         if is_military:
             aircraft_class = "military"
             aircraft_role = "military"
