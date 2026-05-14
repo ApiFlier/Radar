@@ -15,7 +15,8 @@ from Classes.Redis import getRedis
 # 10 s is the default: still well within the 120 s air-freshness cutoff and the
 # 30 s UI auto-refresh cycle, while reducing cold-scan frequency by ~70%.
 # Override with PLANES_CACHE_TTL_SECONDS env var (min 3, max 60).
-_planes_cache_lock = threading.Lock()
+_planes_cache_lock       = threading.Lock()   # guards read/write of cache vars
+_planes_cache_build_lock = threading.Lock()   # serialises rebuilds (single-flight pattern)
 _planes_cache      = None   # dict: {planes, sourceCounts, adsbHealthy, adsbHeartbeat, ts}
 _planes_cache_ts   = 0.0
 _PLANES_CACHE_TTL  = max(3.0, min(60.0, float(os.getenv("PLANES_CACHE_TTL_SECONDS", "10"))))
@@ -264,24 +265,40 @@ class ApiPlanes(ApiBase):
     # ── Snapshot cache helpers ────────────────────────────────────────────────
 
     def _getSnapshot(self) -> dict | None:
-        """Return cached normalized plane list, scanning Redis only when stale."""
+        """Return cached normalized plane list, scanning Redis only when stale.
+
+        Uses a two-lock pattern (single-flight) so that when the cache is cold,
+        only one thread runs the expensive scan; all other threads wait for that
+        scan to finish and then share its result.
+        """
         global _planes_cache, _planes_cache_ts
         now = time.time()
+
+        # Fast path: cache is warm — no rebuild needed.
         with _planes_cache_lock:
             if _planes_cache is not None and (now - _planes_cache_ts) < _PLANES_CACHE_TTL:
                 return _planes_cache
 
-        redis = getRedis()
-        if not redis.ping():
-            return None
+        # Slow path: acquire the build lock so only one thread scans Redis at a time.
+        # Concurrent cold requests wait here, then find the warm cache after the
+        # first scan completes (double-check inside the lock).
+        with _planes_cache_build_lock:
+            with _planes_cache_lock:
+                now2 = time.time()
+                if _planes_cache is not None and (now2 - _planes_cache_ts) < _PLANES_CACHE_TTL:
+                    return _planes_cache
 
-        snap = self._scanRedis(redis)
+            redis = getRedis()
+            if not redis.ping():
+                return None
 
-        with _planes_cache_lock:
-            _planes_cache    = snap
-            _planes_cache_ts = snap["ts"]
+            snap = self._scanRedis(redis)
 
-        return snap
+            with _planes_cache_lock:
+                _planes_cache    = snap
+                _planes_cache_ts = snap["ts"]
+
+            return snap
 
     def _scanRedis(self, redis) -> dict:
         """Full Redis scan: load, normalize, filter zombies, merge ADSB.lol, classify."""

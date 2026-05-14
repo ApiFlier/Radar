@@ -2,9 +2,11 @@
 Aviation Radar - Unified App
 """
 
+import asyncio
 import os
 import json
 import importlib
+import threading
 import time
 import logging
 from fastapi import FastAPI, Request, Query, APIRouter
@@ -52,7 +54,18 @@ async def lifespan(app: FastAPI):
         from Classes.Ingestors import getOpenSkyIngestor
         getOpenSkyIngestor().start()
         logger.info("[API] Core processor and OpenSky ingestor started")
-    
+
+    def _warm_planes_cache():
+        try:
+            t0 = time.time()
+            from Modules.ApiPlanes import ApiPlanes
+            ApiPlanes("Planes")._getSnapshot()
+            logger.info(f"[API] Startup cache warm-up complete in {(time.time()-t0)*1000:.0f}ms")
+        except Exception as e:
+            logger.warning(f"[API] Startup cache warm-up failed (non-fatal): {e}")
+
+    threading.Thread(target=_warm_planes_cache, daemon=True, name="planes-warmup").start()
+
     yield
     
     # Stop supervisor
@@ -259,7 +272,7 @@ async def api_index(
         instance = ModuleClass(action)
         instance.setDebug(DEBUG)
         instance.setMethod(request.method)
-        result = instance.processApi(params)
+        result = await asyncio.to_thread(instance.processApi, params)
         result["response"]["responseTime"] = f"{(time.time() - startTime) * 1000:.2f}ms"
         return JSONResponse(status_code=result.get("statusCode", 200), content=result)
     except Exception as e:
