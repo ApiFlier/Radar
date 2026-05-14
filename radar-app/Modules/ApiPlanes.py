@@ -6,20 +6,26 @@ import math
 from Classes.ApiBase import ApiBase
 from Classes.Redis import getRedis
 
-# ── Planes snapshot cache (3 s TTL) ──────────────────────────────────────────
+# ── Planes snapshot cache ────────────────────────────────────────────────────
 # Stores the full normalized+classified plane list so radar/table/alerts/ground/
 # airport views all share one Redis scan per TTL window instead of one each.
+#
+# A full Redis scan over ~16k state keys takes roughly 7–8 seconds.  At 3 s TTL
+# the cache expired so often that many interactive requests hit the cold path.
+# 10 s is the default: still well within the 120 s air-freshness cutoff and the
+# 30 s UI auto-refresh cycle, while reducing cold-scan frequency by ~70%.
+# Override with PLANES_CACHE_TTL_SECONDS env var (min 3, max 60).
 _planes_cache_lock = threading.Lock()
 _planes_cache      = None   # dict: {planes, sourceCounts, adsbHealthy, adsbHeartbeat, ts}
 _planes_cache_ts   = 0.0
-_PLANES_CACHE_TTL  = 3.0    # seconds — short enough that live radar stays fresh
+_PLANES_CACHE_TTL  = max(3.0, min(60.0, float(os.getenv("PLANES_CACHE_TTL_SECONDS", "10"))))
 
-# ── Summary cache (15 s TTL) ─────────────────────────────────────────────────
+# ── Summary cache ─────────────────────────────────────────────────────────────
 # Pre-computed aggregation for view=summary/airports; refreshed from snapshot.
 _summary_cache_lock = threading.Lock()
 _summary_cache      = None
 _summary_cache_ts   = 0.0
-_SUMMARY_CACHE_TTL  = 15.0   # seconds
+_SUMMARY_CACHE_TTL  = max(5.0, min(120.0, float(os.getenv("SUMMARY_CACHE_TTL_SECONDS", "15"))))
 
 # ── Airport coordinates (Lazy loaded) ────────────────────────────────────────
 _apt_coords_lock = threading.Lock()
