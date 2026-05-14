@@ -92,6 +92,14 @@
         }
         .focus-banner .fb-clear:hover { color: #ccc; border-color: rgba(255,255,255,0.28); }
 
+        /* ── Focused airport sections ── */
+        .focus-section { margin-bottom: 28px; }
+        .sec-head { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.07); margin-bottom: 0; }
+        .sec-head h2 { font-size: 13px; font-weight: 600; color: #ccc; margin: 0; }
+        .sec-badge { background: rgba(0,255,204,0.12); color: #00ffcc; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+        .sec-empty { color: #444; font-size: 13px; padding: 16px 4px; }
+        .sec-note { color: #555; font-size: 11px; margin-top: 8px; padding: 0 4px; }
+
         /* ── Main layout ── */
         .main { max-width: 1600px; margin: 0 auto; padding: 24px 20px 48px; }
 
@@ -443,6 +451,48 @@ const SOURCE_LABELS = {
     'unknown':              'Unknown',
 };
 
+/* ── Airport Focus ── */
+const FOCUS_CODE = (function() {
+    const p = new URLSearchParams(location.search);
+    const ua = (p.get('airport') || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+    if (ua && p.get('focus') === '1') return ua;
+    try {
+        const f = JSON.parse(localStorage.getItem('radar.focus') || 'null');
+        if (f && f.airport && (Date.now() - (f.ts || 0)) < 14400000)
+            return String(f.airport).replace(/[^A-Z0-9]/g, '');
+    } catch(e) {}
+    return '';
+})();
+
+if (FOCUS_CODE) {
+    document.title = 'Radar — Aircraft · ' + FOCUS_CODE + ' Focus';
+    const _h1 = document.querySelector('.page-header h1');
+    if (_h1) _h1.textContent = 'Aircraft — ' + FOCUS_CODE + ' Focus';
+    const _rfBtn = document.querySelector('.refresh-btn');
+    if (_rfBtn) _rfBtn.setAttribute('onclick', '');  // replaced by addEventListener below
+
+    // Inject banner if not already present (URL-param focus without localStorage entry)
+    if (!document.querySelector('.focus-banner')) {
+        const _b = document.createElement('div');
+        _b.className = 'focus-banner';
+        _b.innerHTML = '<strong>Airport Focus: ' + FOCUS_CODE + '</strong>'
+            + '<span>advisory display · public near-live data</span>'
+            + '<a href="/?airport=' + encodeURIComponent(FOCUS_CODE) + '&focus=1">View on Radar</a>'
+            + '<button class="fb-clear">Clear Focus</button>';
+        const _ph = document.querySelector('.page-header');
+        if (_ph && _ph.parentNode) _ph.parentNode.insertBefore(_b, _ph.nextSibling);
+    }
+    // Patch Clear Focus to redirect to plain /aircraft after clearing
+    const _clrBtn = document.querySelector('.focus-banner .fb-clear');
+    if (_clrBtn) _clrBtn.onclick = function() {
+        try { localStorage.removeItem('radar.focus'); } catch(e) {}
+        location.href = '/aircraft';
+    };
+    // Hide global class filter tabs — not meaningful for airport-scoped view
+    const _ft = document.getElementById('class-filter-tabs');
+    if (_ft) _ft.style.display = 'none';
+}
+
 /* ── State ── */
 let loadedPlanes   = [];      // planes for the currently loaded page(s)
 let classFilter    = 'all';
@@ -749,6 +799,94 @@ function buildDetailHtml(p, id) {
     </div>`;
 }
 
+/* ── Focused airport fetch and render ── */
+function renderFocusCards(data) {
+    const ic = data.inboundCount  || 0;
+    const oc = data.outboundCount || 0;
+    const pc = data.parkedCount   || 0;
+    const nc = data.nearbyCount   || 0;
+    document.getElementById('cards-row').innerHTML =
+        `<div class="card ${ic>0?'':'dim'}"><div class="value">${ic}</div><div class="label">Inbound</div></div>`
+        + `<div class="card ${oc>0?'':'dim'}"><div class="value">${oc}</div><div class="label">Outbound</div></div>`
+        + `<div class="card ${pc>0?'':'dim'}"><div class="value">${pc}</div><div class="label">Parked / Last Observed</div></div>`
+        + `<div class="card ${nc>0?'':'dim'}"><div class="value">${nc}</div><div class="label">Nearby</div></div>`;
+}
+
+function renderFocusSections(data) {
+    const code = data.airport || FOCUS_CODE;
+    planeMap.clear();
+    renderedCount = 0;
+    loadedPlanes = [
+        ...(data.inbound  || []),
+        ...(data.outbound || []),
+        ...(data.parked   || []),
+        ...(data.nearby   || []),
+    ];
+
+    const thead = `<thead><tr>
+        <th>Callsign</th><th>Reg</th><th>ICAO</th><th>Type</th><th>Tags</th>
+        <th>Route</th><th class="r">Alt</th><th class="r">Speed</th><th>State</th><th>Source</th>
+    </tr></thead>`;
+
+    function sectionHtml(title, planes, emptyMsg) {
+        if (!planes.length) {
+            return `<div class="focus-section">
+                <div class="sec-head"><h2>${title}</h2><span class="sec-badge">0</span></div>
+                <div class="sec-empty">${emptyMsg}</div>
+            </div>`;
+        }
+        let rows = '';
+        planes.forEach(p => {
+            const detailId = 'ac-detail-' + renderedCount++;
+            planeMap.set(detailId, p);
+            rows += buildRowHtml(p, detailId);
+        });
+        return `<div class="focus-section">
+            <div class="sec-head"><h2>${title}</h2><span class="sec-badge">${planes.length}</span></div>
+            <div style="overflow-x:auto"><table class="ac-table">
+                ${thead}<tbody>${rows}</tbody>
+            </table></div>
+        </div>`;
+    }
+
+    document.getElementById('ac-content').innerHTML =
+        sectionHtml('Inbound to ' + code, data.inbound   || [], 'No inbound aircraft observed')
+        + sectionHtml('Outbound from ' + code, data.outbound || [], 'No outbound aircraft observed')
+        + sectionHtml('Parked / Last Observed at ' + code, data.parked  || [], 'No parked aircraft observed')
+        + sectionHtml('Nearby / Regional', data.nearby  || [], 'No nearby aircraft observed')
+        + `<div class="sec-note">Airport Focus · advisory display · public near-live data · may be delayed or incomplete</div>`;
+
+    document.getElementById('show-more-wrap').style.display = 'none';
+    document.getElementById('ac-count').textContent = loadedPlanes.length + ' aircraft';
+}
+
+async function doFocusRefresh() {
+    document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
+    try {
+        const r = await fetch('/api/?action=Planes&view=airport&airport=' + encodeURIComponent(FOCUS_CODE) + '&_=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const data = d?.response?.data || {};
+        renderFocusCards(data);
+        renderFocusSections(data);
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        document.getElementById('last-update').textContent =
+            'Updated ' + new Date().toLocaleTimeString()
+            + ' · ' + elapsed + 's · ' + FOCUS_CODE + ' focus';
+    } catch(e) {
+        document.getElementById('last-update').textContent = 'Error: ' + e.message;
+        document.getElementById('ac-content').innerHTML =
+            '<div class="status-msg error">Unable to reach API</div>';
+    }
+}
+
+let focusTimer;
+function scheduleFocusRefresh() {
+    clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => { doFocusRefresh().then(scheduleFocusRefresh); }, 30000);
+}
+
 /* ── Table rendering ── */
 function renderTable(planes) {
     currentSorted = sortedPlanes(planes);
@@ -967,14 +1105,21 @@ function scheduleRefresh() {
     timer = setTimeout(() => { doRefresh().then(scheduleRefresh); }, 30000);
 }
 
-// Wire search input to server-side query with debounce
+// Wire search input — server-side in global mode, client-side in focused mode
 document.getElementById('ac-search').addEventListener('input', function() {
-    clearTimeout(searchDebounce);
-    const q = this.value.trim();
-    searchDebounce = setTimeout(function() {
-        searchQ = q;
-        fetchTablePage().then(applyFilters).catch(console.error);
-    }, 350);
+    if (FOCUS_CODE) {
+        const q = this.value.trim().toLowerCase();
+        document.querySelectorAll('#ac-content tr.clickable-row').forEach(tr => {
+            tr.style.display = !q || (tr.dataset.srch || '').includes(q) ? '' : 'none';
+        });
+    } else {
+        clearTimeout(searchDebounce);
+        const q = this.value.trim();
+        searchDebounce = setTimeout(function() {
+            searchQ = q;
+            fetchTablePage().then(applyFilters).catch(console.error);
+        }, 350);
+    }
 });
 
 // Wire checkbox filters to client-side show/hide (they filter the loaded rows)
@@ -982,7 +1127,17 @@ document.getElementById('ac-search').addEventListener('input', function() {
     document.getElementById(id).addEventListener('change', applyFilters);
 });
 
-doRefresh().then(scheduleRefresh);
+// Wire refresh button for focused mode
+if (FOCUS_CODE) {
+    const _rfBtn = document.querySelector('.refresh-btn');
+    if (_rfBtn) _rfBtn.addEventListener('click', () => doFocusRefresh().catch(console.error));
+}
+
+if (FOCUS_CODE) {
+    doFocusRefresh().then(scheduleFocusRefresh);
+} else {
+    doRefresh().then(scheduleRefresh);
+}
 </script>
 </body>
 </html>
