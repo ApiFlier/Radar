@@ -931,15 +931,24 @@ class ApiPlanes(ApiBase):
         total_matching = len(filtered)
 
         if page_size > 0:
-            start    = (page - 1) * page_size
-            paged    = filtered[start:start + page_size]
-            has_more = (start + page_size) < total_matching
+            start       = (page - 1) * page_size
+            paged       = filtered[start:start + page_size]
+            total_pages = max(1, math.ceil(total_matching / page_size))
+            has_prev    = page > 1
+            has_next    = page < total_pages
+            has_more    = has_next
         elif limit > 0:
-            paged    = filtered[:limit]
-            has_more = False
+            paged       = filtered[:limit]
+            total_pages = 1
+            has_prev    = False
+            has_next    = False
+            has_more    = False
         else:
-            paged    = filtered
-            has_more = False
+            paged       = filtered
+            total_pages = 1
+            has_prev    = False
+            has_next    = False
+            has_more    = False
 
         return {
             "count":            len(paged),
@@ -947,6 +956,9 @@ class ApiPlanes(ApiBase):
             "totalMatching":    total_matching,
             "page":             page,
             "pageSize":         page_size,
+            "totalPages":       total_pages,
+            "hasPrev":          has_prev,
+            "hasNext":          has_next,
             "hasMore":          has_more,
             "planes":           self._pickFields(paged, "table"),
             "sources":          sourceCounts,

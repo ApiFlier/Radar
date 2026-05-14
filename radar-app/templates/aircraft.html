@@ -239,21 +239,19 @@
         .state-ground { color: #555; }
         .state-stop   { color: #3a3a3a; }
 
-        /* ── Show-more button ── */
-        .show-more-btn {
+        /* ── Pagination ── */
+        .pg-btn {
             font-size: 11px; font-weight: 600; color: #555;
             border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
-            padding: 6px 20px; cursor: pointer; background: transparent;
+            padding: 4px 12px; cursor: pointer; background: transparent;
             font-family: inherit; letter-spacing: 0.3px; transition: all 0.12s;
         }
-        .show-more-btn:hover { color: #888; border-color: rgba(255,255,255,0.22); }
-        .show-more-wrap {
-            text-align: center; padding: 12px 0 8px;
-            border-top: 1px solid rgba(255,255,255,0.04);
-        }
-        .show-more-info {
-            font-size: 10px; color: #333; margin-top: 6px;
-            letter-spacing: 0.3px;
+        .pg-btn:hover:not(:disabled) { color: #888; border-color: rgba(255,255,255,0.22); }
+        .pg-btn:disabled { opacity: 0.25; cursor: default; }
+        #ac-pagination {
+            display: none; padding: 10px 16px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
         }
 
         /* ── Clickable rows + detail panel ── */
@@ -417,9 +415,13 @@
             <div id="ac-content">
                 <div class="status-msg">Loading…</div>
             </div>
-            <div id="show-more-wrap" class="show-more-wrap" style="display:none">
-                <button class="show-more-btn" id="show-more-btn" onclick="loadMore()">Load more</button>
-                <div class="show-more-info" id="show-more-info"></div>
+            <div id="ac-pagination">
+                <button class="pg-btn" id="pg-first" onclick="changePage(1)">First</button>
+                <button class="pg-btn" id="pg-prev"  onclick="changePage(currentPage - 1)">Prev</button>
+                <span id="pg-info" style="font-size:12px;color:#666;min-width:90px;text-align:center">Page 1 of 1</span>
+                <button class="pg-btn" id="pg-next"  onclick="changePage(currentPage + 1)">Next</button>
+                <button class="pg-btn" id="pg-last"  onclick="changePage(serverTotalPages)">Last</button>
+                <span id="pg-range" style="font-size:11px;color:#444;margin-left:8px"></span>
             </div>
         </div>
 
@@ -435,7 +437,7 @@ const RS = (function() {
 
 /* ── Constants ── */
 const VALID_CODE_RE = /^[A-Z]{3,4}$/;
-const PAGE_SIZE = Math.max(50, Math.min(2000, parseInt(RS.aircraftPageSize || '500', 10) || 500));
+const PAGE_SIZE = Math.max(50, Math.min(500, parseInt(RS.aircraftPageSize || '100', 10) || 100));
 
 const SOURCE_LABELS = {
     'adsblol-ground-sweep': 'Ground Sweep',
@@ -499,20 +501,22 @@ if (FOCUS_CODE) {
 }
 
 /* ── State ── */
-let loadedPlanes   = [];      // planes for the currently loaded page(s)
-let classFilter    = 'all';
-let sortCol        = 'lastUpdate';
-let sortDir        = 'desc';
-let currentSorted  = [];
-let renderedCount  = 0;
-const planeMap     = new Map(); // detailId → plane object
-let currentPage    = 1;
-let serverPageSize = PAGE_SIZE;
-let serverTotal    = 0;
+let loadedPlanes        = [];
+let classFilter         = 'all';
+let sortCol             = 'lastUpdate';
+let sortDir             = 'desc';
+let currentSorted       = [];
+let renderedCount       = 0;
+const planeMap          = new Map();
+let currentPage         = 1;
+let serverPageSize      = PAGE_SIZE;
+let serverTotal         = 0;
 let serverTotalMatching = 0;
-let serverHasMore  = false;
-let searchQ        = '';
-let searchDebounce = null;
+let serverTotalPages    = 1;
+let serverHasPrev       = false;
+let serverHasNext       = false;
+let searchQ             = '';
+let searchDebounce      = null;
 
 /* ── Helpers ── */
 function n(v) {
@@ -868,7 +872,8 @@ function renderFocusSections(data) {
         + sectionHtml('Nearby / Regional',             data.nearby   || [], 'No nearby aircraft observed',          data.nearbyCount   || 0)
         + `<div class="sec-note">Airport Focus · advisory display · public near-live data · may be delayed or incomplete</div>`;
 
-    document.getElementById('show-more-wrap').style.display = 'none';
+    const _focusPg = document.getElementById('ac-pagination');
+    if (_focusPg) _focusPg.style.display = 'none';
     document.getElementById('ac-count').textContent = loadedPlanes.length + ' aircraft';
 
     // Reapply search after focused sections are rebuilt
@@ -916,8 +921,18 @@ function renderTable(planes) {
     if (!currentSorted.length) {
         document.getElementById('ac-content').innerHTML = '<div class="status-msg">No aircraft data</div>';
         document.getElementById('ac-count').textContent = '0 aircraft';
-        document.getElementById('show-more-wrap').style.display = 'none';
+        const pg = document.getElementById('ac-pagination');
+        if (pg) pg.style.display = 'none';
         return;
+    }
+
+    let rows = '';
+    for (let i = 0; i < currentSorted.length; i++) {
+        const p = currentSorted[i];
+        const detailId = `ac-detail-${i}`;
+        planeMap.set(detailId, p);
+        rows += buildRowHtml(p, detailId);
+        renderedCount++;
     }
 
     document.getElementById('ac-content').innerHTML = `
@@ -935,77 +950,58 @@ function renderTable(planes) {
                 <th>State</th>
                 <th>Source</th>
             </tr></thead>
-            <tbody id="ac-tbody"></tbody>
+            <tbody id="ac-tbody">${rows}</tbody>
         </table>
         </div>`;
-
-    appendRows(currentSorted);
-    updateShowMore();
     applyFilters();
 }
 
-function appendRows(planes) {
-    const tbody = document.getElementById('ac-tbody');
-    if (!tbody) return;
-    let html = '';
-    const base = renderedCount;
-    for (let i = 0; i < planes.length; i++) {
-        const p = planes[i];
-        const detailId = `ac-detail-${base + i}`;
-        planeMap.set(detailId, p);
-        html += buildRowHtml(p, detailId);
-    }
-    renderedCount += planes.length;
-    tbody.insertAdjacentHTML('beforeend', html);
-}
+function updatePagination() {
+    const pg = document.getElementById('ac-pagination');
+    if (!pg) return;
 
-async function loadMore() {
-    if (!serverHasMore) return;
-    currentPage++;
-    const btn = document.getElementById('show-more-btn');
-    if (btn) btn.textContent = 'Loading…';
-    try {
-        const qs = buildTableQS(currentPage);
-        const r = await fetch('/api/?action=Planes&view=table&' + qs + '&_=' + Date.now());
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.json();
-        const data = d?.response?.data || {};
-        const planes = data.planes || [];
-        serverHasMore = data.hasMore || false;
-        serverTotalMatching = data.totalMatching || serverTotalMatching;
-        loadedPlanes = loadedPlanes.concat(planes);
-        const sorted = sortedPlanes(planes);
-        appendRows(sorted);
-        updateShowMore();
-        applyFilters();
-    } catch (e) {
-        currentPage--;
-        if (btn) btn.textContent = 'Retry';
+    if (serverTotalPages <= 1 && serverTotalMatching <= PAGE_SIZE) {
+        pg.style.display = 'none';
+        return;
+    }
+    pg.style.display = 'flex';
+
+    const first = document.getElementById('pg-first');
+    const prev  = document.getElementById('pg-prev');
+    const next  = document.getElementById('pg-next');
+    const last  = document.getElementById('pg-last');
+    const info  = document.getElementById('pg-info');
+    const range = document.getElementById('pg-range');
+
+    if (first) first.disabled = !serverHasPrev;
+    if (prev)  prev.disabled  = !serverHasPrev;
+    if (next)  next.disabled  = !serverHasNext;
+    if (last)  last.disabled  = !serverHasNext;
+
+    if (info) info.textContent = `Page ${currentPage} of ${serverTotalPages}`;
+
+    if (range) {
+        const start = (currentPage - 1) * serverPageSize + 1;
+        const end   = Math.min(currentPage * serverPageSize, serverTotalMatching);
+        range.textContent = `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${serverTotalMatching.toLocaleString()}`;
     }
 }
 
-function updateShowMore() {
-    const wrap = document.getElementById('show-more-wrap');
-    const btn  = document.getElementById('show-more-btn');
-    const info = document.getElementById('show-more-info');
-    if (!wrap) return;
-    if (!serverHasMore) {
-        wrap.style.display = 'none';
-    } else {
-        const remaining = serverTotalMatching - renderedCount;
-        btn.textContent = `Load ${Math.min(PAGE_SIZE, remaining).toLocaleString()} more`;
-        info.textContent = `Loaded ${renderedCount.toLocaleString()} of ${serverTotalMatching.toLocaleString()} matching · sort applies to loaded rows`;
-        wrap.style.display = 'block';
-    }
+function changePage(n) {
+    const target = Math.max(1, Math.min(serverTotalPages, n));
+    if (target === currentPage && loadedPlanes.length > 0) return;
+    currentPage = target;
+    fetchTablePage(currentPage).then(applyFilters).catch(console.error);
 }
 
 /* ── Filter / Search ── */
 function setClassFilter(cls) {
     classFilter = cls;
+    currentPage = 1;
     document.querySelectorAll('#class-filter-tabs .filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === cls);
     });
-    fetchTablePage().catch(console.error);
+    fetchTablePage(1).catch(console.error);
 }
 
 function applyFilters() {
@@ -1038,13 +1034,12 @@ function applyFilters() {
     }
 
     const hasClientFilter = routeOnly || noIdOnly || mappableOnly;
-    const rendered = renderedCount;
     document.getElementById('ac-count').textContent =
         hasClientFilter
-            ? `${vis} of ${rendered} loaded`
-            : serverHasMore
-                ? `${rendered} loaded of ${serverTotalMatching.toLocaleString()} matching`
-                : `${rendered} aircraft`;
+            ? `${vis.toLocaleString()} of ${renderedCount.toLocaleString()} on this page`
+            : serverTotalMatching > 0
+                ? `${serverTotalMatching.toLocaleString()} matching`
+                : `${renderedCount.toLocaleString()} aircraft`;
 }
 
 function toggleDetail(id) {
@@ -1072,21 +1067,24 @@ function buildTableQS(page) {
     return qs;
 }
 
-async function fetchTablePage() {
-    currentPage = 1;
-    loadedPlanes = [];
-    const qs = buildTableQS(1);
+async function fetchTablePage(page) {
+    if (!page) page = 1;
+    const qs = buildTableQS(page);
     const r = await fetch('/api/?action=Planes&view=table&' + qs + '&_=' + Date.now());
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     const data = d?.response?.data || {};
     const planes = data.planes || [];
-    serverHasMore       = data.hasMore        || false;
+    currentPage         = data.page          || page;
     serverTotalMatching = data.totalMatching  || planes.length;
     serverTotal         = data.total          || serverTotalMatching;
     serverPageSize      = data.pageSize       || PAGE_SIZE;
+    serverTotalPages    = data.totalPages     || Math.max(1, Math.ceil(serverTotalMatching / serverPageSize));
+    serverHasPrev       = data.hasPrev        || false;
+    serverHasNext       = data.hasNext        || false;
     loadedPlanes        = planes;
     renderTable(planes);
+    updatePagination();
     return data;
 }
 
@@ -1094,18 +1092,25 @@ async function fetchTablePage() {
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
     const t0 = Date.now();
+    // Preserve current page on auto-refresh; clamp to valid range after fetch.
+    const refreshPage = currentPage;
     try {
         const [summaryRes, tableData] = await Promise.all([
             fetch('/api/?action=Planes&view=summary&_=' + Date.now())
                 .then(r => r.ok ? r.json() : null)
                 .then(d => (d?.response?.data) || {}),
-            fetchTablePage(),
+            fetchTablePage(refreshPage),
         ]);
 
         const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
 
         if (summaryRes.total) {
             renderCards(summaryRes);
+        }
+
+        // If the preserved page is now beyond the last page, move to last valid page.
+        if (currentPage > serverTotalPages) {
+            fetchTablePage(serverTotalPages).catch(console.error);
         }
 
         document.getElementById('last-update').textContent =
@@ -1115,7 +1120,8 @@ async function doRefresh() {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         document.getElementById('ac-content').innerHTML =
             '<div class="status-msg error">Unable to reach API</div>';
-        document.getElementById('show-more-wrap').style.display = 'none';
+        const pg = document.getElementById('ac-pagination');
+        if (pg) pg.style.display = 'none';
     }
 }
 
@@ -1137,7 +1143,8 @@ document.getElementById('ac-search').addEventListener('input', function() {
         const q = this.value.trim();
         searchDebounce = setTimeout(function() {
             searchQ = q;
-            fetchTablePage().then(applyFilters).catch(console.error);
+            currentPage = 1;
+            fetchTablePage(1).then(applyFilters).catch(console.error);
         }, 350);
     }
 });

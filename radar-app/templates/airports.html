@@ -306,6 +306,21 @@
         }
         .status-msg.error { color: #f97; }
 
+        /* ── Pagination ── */
+        .pg-btn {
+            font-size: 11px; font-weight: 600; color: #555;
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+            padding: 4px 12px; cursor: pointer; background: transparent;
+            font-family: inherit; letter-spacing: 0.3px; transition: all 0.12s;
+        }
+        .pg-btn:hover:not(:disabled) { color: #888; border-color: rgba(255,255,255,0.22); }
+        .pg-btn:disabled { opacity: 0.25; cursor: default; }
+        #apt-pagination {
+            padding: 10px 16px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+
         /* ── Filter tabs ── */
         .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
         .filter-btn {
@@ -534,6 +549,14 @@
                     <span class="count-badge" id="all-airports-count"></span>
                 </div>
                 <div id="all-airports-content"><div class="status-msg">Loading…</div></div>
+                <div id="apt-pagination" style="display:none">
+                    <button class="pg-btn" id="apt-first" onclick="changeAirportPage(1)">First</button>
+                    <button class="pg-btn" id="apt-prev"  onclick="changeAirportPage(airportCurrentPage - 1)">Prev</button>
+                    <span id="apt-pg-info" style="font-size:12px;color:#666;min-width:90px;text-align:center">Page 1 of 1</span>
+                    <button class="pg-btn" id="apt-next"  onclick="changeAirportPage(airportCurrentPage + 1)">Next</button>
+                    <button class="pg-btn" id="apt-last"  onclick="changeAirportPage(airportTotalPages)">Last</button>
+                    <span id="apt-pg-range" style="font-size:11px;color:#444;margin-left:8px"></span>
+                </div>
             </div>
         </div>
 
@@ -607,15 +630,20 @@ function regionLabel(region) {
 }
 
 /* ── Aggregation state ── */
-let lastProcessed = null;
+let lastProcessed     = null;
 let airportFilterMode = 'all'; // 'all' | 'dep' | 'arr' | 'both'
+let allAirportActivity = [];   // full sorted dataset in memory
+let airportCurrentPage = 1;
+let airportTotalPages  = 1;
+const AIRPORT_PAGE_SIZE = 100;
 
 function setAirportFilter(mode) {
     airportFilterMode = mode;
+    airportCurrentPage = 1;
     document.querySelectorAll('#airport-filter-tabs .filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === mode);
     });
-    filterAirports();
+    renderAirportPage(1);
 }
 
 function toggleAirportDetail(id) {
@@ -774,15 +802,47 @@ function renderTopList(entries, containerId, countId, maxRows = 20) {
         </table>`;
 }
 
-function renderAllAirports(airportActivity, total) {
-    document.getElementById('all-airports-count').textContent = airportActivity.length.toLocaleString() + ' airports';
-    if (airportActivity.length === 0) {
-        document.getElementById('all-airports-content').innerHTML = '<div class="status-msg">No data</div>';
+function renderAllAirports(airportActivity) {
+    allAirportActivity = airportActivity || [];
+    airportCurrentPage = 1;
+    renderAirportPage(1);
+}
+
+function renderAirportPage(page) {
+    const q = (document.getElementById('airport-search').value || '').toLowerCase().trim();
+
+    // Filter full dataset first.
+    const filtered = allAirportActivity.filter(({ code, deps, arrs, info }) => {
+        const name = (info ? info.name : '').toLowerCase();
+        const textMatch = !q || code.toLowerCase().includes(q) || name.includes(q);
+        let filterMatch = true;
+        if (airportFilterMode === 'dep')  filterMatch = deps > 0 && arrs === 0;
+        else if (airportFilterMode === 'arr')  filterMatch = arrs > 0 && deps === 0;
+        else if (airportFilterMode === 'both') filterMatch = deps > 0 && arrs > 0;
+        return textMatch && filterMatch;
+    });
+
+    const total = filtered.length;
+    airportTotalPages  = Math.max(1, Math.ceil(total / AIRPORT_PAGE_SIZE));
+    airportCurrentPage = Math.max(1, Math.min(page, airportTotalPages));
+
+    const start   = (airportCurrentPage - 1) * AIRPORT_PAGE_SIZE;
+    const pageSet = filtered.slice(start, start + AIRPORT_PAGE_SIZE);
+
+    document.getElementById('all-airports-count').textContent =
+        (q || airportFilterMode !== 'all')
+            ? `${total.toLocaleString()} of ${allAirportActivity.length.toLocaleString()} airports`
+            : `${allAirportActivity.length.toLocaleString()} airports`;
+
+    if (total === 0) {
+        document.getElementById('all-airports-content').innerHTML = '<div class="status-msg">No matching airports</div>';
+        document.getElementById('apt-pagination').style.display = 'none';
         return;
     }
+
     let rows = '';
-    airportActivity.forEach(({ code, deps, arrs, total: tot }, i) => {
-        rows += airportRow(code, deps, arrs, tot, i + 1);
+    pageSet.forEach(({ code, deps, arrs, total: tot }, i) => {
+        rows += airportRow(code, deps, arrs, tot, start + i + 1);
     });
     document.getElementById('all-airports-content').innerHTML = `
         <table id="all-airports-table">
@@ -797,7 +857,29 @@ function renderAllAirports(airportActivity, total) {
             <tbody>${rows}</tbody>
         </table>`;
 
-    filterAirports();
+    // Update pagination controls.
+    const pg       = document.getElementById('apt-pagination');
+    const hasPrev  = airportCurrentPage > 1;
+    const hasNext  = airportCurrentPage < airportTotalPages;
+
+    if (airportTotalPages <= 1) {
+        pg.style.display = 'none';
+    } else {
+        pg.style.display = 'flex';
+        document.getElementById('apt-first').disabled = !hasPrev;
+        document.getElementById('apt-prev').disabled  = !hasPrev;
+        document.getElementById('apt-next').disabled  = !hasNext;
+        document.getElementById('apt-last').disabled  = !hasNext;
+        document.getElementById('apt-pg-info').textContent =
+            `Page ${airportCurrentPage} of ${airportTotalPages}`;
+        const rangeEnd = Math.min(airportCurrentPage * AIRPORT_PAGE_SIZE, total);
+        document.getElementById('apt-pg-range').textContent =
+            `Showing ${(start + 1).toLocaleString()}–${rangeEnd.toLocaleString()} of ${total.toLocaleString()}`;
+    }
+}
+
+function changeAirportPage(n) {
+    renderAirportPage(n);
 }
 
 function renderUnresolved(unresCodes) {
@@ -966,37 +1048,8 @@ async function loadAirportFlights(code) {
 }
 
 function filterAirports() {
-    const q = (document.getElementById('airport-search').value || '').toLowerCase().trim();
-    const table = document.getElementById('all-airports-table');
-    if (!table) return;
-    let visCount = 0;
-    let total = 0;
-    for (const row of table.querySelectorAll('tbody tr.clickable-row')) {
-        total++;
-        const code = (row.dataset.code || '').toLowerCase();
-        const name = (row.dataset.name || '');
-        const deps = parseInt(row.dataset.deps || '0', 10);
-        const arrs = parseInt(row.dataset.arrs || '0', 10);
-
-        const textMatch = !q || code.includes(q) || name.includes(q);
-        let filterMatch = true;
-        if (airportFilterMode === 'dep')  filterMatch = deps > 0 && arrs === 0;
-        else if (airportFilterMode === 'arr')  filterMatch = arrs > 0 && deps === 0;
-        else if (airportFilterMode === 'both') filterMatch = deps > 0 && arrs > 0;
-
-        const show = textMatch && filterMatch;
-        row.classList.toggle('hidden-row', !show);
-        const detail = row.nextElementSibling;
-        if (detail && detail.classList.contains('detail-row')) {
-            detail.classList.toggle('hidden-row', !show);
-            if (!show) detail.classList.add('hidden');
-        }
-        if (show) visCount++;
-    }
-    document.getElementById('all-airports-count').textContent =
-        (q || airportFilterMode !== 'all')
-            ? `${visCount} of ${total} airports`
-            : `${total} airports`;
+    airportCurrentPage = 1;
+    renderAirportPage(1);
 }
 
 /* ── Fetch & render ── */
@@ -1013,7 +1066,9 @@ function applySummaryJson(d, elapsed) {
     renderCards(s);
     renderTopList(s.topOrigins, 'origins-content', 'origins-count', 20);
     renderTopList(s.topDests,   'dests-content',   'dests-count',   20);
-    renderAllAirports(s.airportActivity);
+    // On refresh, preserve current page and search/filter state.
+    allAirportActivity = s.airportActivity || [];
+    renderAirportPage(airportCurrentPage);
     document.getElementById('unresolved-section').style.display = 'none';
     document.getElementById('last-update').textContent =
         'Updated ' + new Date().toLocaleTimeString() +
