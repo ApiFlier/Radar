@@ -140,6 +140,11 @@ class ApiPlanes(ApiBase):
             "description": "For view=alerts: 'operational' returns only flagged aircraft plus DQ summary metadata.",
             "required": False,
             "type": "string"
+        },
+        "status": {
+            "description": "For view=ground: filter by ground status (taxiing/holding/stopped/parked).",
+            "required": False,
+            "type": "string"
         }
     }
 
@@ -224,8 +229,10 @@ class ApiPlanes(ApiBase):
             return
 
         if view == "ground":
-            planes = [p for p in planes if self._isGroundPlane(p)]
-            planes = self._pickFields(planes, "ground")
+            self.responseData = self._buildGroundView(
+                planes, total_count, sourceCounts, adsbHealthy, adsbHeartbeat, cache_age)
+            self.sendResponse(self.SUCCESS)
+            return
         elif view == "alerts":
             planes = self._pickFields(planes, "alerts")
         elif limit > 0:
@@ -932,7 +939,81 @@ class ApiPlanes(ApiBase):
             "meta":             {"cacheAgeSeconds": cache_age},
         }
 
+    def _buildGroundView(self, planes: list, total_count: int, sourceCounts: dict,
+                         adsbHealthy: bool, adsbHeartbeat: dict, cache_age: float = 0.0) -> dict:
+        """Server-side filtered and paginated view for the ground operations page."""
+        q         = (self.params.get("q")      or "").strip().lower()
+        status    = (self.params.get("status") or "").strip().lower()
+        page      = max(1, self.safeInt(self.params.get("page")     or 1,   1))
+        page_size = max(1, self.safeInt(self.params.get("pageSize") or 100, 100))
+
+        all_ground = [p for p in planes if self._isGroundPlane(p)]
+
+        # Status counts from full unfiltered ground set
+        status_counts = {"taxiing": 0, "holding": 0, "stopped": 0, "parked": 0}
+        for p in all_ground:
+            gs = (p.get("groundStatus") or "").lower()
+            if gs in status_counts:
+                status_counts[gs] += 1
+
+        filtered = all_ground
+
+        # Exclude parked with no airport association by default
+        if not status or status != "parked":
+            no_airport_parked = lambda p: (
+                (p.get("groundStatus") or "").lower() == "parked"
+                and not (p.get("dep") or p.get("arr") or p.get("groundCluster") or "").strip()
+            )
+            filtered = [p for p in filtered if not no_airport_parked(p)]
+
+        if status and status in status_counts:
+            filtered = [p for p in filtered if (p.get("groundStatus") or "").lower() == status]
+
+        if q:
+            out = []
+            for p in filtered:
+                hay = " ".join([
+                    p.get("callsign")     or "",
+                    p.get("registration") or "",
+                    p.get("icaoHex")      or "",
+                    p.get("groundCluster") or "",
+                    p.get("aircraftType") or "",
+                    p.get("source")       or "",
+                    p.get("groundStatus") or "",
+                ]).lower()
+                if q in hay:
+                    out.append(p)
+            filtered = out
+
+        total_matching = len(filtered)
+        total_pages    = math.ceil(total_matching / page_size) if page_size else 1
+        start          = (page - 1) * page_size
+        paged          = filtered[start:start + page_size]
+
+        return {
+            "count":            len(paged),
+            "total":            total_count,
+            "totalGround":      len(all_ground),
+            "totalMatching":    total_matching,
+            "page":             page,
+            "pageSize":         page_size,
+            "totalPages":       total_pages,
+            "hasNext":          (start + page_size) < total_matching,
+            "hasPrev":          page > 1,
+            "statusCounts":     status_counts,
+            "planes":           self._pickFields(paged, "ground"),
+            "sources":          sourceCounts,
+            "adsbLolHealthy":   adsbHealthy,
+            "adsbLolHeartbeat": adsbHeartbeat,
+            "meta":             {"cacheAgeSeconds": cache_age},
+        }
+
     _EMRG_SQUAWKS = frozenset({"7500", "7600", "7700"})
+
+    def _isEmergency(self, p: dict) -> bool:
+        squawk = str(p.get("squawk") or "").strip()
+        emrg   = str(p.get("emergency") or "").lower().strip()
+        return squawk in self._EMRG_SQUAWKS or (emrg and emrg not in ("0", "none", ""))
 
     def _buildAlertsOperational(self, planes: list, total_count: int, cache_age: float = 0.0) -> dict:
         """Return only operationally flagged aircraft and DQ summary counts as metadata.
@@ -967,18 +1048,33 @@ class ApiPlanes(ApiBase):
             if lu > 1e9 and (now_ts - lu) > self._DQ_STALE_SECS:
                 dq["stale"] += 1
 
+            # Skip ground aircraft — they belong to the ground page, not advisories
+            if is_ground:
+                continue
+
             # Operational filter — include only flagged aircraft
             squawk   = str(p.get("squawk") or "").strip()
             emrg     = str(p.get("emergency") or "").lower().strip()
             is_emrg  = squawk in self._EMRG_SQUAWKS or (emrg and emrg not in ("0", "none", ""))
-            if is_emrg or p.get("isMilitary") or p.get("isHelicopter") or is_ground:
+            if is_emrg or p.get("isMilitary") or p.get("isHelicopter"):
                 op.append(p)
 
+        # Separate true advisories from observations; cap observations to bound payload
+        _OBS_CAP = 100
+        emergency   = [p for p in op if self._isEmergency(p)]
+        military    = [p for p in op if p.get("isMilitary") and not self._isEmergency(p)]
+        helicopter  = [p for p in op if p.get("isHelicopter") and not p.get("isMilitary") and not self._isEmergency(p)]
+
+        mil_total  = len(military)
+        heli_total = len(helicopter)
+        capped     = emergency + military[:_OBS_CAP] + helicopter[:_OBS_CAP]
+
         return {
-            "count":      len(op),
+            "count":      len(capped),
             "total":      total_count,
             "dqSummary":  dq,
-            "planes":     self._pickFields(op, "alerts"),
+            "obsCounts":  {"militaryTotal": mil_total, "helicopterTotal": heli_total, "obsCap": _OBS_CAP},
+            "planes":     self._pickFields(capped, "alerts"),
             "meta":       {"cacheAgeSeconds": cache_age},
         }
 

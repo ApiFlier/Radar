@@ -330,19 +330,23 @@
                     <h2>Ground Aircraft</h2>
                     <div class="filter-tabs" id="filter-tabs">
                         <button class="filter-btn active"  data-f="all"     onclick="setFilter('all')">All</button>
-                        <button class="filter-btn"         data-f="moving"  onclick="setFilter('moving')">Taxiing</button>
+                        <button class="filter-btn"         data-f="taxiing" onclick="setFilter('taxiing')">Taxiing</button>
                         <button class="filter-btn"         data-f="holding" onclick="setFilter('holding')">Holding</button>
                         <button class="filter-btn"         data-f="stopped" onclick="setFilter('stopped')">Stopped</button>
                         <button class="filter-btn"         data-f="parked"  onclick="setFilter('parked')">Parked</button>
-                        <button class="filter-btn"         data-f="heli"    onclick="setFilter('heli')">Helicopters</button>
                     </div>
                     <div class="search-wrap">
                         <input class="search-input" id="ground-search" type="text"
-                               placeholder="callsign, reg, ICAO…" oninput="applyFilters()">
+                               placeholder="callsign, reg, ICAO…">
                     </div>
                     <span class="count-badge" id="ground-count"></span>
                 </div>
                 <div id="ground-content"><div class="status-msg">Loading…</div></div>
+                <div id="ground-pagination" style="display:none;padding:10px 16px;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,0.06)">
+                    <button id="pg-prev" onclick="changePage(-1)" style="font-size:11px;padding:3px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:3px;color:#aaa;cursor:pointer">← Prev</button>
+                    <span id="pg-info" style="font-size:11px;color:#666"></span>
+                    <button id="pg-next" onclick="changePage(1)"  style="font-size:11px;padding:3px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:3px;color:#aaa;cursor:pointer">Next →</button>
+                </div>
             </div>
         </div>
 
@@ -372,6 +376,13 @@ let allGround  = [];
 let activeFilter = 'all';
 let sortCol  = 'speed';
 let sortDir  = 'desc';
+const GROUND_PAGE_SIZE = 100;
+let currentPage      = 1;
+let totalPages       = 1;
+let totalMatching    = 0;
+let totalGround      = 0;
+let serverStatusCounts = {};
+let searchDebounce   = null;
 
 /* ── Airport Focus ── */
 const FOCUS_CODE = (function() {
@@ -500,13 +511,13 @@ function noIdentity(p) {
 
 function speedCategory(p) {
     const gs = (p.groundStatus || '').toLowerCase();
-    if (gs === 'taxiing') return 'moving';
+    if (gs === 'taxiing') return 'taxiing';
     if (gs === 'holding') return 'holding';
     if (gs === 'stopped') return 'stopped';
     if (gs === 'parked')  return 'parked';
-    // Fallback when no groundStatus (e.g. non-ground-sweep aircraft)
+    // Fallback when no groundStatus
     const s = n(p.speed) || 0;
-    if (s >= TAXI_THRESHOLD) return 'moving';
+    if (s >= TAXI_THRESHOLD) return 'taxiing';
     if (s > 0)               return 'holding';
     return 'parked';
 }
@@ -525,39 +536,8 @@ function setFilter(f) {
     document.querySelectorAll('.filter-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.f === f);
     });
-    applyFilters();
-}
-
-function applyFilters() {
-    const q = (document.getElementById('ground-search').value || '').toLowerCase().trim();
-    const tbl = document.getElementById('ground-table');
-    if (!tbl) return;
-
-    let vis = 0;
-    for (const row of tbl.querySelectorAll('tbody tr.clickable-row')) {
-        const catMatch =
-            activeFilter === 'all'     ||
-            (activeFilter === 'moving'  && row.dataset.cat === 'moving')  ||
-            (activeFilter === 'holding' && row.dataset.cat === 'holding') ||
-            (activeFilter === 'stopped' && row.dataset.cat === 'stopped') ||
-            (activeFilter === 'parked'  && row.dataset.cat === 'parked')  ||
-            (activeFilter === 'heli'    && row.dataset.heli === '1');
-
-        const srch = row.dataset.srch || '';
-        const qMatch = !q || srch.includes(q);
-
-        const show = catMatch && qMatch;
-        row.classList.toggle('hidden-row', !show);
-        const detail = row.nextElementSibling;
-        if (detail && detail.classList.contains('detail-row')) {
-            detail.classList.toggle('hidden-row', !show);
-            if (!show) detail.classList.add('hidden');
-        }
-        if (show) vis++;
-    }
-    document.getElementById('ground-count').textContent = q || activeFilter !== 'all'
-        ? `${vis} of ${allGround.length}`
-        : `${allGround.length} aircraft`;
+    currentPage = 1;
+    fetchGroundPage();
 }
 
 /* ── Sorting ── */
@@ -595,46 +575,44 @@ function thHtml(label, col, isRight) {
 
 /* ── Render ── */
 function renderCards(ground, total) {
-    const taxiing = ground.filter(p => speedCategory(p) === 'moving').length;
-    const holding = ground.filter(p => speedCategory(p) === 'holding').length;
-    const stopped = ground.filter(p => speedCategory(p) === 'stopped').length;
-    const parked  = ground.filter(p => speedCategory(p) === 'parked').length;
+    const sc      = serverStatusCounts;
+    const taxiing = sc.taxiing || 0;
+    const holding = sc.holding || 0;
+    const stopped = sc.stopped || 0;
+    const parked  = sc.parked  || 0;
+    const gTotal  = totalGround || ground.length;
     const heli    = ground.filter(p => p.isHelicopter).length;
     const noIden  = ground.filter(noIdentity).length;
 
     document.getElementById('cards-row').innerHTML = `
         <div class="card">
-            <div class="value">${ground.length.toLocaleString()}</div>
+            <div class="value">${gTotal.toLocaleString()}</div>
             <div class="label">Ground Aircraft</div>
             <div class="sub">of ${total.toLocaleString()} total tracked</div>
         </div>
         <div class="card ${taxiing > 0 ? '' : 'dim'}">
             <div class="value">${taxiing.toLocaleString()}</div>
             <div class="label">Taxiing</div>
-            <div class="sub">speed ≥ ${TAXI_THRESHOLD} kt</div>
         </div>
         <div class="card dim">
             <div class="value">${holding.toLocaleString()}</div>
             <div class="label">Holding / Recently Stopped</div>
-            <div class="sub">live · last moved &lt; 10 min ago</div>
         </div>
         <div class="card dim">
             <div class="value">${stopped.toLocaleString()}</div>
             <div class="label">Stopped on Ground</div>
-            <div class="sub">live · not moved ≥ 10 min</div>
         </div>
         <div class="card dim">
             <div class="value">${parked.toLocaleString()}</div>
             <div class="label">Parked / Last Observed</div>
-            <div class="sub">no longer reporting fresh</div>
         </div>
         <div class="card ${heli > 0 ? '' : 'dim'}">
             <div class="value">${heli.toLocaleString()}</div>
-            <div class="label">Helicopters</div>
+            <div class="label">Helicopters (this page)</div>
         </div>
         <div class="card ${noIden > 0 ? 'warn' : 'dim'}">
             <div class="value">${noIden.toLocaleString()}</div>
-            <div class="label">No Identity</div>
+            <div class="label">No Identity (this page)</div>
             <div class="sub">no callsign or reg</div>
         </div>
     `;
@@ -739,7 +717,11 @@ function renderGroundTable(ground) {
         </table>
         </div>`;
 
-    document.getElementById('ground-count').textContent = `${ground.length} aircraft`;
+    const countTxt = totalMatching > ground.length
+        ? `${ground.length} of ${totalMatching.toLocaleString()} aircraft`
+        : `${ground.length} aircraft`;
+    document.getElementById('ground-count').textContent = countTxt;
+    updatePagination();
 }
 
 function renderCoverage(ground) {
@@ -921,12 +903,44 @@ function scheduleFocusRefresh() {
     focusTimer = setTimeout(() => doFocusRefresh().then(scheduleFocusRefresh), 30000);
 }
 
+/* ── Pagination ── */
+function updatePagination() {
+    const pg = document.getElementById('ground-pagination');
+    const info = document.getElementById('pg-info');
+    const prev = document.getElementById('pg-prev');
+    const next = document.getElementById('pg-next');
+    if (!pg) return;
+    if (totalPages <= 1) { pg.style.display = 'none'; return; }
+    pg.style.display = 'flex';
+    info.textContent = `Page ${currentPage} of ${totalPages}`;
+    prev.disabled = currentPage <= 1;
+    prev.style.opacity = currentPage <= 1 ? '0.4' : '1';
+    next.disabled = currentPage >= totalPages;
+    next.style.opacity = currentPage >= totalPages ? '0.4' : '1';
+}
+
+function changePage(delta) {
+    const np = currentPage + delta;
+    if (np < 1 || np > totalPages) return;
+    currentPage = np;
+    fetchGroundPage();
+}
+
 /* ── Main fetch ── */
-async function doRefresh() {
+function buildGroundQS() {
+    const q = (document.getElementById('ground-search').value || '').trim();
+    const status = activeFilter === 'all' ? '' : activeFilter;
+    let qs = `/api/?action=Planes&view=ground&page=${currentPage}&pageSize=${GROUND_PAGE_SIZE}&_=${Date.now()}`;
+    if (status) qs += '&status=' + encodeURIComponent(status);
+    if (q)      qs += '&q='      + encodeURIComponent(q);
+    return qs;
+}
+
+async function fetchGroundPage() {
     document.getElementById('last-update').textContent = 'Refreshing…';
     const t0 = Date.now();
     try {
-        const r = await fetch('/api/?action=Planes&view=ground&_=' + Date.now());
+        const r = await fetch(buildGroundQS());
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
         const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
@@ -934,18 +948,22 @@ async function doRefresh() {
         const ground = data.planes || [];
         const total  = data.total  || 0;
 
-        allGround = ground;
+        allGround          = ground;
+        totalGround        = data.totalGround    || 0;
+        totalMatching      = data.totalMatching  || ground.length;
+        totalPages         = data.totalPages     || 1;
+        currentPage        = data.page           || currentPage;
+        serverStatusCounts = data.statusCounts   || {};
 
         renderCards(ground, total);
         renderGroundTable(ground);
         renderCoverage(ground);
         renderClass(ground);
-        applyFilters();
 
         document.getElementById('last-update').textContent =
             'Updated ' + new Date().toLocaleTimeString() +
             ' · ' + elapsed + 's' +
-            (ground.length === 0 ? ' · No ground aircraft' : ' · ' + ground.length + ' ground');
+            (totalGround === 0 ? ' · No ground aircraft' : ' · ' + totalGround.toLocaleString() + ' ground');
     } catch (e) {
         document.getElementById('last-update').textContent = 'Error: ' + e.message;
         ['ground-content','coverage-content','class-content'].forEach(id => {
@@ -958,15 +976,25 @@ async function doRefresh() {
 let timer;
 function scheduleRefresh() {
     clearTimeout(timer);
-    timer = setTimeout(() => { doRefresh().then(scheduleRefresh); }, 30000);
+    timer = setTimeout(() => { fetchGroundPage().then(scheduleRefresh); }, 30000);
 }
+
+// Debounced search
+document.getElementById('ground-search').addEventListener('input', function() {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => { currentPage = 1; fetchGroundPage(); }, 350);
+});
+
+// Wire refresh button
+const _rfMainBtn = document.querySelector('.refresh-btn');
+if (_rfMainBtn && !FOCUS_CODE) _rfMainBtn.addEventListener('click', () => fetchGroundPage().catch(console.error));
 
 if (FOCUS_CODE) {
     const _rfBtn2 = document.querySelector('.refresh-btn');
     if (_rfBtn2) _rfBtn2.addEventListener('click', () => doFocusRefresh().catch(console.error));
     doFocusRefresh().then(scheduleFocusRefresh);
 } else {
-    doRefresh().then(scheduleRefresh);
+    fetchGroundPage().then(scheduleRefresh);
 }
 </script>
 </body>

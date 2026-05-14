@@ -354,12 +354,11 @@
             <div class="section-head">
                 <h2>Advisory Feed</h2>
                 <div class="filter-tabs" id="cat-filter-tabs">
-                    <button class="filter-btn active" data-f="operational"   onclick="setCatFilter('operational')">Operational</button>
+                    <button class="filter-btn active" data-f="operational"   onclick="setCatFilter('operational')">Advisories</button>
                     <button class="filter-btn"        data-f="all"           onclick="setCatFilter('all')">All</button>
                     <button class="filter-btn"        data-f="emergency"     onclick="setCatFilter('emergency')">Emergency</button>
                     <button class="filter-btn"        data-f="military"      onclick="setCatFilter('military')">Military</button>
                     <button class="filter-btn"        data-f="helicopter"    onclick="setCatFilter('helicopter')">Helicopter</button>
-                    <button class="filter-btn"        data-f="ground"        onclick="setCatFilter('ground')">Ground</button>
                     <button class="filter-btn"        data-f="data-quality"  onclick="setCatFilter('data-quality')">Data Quality Notes</button>
                     <button class="filter-btn"        data-f="source-health" onclick="setCatFilter('source-health')">Source Health</button>
                 </div>
@@ -393,12 +392,13 @@ const RS = (function() {
 })();
 
 /* ── State ── */
-let allAlerts   = [];   // operational alerts only (emergency/military/helicopter/ground/source-health)
-let dqAlerts    = [];   // data-quality alerts (built lazily on first DQ tab click)
-let dqSummary   = { noId: 0, noRoute: 0, unknownSrc: 0, stale: 0 };
-let dqLoaded    = false;
-let lastPlanes  = [];   // stored for lazy DQ generation
-const _validTabs = ['operational','all','emergency','military','helicopter','ground','data-quality','source-health'];
+let allAlerts      = [];   // operational alerts (emergency/military/helicopter/source-health)
+let dqAlerts       = [];   // data-quality alerts (built lazily on first DQ tab click)
+let dqSummary      = { noId: 0, noRoute: 0, unknownSrc: 0, stale: 0 };
+let dqLoaded       = false;
+let lastPlanes     = [];   // stored for lazy DQ generation
+let serverObsCounts = { militaryTotal: 0, helicopterTotal: 0, obsCap: 100 };
+const _validTabs = ['operational','all','emergency','military','helicopter','data-quality','source-health'];
 let catFilter   = _validTabs.includes(RS.defaultAlertsTab) ? RS.defaultAlertsTab : 'operational';
 const DQ_CAP    = 150;  // max per-type DQ rows to avoid DOM overload
 
@@ -583,12 +583,6 @@ function buildAlerts(planes, health) {
                 'Helicopter', 'Rotary-wing aircraft detected'));
         }
 
-        /* Ground sweep — Notice */
-        if (isGroundPlane(p)) {
-            alerts.push(makeAircraftAlert('notice', 'ground', p,
-                'Ground Aircraft', 'Detected via ADSB.lol airport surface sweep'));
-        }
-
         /* Count DQ issues for cards without generating per-aircraft rows.
            Rows are generated lazily in buildDQAlerts() when the tab is clicked. */
         if (noIdentity(p)) dqSummary.noId++;
@@ -706,46 +700,41 @@ function loadDQIfNeeded() {
 
 /* ── Cards ── */
 function renderCards(alerts) {
-    const total   = alerts.length;
     const emrg    = alerts.filter(a => a.category === 'emergency').length;
-    const mil     = alerts.filter(a => a.category === 'military').length;
-    const heli    = alerts.filter(a => a.category === 'helicopter').length;
-    const ground  = alerts.filter(a => a.category === 'ground').length;
     const sh      = alerts.filter(a => a.category === 'source-health').length;
     const dqTotal = dqSummary.noId + dqSummary.noRoute + dqSummary.unknownSrc + dqSummary.stale;
     const hasCrit = alerts.some(a => a.severity === 'critical');
     const hasWarn = !hasCrit && alerts.some(a => a.severity === 'warning');
+    // Use server-side totals for observations (military/helicopter) since payload is capped
+    const mil  = serverObsCounts.militaryTotal   || alerts.filter(a => a.category === 'military').length;
+    const heli = serverObsCounts.helicopterTotal || alerts.filter(a => a.category === 'helicopter').length;
+    const advTotal = emrg + sh; // true advisories only
 
     document.getElementById('cards-row').innerHTML = `
-        <div class="card ${hasCrit ? 'crit' : hasWarn ? 'warn' : total > 0 ? '' : 'dim'}">
-            <div class="value">${total.toLocaleString()}</div>
+        <div class="card ${hasCrit ? 'crit' : hasWarn ? 'warn' : advTotal > 0 ? '' : 'dim'}">
+            <div class="value">${advTotal.toLocaleString()}</div>
             <div class="label">Advisories</div>
         </div>
         <div class="card ${emrg > 0 ? 'crit' : 'dim'}">
             <div class="value">${emrg.toLocaleString()}</div>
             <div class="label">Emergency</div>
         </div>
-        <div class="card ${mil > 0 ? '' : 'dim'}">
-            <div class="value">${mil.toLocaleString()}</div>
-            <div class="label">Military</div>
-        </div>
-        <div class="card ${heli > 0 ? '' : 'dim'}">
-            <div class="value">${heli.toLocaleString()}</div>
-            <div class="label">Helicopter</div>
-        </div>
-        <div class="card ${ground > 0 ? '' : 'dim'}">
-            <div class="value">${ground.toLocaleString()}</div>
-            <div class="label">Ground</div>
-        </div>
-        ${RS.showDQSummary ? `<div class="card dim">
-            <div class="value">${dqTotal.toLocaleString()}</div>
-            <div class="label">Data Quality Notes</div>
-            <div class="sub" style="font-size:10px;color:#555">${dqTotal > 0 ? 'Non-operational completeness notes' : ''}</div>
-        </div>` : ''}
         <div class="card ${sh > 0 ? 'warn' : 'dim'}">
             <div class="value">${sh.toLocaleString()}</div>
             <div class="label">Source Health</div>
         </div>
+        <div class="card dim">
+            <div class="value">${mil.toLocaleString()}</div>
+            <div class="label">Military · Observed</div>
+        </div>
+        <div class="card dim">
+            <div class="value">${heli.toLocaleString()}</div>
+            <div class="label">Helicopter · Observed</div>
+        </div>
+        ${RS.showDQSummary ? `<div class="card dim">
+            <div class="value">${dqTotal.toLocaleString()}</div>
+            <div class="label">Data Quality Notes</div>
+        </div>` : ''}
     `;
 }
 
@@ -753,11 +742,10 @@ function renderCards(alerts) {
 function catBadge(cat) {
     const labels = {
         'emergency':     'Emergency',
-        'military':      'Military',
-        'helicopter':    'Helicopter',
-        'ground':        'Ground',
-        'data-quality':  'Data',
-        'source-health': 'Source',
+        'military':      'Military · Obs',
+        'helicopter':    'Heli · Obs',
+        'data-quality':  'Data Quality',
+        'source-health': 'Source Health',
     };
     return `<span class="cat-badge cat-${cat}">${labels[cat] || cat}</span>`;
 }
@@ -871,7 +859,7 @@ function renderTable(alerts) {
             <div class="empty-state">
                 <div class="icon">✓</div>
                 <div class="msg">No current advisories.</div>
-                <div class="sub">Emergency, military, helicopter, and ground notices appear here. Data Quality Notes are non-operational completeness and normalization notes.</div>
+                <div class="sub">Emergency squawks and source health issues appear here. Military/helicopter observations are visible under their respective tabs.</div>
             </div>`;
         document.getElementById('alert-count').textContent = '0 advisories';
         return;
@@ -972,11 +960,13 @@ async function doRefresh() {
         const data   = planesJson?.response?.data || {};
         const planes = data.planes    || [];
         const total  = data.total     || 0;
-        const serverDQ = data.dqSummary || null;
+        const serverDQ  = data.dqSummary || null;
+        const obsCounts = data.obsCounts || null;
         const health = healthJson?.response?.data || healthJson;
 
         lastPlanes = [];    // no full plane list; DQ rows fetched on demand
         dqLoaded   = false;
+        if (obsCounts) serverObsCounts = obsCounts;
 
         allAlerts = buildAlerts(planes, health);
         if (serverDQ) dqSummary = serverDQ;  // override with accurate server-side DQ counts (buildAlerts resets them)
