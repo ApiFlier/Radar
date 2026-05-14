@@ -92,6 +92,14 @@
         }
         .focus-banner .fb-clear:hover { color: #ccc; border-color: rgba(255,255,255,0.28); }
 
+        /* ── Focused ground sections ── */
+        .focus-section { margin-bottom: 24px; }
+        .sec-head { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.07); margin-bottom: 0; }
+        .sec-head h2 { font-size: 13px; font-weight: 600; color: #ccc; margin: 0; }
+        .sec-badge { background: rgba(0,255,204,0.12); color: #00ffcc; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+        .sec-empty { color: #444; font-size: 13px; padding: 16px 4px; }
+        .sec-note { color: #555; font-size: 11px; margin-top: 8px; padding: 0 4px; }
+
         /* ── Main ── */
         .main { max-width: 1380px; margin: 0 auto; padding: 24px 20px 48px; }
 
@@ -363,6 +371,48 @@ let activeFilter = 'all';
 let sortCol  = 'speed';
 let sortDir  = 'desc';
 
+/* ── Airport Focus ── */
+const FOCUS_CODE = (function() {
+    const p = new URLSearchParams(location.search);
+    const ua = (p.get('airport') || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+    if (ua && p.get('focus') === '1') return ua;
+    try {
+        const f = JSON.parse(localStorage.getItem('radar.focus') || 'null');
+        if (f && f.airport && (Date.now() - (f.ts || 0)) < 14400000)
+            return String(f.airport).replace(/[^A-Z0-9]/g, '');
+    } catch(e) {}
+    return '';
+})();
+
+if (FOCUS_CODE) {
+    document.title = 'Radar — Ground · ' + FOCUS_CODE + ' Focus';
+    const _h1 = document.querySelector('.page-header h1');
+    if (_h1) _h1.textContent = 'Ground — ' + FOCUS_CODE + ' Focus';
+    const _rfBtn = document.querySelector('.refresh-btn');
+    if (_rfBtn) _rfBtn.setAttribute('onclick', '');
+
+    // Inject banner if not already present (URL-param focus without localStorage entry)
+    if (!document.querySelector('.focus-banner')) {
+        const _b = document.createElement('div');
+        _b.className = 'focus-banner';
+        _b.innerHTML = '<strong>Airport Focus: ' + FOCUS_CODE + '</strong>'
+            + '<span>advisory display · public near-live data</span>'
+            + '<a href="/?airport=' + encodeURIComponent(FOCUS_CODE) + '&focus=1">View on Radar</a>'
+            + '<button class="fb-clear">Clear Focus</button>';
+        const _ph = document.querySelector('.page-header');
+        if (_ph && _ph.parentNode) _ph.parentNode.insertBefore(_b, _ph.nextSibling);
+    }
+    // Patch Clear Focus to redirect to plain /ground after clearing
+    const _clrBtn = document.querySelector('.focus-banner .fb-clear');
+    if (_clrBtn) _clrBtn.onclick = function() {
+        try { localStorage.removeItem('radar.focus'); } catch(e) {}
+        location.href = '/ground';
+    };
+    // Hide global filter tabs — not meaningful for airport-scoped view
+    const _ft = document.getElementById('filter-tabs');
+    if (_ft) _ft.style.display = 'none';
+}
+
 /* ── Helpers ── */
 function n(v, dec = 0) {
     const f = parseFloat(v);
@@ -573,43 +623,27 @@ function renderCards(ground, total) {
     `;
 }
 
-function renderGroundTable(ground) {
-    if (!ground.length) {
-        document.getElementById('ground-content').innerHTML = `
-            <div class="status-msg">
-                <div class="big">✈</div>
-                No ground aircraft currently tracked.<br>
-                The ADSB.lol ground sweep may not have run yet.
-            </div>`;
-        document.getElementById('ground-count').textContent = '0 aircraft';
-        return;
-    }
+function buildGroundRowHtml(p, detailId) {
+    const spd  = fmtSpeed(p.speed);
+    const age  = fmtAge(p.lastUpdate);
+    const cat  = speedCategory(p);
+    const isHeli = p.isHelicopter ? '1' : '0';
+    const noId = noFlightId(p);
+    const callsignDisplay = noId ? (p.callsign || p.icaoHex) : (p.callsign || '—');
+    const callsignHtml = noId
+        ? `<td class="callsign no-id">${callsignDisplay}</td>`
+        : `<td class="callsign">${callsignDisplay}</td>`;
+    const srch = [
+        (p.callsign || ''), (p.registration || ''), (p.icaoHex || '')
+    ].join(' ').toLowerCase();
+    const cls = (p.aircraftClass || 'unknown').toLowerCase();
+    const type = (p.aircraftType || '').trim();
+    const typeStr = type ? `${type} · ` : '';
+    const srcLabel = friendlySource(p.source || p.positionSource || '');
+    const cluster = (p.groundCluster || '').trim();
+    const facility = (p.sourceFacility || '').trim();
 
-    const sorted = sortedGround(ground);
-    let rows = '';
-    let rowIdx = 0;
-    for (const p of sorted) {
-        const spd  = fmtSpeed(p.speed);
-        const age  = fmtAge(p.lastUpdate);
-        const cat  = speedCategory(p);
-        const isHeli = p.isHelicopter ? '1' : '0';
-        const noId = noFlightId(p);
-        const callsignDisplay = noId ? (p.callsign || p.icaoHex) : (p.callsign || '—');
-        const callsignHtml = noId
-            ? `<td class="callsign no-id">${callsignDisplay}</td>`
-            : `<td class="callsign">${callsignDisplay}</td>`;
-        const srch = [
-            (p.callsign || ''), (p.registration || ''), (p.icaoHex || '')
-        ].join(' ').toLowerCase();
-        const cls = (p.aircraftClass || 'unknown').toLowerCase();
-        const type = (p.aircraftType || '').trim();
-        const typeStr = type ? `${type} · ` : '';
-        const detailId = `gnd-detail-${rowIdx++}`;
-        const srcLabel = friendlySource(p.source || p.positionSource || '');
-        const cluster = (p.groundCluster || '').trim();
-        const facility = (p.sourceFacility || '').trim();
-
-        rows += `<tr class="clickable-row" data-cat="${cat}" data-heli="${isHeli}" data-srch="${srch}" onclick="toggleGroundDetail('${detailId}')">
+    return `<tr class="clickable-row" data-cat="${cat}" data-heli="${isHeli}" data-srch="${srch}" onclick="toggleGroundDetail('${detailId}')">
             ${callsignHtml}
             <td class="reg">${p.registration || '—'}</td>
             <td class="hex">${p.icaoHex || '—'}</td>
@@ -637,6 +671,25 @@ function renderGroundTable(ground) {
                 <a class="dp-action primary" href="/?icao=${(p.icaoHex||'').toUpperCase()}" title="Open on radar map" style="font-size:10px;font-weight:600;color:#00ffcc;border:1px solid rgba(0,255,204,0.3);border-radius:3px;padding:3px 10px;text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;background:rgba(0,255,204,0.04)">Open on Radar</a>
             </div>` : ''}
         </div></td></tr>`;
+}
+
+function renderGroundTable(ground) {
+    if (!ground.length) {
+        document.getElementById('ground-content').innerHTML = `
+            <div class="status-msg">
+                <div class="big">✈</div>
+                No ground aircraft currently tracked.<br>
+                The ADSB.lol ground sweep may not have run yet.
+            </div>`;
+        document.getElementById('ground-count').textContent = '0 aircraft';
+        return;
+    }
+
+    const sorted = sortedGround(ground);
+    let rows = '';
+    let rowIdx = 0;
+    for (const p of sorted) {
+        rows += buildGroundRowHtml(p, `gnd-detail-${rowIdx++}`);
     }
 
     document.getElementById('ground-content').innerHTML = `
@@ -727,6 +780,109 @@ function renderClass(ground) {
         </table>`;
 }
 
+/* ── Focus mode ── */
+function isGroundLike(p) {
+    if (p.isLiveGround) return true;
+    const spd = n(p.speed) || 0;
+    const alt = n(p.alt) || 0;
+    return Boolean(p.groundCluster || p.groundStatus) && spd < 50 && alt < 500;
+}
+
+function focusSectionHtml(title, planes) {
+    const badge = `<span class="sec-badge">${planes.length}</span>`;
+    let rows = '';
+    let rowIdx = 0;
+    for (const p of planes) {
+        rows += buildGroundRowHtml(p, `fg-detail-${title.replace(/\W+/g,'')}-${rowIdx++}`);
+    }
+    return `<div class="focus-section">
+        <div class="sec-head"><h2>${title}</h2>${badge}</div>
+        ${planes.length
+            ? `<div style="overflow-x:auto"><table id="ground-table"><thead><tr>
+                ${thHtml('Callsign','callsign',false)}
+                ${thHtml('Reg','reg',false)}
+                <th>ICAO</th>
+                <th>Type / Class</th>
+                ${thHtml('Speed','speed',true)}
+                ${thHtml('Heading','heading',true)}
+                ${thHtml('Altitude','alt',true)}
+                <th>Position</th>
+                ${thHtml('Age','age',true)}
+              </tr></thead><tbody>${rows}</tbody></table></div>`
+            : `<div class="sec-empty">No aircraft in this category</div>`}
+    </div>`;
+}
+
+function renderFocusGround(data) {
+    const all = [
+        ...(data.outbound || []),
+        ...(data.parked   || []),
+        ...(data.nearby   || []),
+        ...(data.inbound  || []),
+    ];
+
+    const seen = new Set();
+    const groundPlanes = [];
+    for (const p of all) {
+        if (!isGroundLike(p)) continue;
+        const key = (p.icaoHex || p.flightId || '').toUpperCase();
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        groundPlanes.push(p);
+    }
+
+    const live   = groundPlanes.filter(p => p.isLiveGround).sort((a,b) => (n(b.speed)||0)-(n(a.speed)||0));
+    const parked = groundPlanes.filter(p => !p.isLiveGround).sort((a,b) => (n(b.lastUpdate)||0)-(n(a.lastUpdate)||0));
+
+    const taxiing  = live.filter(p => speedCategory(p) === 'moving').length;
+    const slow     = live.filter(p => speedCategory(p) === 'slow').length;
+
+    document.getElementById('cards-row').innerHTML = `
+        <div class="card"><div class="value">${live.length.toLocaleString()}</div><div class="label">Live Ground</div><div class="sub">confirmed on surface</div></div>
+        <div class="card ${taxiing ? '' : 'dim'}"><div class="value">${taxiing.toLocaleString()}</div><div class="label">Taxiing</div><div class="sub">speed > ${TAXI_THRESHOLD} kt</div></div>
+        <div class="card dim"><div class="value">${slow.toLocaleString()}</div><div class="label">Slow / Rolling</div><div class="sub">0 – ${TAXI_THRESHOLD} kt</div></div>
+        <div class="card dim"><div class="value">${parked.length.toLocaleString()}</div><div class="label">Parked / Last Observed</div><div class="sub">not in current sweep</div></div>
+        <div class="card dim"><div class="value">${data.inboundCount ?? (data.inbound||[]).length}</div><div class="label">Inbound</div><div class="sub">via flight plan</div></div>
+        <div class="card dim"><div class="value">${data.outboundCount ?? (data.outbound||[]).length}</div><div class="label">Outbound</div><div class="sub">via flight plan</div></div>
+    `;
+
+    document.getElementById('ground-content').innerHTML =
+        focusSectionHtml('Live Ground / Taxiing at ' + FOCUS_CODE, live) +
+        focusSectionHtml('Parked / Last Observed at ' + FOCUS_CODE, parked) +
+        `<div class="sec-note" style="margin-top:16px;color:#444">Airport Focus · advisory display · public near-live data · may be delayed or incomplete</div>`;
+
+    document.getElementById('ground-count').textContent = `${groundPlanes.length} ground aircraft at ${FOCUS_CODE}`;
+
+    ['coverage-content','class-content'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { const panel = el.closest('.info-panel'); if (panel) panel.style.display = 'none'; }
+    });
+}
+
+async function doFocusRefresh() {
+    document.getElementById('last-update').textContent = 'Refreshing…';
+    const t0 = Date.now();
+    try {
+        const r = await fetch('/api/?action=Planes&view=airport&airport=' + encodeURIComponent(FOCUS_CODE) + '&_=' + Date.now());
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        renderFocusGround(d?.response?.data || {});
+        document.getElementById('last-update').textContent =
+            'Updated ' + new Date().toLocaleTimeString() + ' · ' + elapsed + 's · ' + FOCUS_CODE + ' Focus';
+    } catch(e) {
+        document.getElementById('last-update').textContent = 'Error: ' + e.message;
+        const el = document.getElementById('ground-content');
+        if (el) el.innerHTML = '<div class="status-msg error">Unable to reach API</div>';
+    }
+}
+
+let focusTimer;
+function scheduleFocusRefresh() {
+    clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => doFocusRefresh().then(scheduleFocusRefresh), 30000);
+}
+
 /* ── Main fetch ── */
 async function doRefresh() {
     document.getElementById('last-update').textContent = 'Refreshing…';
@@ -767,7 +923,13 @@ function scheduleRefresh() {
     timer = setTimeout(() => { doRefresh().then(scheduleRefresh); }, 30000);
 }
 
-doRefresh().then(scheduleRefresh);
+if (FOCUS_CODE) {
+    const _rfBtn2 = document.querySelector('.refresh-btn');
+    if (_rfBtn2) _rfBtn2.addEventListener('click', () => doFocusRefresh().catch(console.error));
+    doFocusRefresh().then(scheduleFocusRefresh);
+} else {
+    doRefresh().then(scheduleRefresh);
+}
 </script>
 </body>
 </html>
