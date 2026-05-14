@@ -606,11 +606,15 @@
             border-radius: 4px; padding: 2px 6px; letter-spacing: 0.5px;
             text-transform: uppercase; white-space: nowrap; margin-top: 5px;
         }
+        .dp-badge.dp-badge-taxiing { color: #f5c542; border-color: rgba(245,197,66,0.35); background: rgba(245,197,66,0.07); }
+        .dp-badge.dp-badge-ground  { color: #aaa;    border-color: rgba(255,255,255,0.18); background: rgba(255,255,255,0.04); }
+        .dp-badge.dp-badge-parked  { color: #666;    border-color: rgba(255,255,255,0.1);  background: rgba(255,255,255,0.03); }
 
         .dp-route {
             padding: 9px 14px; font-size: 13px; color: #eee; line-height: 1.35;
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
+        .dp-route-unknown { color: #555; font-style: italic; }
 
         .dp-grid-3 {
             display: grid; grid-template-columns: repeat(3, 1fr);
@@ -633,6 +637,7 @@
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
         .dp-section-dim { background: rgba(0,0,0,0.12); }
+        .dp-disclaimer { font-size: 9px; color: #444; margin-top: 6px; line-height: 1.45; }
         .dp-section-title {
             font-size: 9px; font-weight: 800; color: #00ffcc;
             text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 7px;
@@ -3880,47 +3885,80 @@
                 return '<div class="dp-empty">Aircraft not in current feed.</div>';
             }
 
-            var name         = displayName(p);
-            var route        = formatRoute(p);
-            var airline      = airlineInfo(p);
-            var acClass      = displayAircraftClass(p);
-            var state        = aircraftDisplayState(p);
-            var stateLbl     = stateLabel(state, p);
-            var icao         = String(p.icaoHex || '').trim().toUpperCase();
-            var csRaw        = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
-            var isFollowing  = (followFlightId === flightId);
+            var name        = displayName(p);
+            var route       = formatRoute(p);
+            var airline     = airlineInfo(p);
+            var acClass     = displayAircraftClass(p);
+            var state       = aircraftDisplayState(p);
+            var stateLbl    = stateLabel(state, p);
+            var icao        = String(p.icaoHex || '').trim().toUpperCase();
+            var csRaw       = String(p.callsign || p.flight || '').trim().replace(/\s+/g, '');
+            var isFollowing = (followFlightId === flightId);
+            var acType      = String(p.aircraftType || '').trim();
+            var isGround    = (state !== 'airborne');
 
             var acClassLower = acClass.toLowerCase();
-            var acClassDisplay = acClass.charAt(0).toUpperCase() + acClass.slice(1);
-
             var tags = [];
-            if (boolField(p.isMilitary)  && acClassLower !== 'military')  tags.push('Military');
+            if (boolField(p.isMilitary)  && acClassLower !== 'military')   tags.push('Military');
             if (boolField(p.isHelicopter) && acClassLower !== 'helicopter') tags.push('Helicopter');
-            if (boolField(p.isPia))        tags.push('PIA');
-            if (boolField(p.isLadd))       tags.push('LADD');
+            if (boolField(p.isPia))  tags.push('PIA');
+            if (boolField(p.isLadd)) tags.push('LADD');
 
-            var subtitle = airline ? airline.display : (p.operator || p.registration || '');
+            // Subtitle: airline/operator + aircraft type
+            var subtitleParts = [];
+            if (airline) subtitleParts.push(airline.display);
+            else if (p.operator) subtitleParts.push(p.operator);
+            else if (p.registration) subtitleParts.push(p.registration);
+            if (acType) subtitleParts.push(acType);
+            var subtitle = subtitleParts.join(' · ');
 
             var html = '';
 
+            // ── Header / Identity ──────────────────────────────────────────
+            var badgeCls = 'dp-badge';
+            if      (state === 'ground_moving')                                badgeCls += ' dp-badge-taxiing';
+            else if (state === 'ground_holding' || state === 'ground_stopped') badgeCls += ' dp-badge-ground';
+            else if (state === 'parked')                                        badgeCls += ' dp-badge-parked';
+
             html += '<div class="dp-ac-head">';
             html += '<div class="dp-ac-name">' + htmlEscape(name) + '</div>';
-            if (subtitle) html += '<div class="dp-ac-sub">' + htmlEscape(subtitle) + '</div>';
-            if (stateLbl) html += '<div class="dp-badge">' + htmlEscape(stateLbl) + '</div>';
+            if (subtitle)    html += '<div class="dp-ac-sub">' + htmlEscape(subtitle) + '</div>';
+            if (tags.length) html += '<div class="dp-ac-sub" style="color:#666">' + htmlEscape(tags.join(' · ')) + '</div>';
+            if (stateLbl)    html += '<div class="' + badgeCls + '">' + htmlEscape(stateLbl) + '</div>';
             html += '</div>';
 
+            // ── Route ──────────────────────────────────────────────────────
             if (route !== 'Route unavailable') {
                 html += '<div class="dp-route">' + htmlEscape(route) + '</div>';
+            } else {
+                html += '<div class="dp-route dp-route-unknown">Route unknown</div>';
             }
 
+            // ── Movement / Position grid ───────────────────────────────────
             function fmtAlt(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n).toLocaleString() + ' ft'; }
             function fmtSpd(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + ' kt'; }
             function fmtHdg(v) { var n = parseFloat(v); return isNaN(n) ? '—' : Math.round(n) + '°'; }
 
+            var spdVal = parseFloat(p.speed) || 0;
+            var altDisplay, spdDisplay, hdgDisplay;
+
+            if (!isGround) {
+                altDisplay = fmtAlt(p.alt);
+                spdDisplay = fmtSpd(p.speed);
+                hdgDisplay = fmtHdg(p.heading);
+            } else {
+                altDisplay = 'On ground';
+                spdDisplay = (state === 'ground_moving' && spdVal >= 1) ? fmtSpd(p.speed) : '—';
+                hdgDisplay = spdVal >= 1 ? fmtHdg(p.heading) : '—';
+            }
+
             html += '<div class="dp-grid-3">';
-            html += '<div class="dp-cell"><div class="dp-cell-label">Altitude</div><div class="dp-cell-value accent">' + htmlEscape(fmtAlt(p.alt)) + '</div></div>';
-            html += '<div class="dp-cell"><div class="dp-cell-label">Speed</div><div class="dp-cell-value">' + htmlEscape(fmtSpd(p.speed)) + '</div></div>';
-            html += '<div class="dp-cell"><div class="dp-cell-label">Heading</div><div class="dp-cell-value">' + htmlEscape(fmtHdg(p.heading)) + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Altitude</div><div class="dp-cell-value' +
+                    (!isGround ? ' accent' : '') + '">' + htmlEscape(altDisplay) + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Speed</div><div class="dp-cell-value">' +
+                    htmlEscape(spdDisplay) + '</div></div>';
+            html += '<div class="dp-cell"><div class="dp-cell-label">Heading</div><div class="dp-cell-value">' +
+                    htmlEscape(hdgDisplay) + '</div></div>';
             html += '</div>';
 
             function dpRow(label, value) {
@@ -3930,22 +3968,37 @@
             }
 
             html += '<div class="dp-section">';
-            var vr = parseFloat(p.verticalRate);
-            if (!isNaN(vr) && Math.abs(vr) >= 100) {
-                html += dpRow('V/S', htmlEscape((vr > 0 ? '+' : '') + Math.round(vr).toLocaleString() + ' fpm'));
+
+            // Airborne only: vertical speed and assigned altitude
+            if (!isGround) {
+                var vr = parseFloat(p.verticalRate);
+                if (!isNaN(vr) && Math.abs(vr) >= 100) {
+                    html += dpRow('V/S', htmlEscape((vr > 0 ? '+' : '') + Math.round(vr).toLocaleString() + ' fpm'));
+                }
+                var aAlt = parseFloat(p.assignedAlt);
+                if (!isNaN(aAlt) && aAlt > 0 && Math.abs((parseFloat(p.alt) || 0) - aAlt) > 300) {
+                    html += dpRow('Assigned alt', htmlEscape(fmtAlt(p.assignedAlt)));
+                }
             }
-            var aAlt = parseFloat(p.assignedAlt);
-            if (!isNaN(aAlt) && aAlt > 0 && Math.abs((parseFloat(p.alt) || 0) - aAlt) > 300) {
-                html += dpRow('Assigned Alt', htmlEscape(fmtAlt(p.assignedAlt)));
+
+            // Ground: last moved / last observed from lastGroundMovement timestamp
+            if (isGround) {
+                var lgm = parseFloat(p.lastGroundMovement);
+                if (lgm > 1e9) {
+                    var lgmAge = Math.max(0, Date.now() / 1000 - lgm);
+                    var lgmTxt = lgmAge < 60   ? Math.round(lgmAge) + 's ago'
+                               : lgmAge < 3600 ? Math.round(lgmAge / 60) + 'm ago'
+                               : Math.round(lgmAge / 3600) + 'h ago';
+                    var lgmLbl = (state === 'parked') ? 'Last observed' : 'Last moved';
+                    html += dpRow(lgmLbl, htmlEscape(lgmTxt));
+                }
             }
-            if (airline) html += dpRow('Airline', htmlEscape(airline.airline));
+
+            // Identity rows
             if (p.registration) {
                 html += dpRow('Registration',
                     '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(p.registration) + '</span>');
             }
-            if (p.aircraftType) html += dpRow('Type', htmlEscape(p.aircraftType));
-            html += dpRow('Class', htmlEscape(acClassDisplay));
-            if (tags.length) html += dpRow('Tags', htmlEscape(tags.join(' · ')));
             if (icao) {
                 html += dpRow('ICAO',
                     '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(icao) + '</span>');
@@ -3953,32 +4006,36 @@
             var sq = String(p.squawk || '').trim();
             if (sq && sq !== '0') {
                 var sqHtml = htmlEscape(sq);
-                if (sq === '7500') sqHtml += ' <span style="color:#ff6060;font-weight:700">HIJACK</span>';
+                if      (sq === '7500') sqHtml += ' <span style="color:#ff6060;font-weight:700">HIJACK</span>';
                 else if (sq === '7600') sqHtml += ' <span style="color:#f5a623;font-weight:700">RADIO FAIL</span>';
                 else if (sq === '7700') sqHtml += ' <span style="color:#ff6060;font-weight:700">EMERGENCY</span>';
                 html += dpRow('Squawk', sqHtml);
             }
             html += '</div>';
 
+            // ── Source / Freshness ─────────────────────────────────────────
             var posLabel   = friendlySource(p.positionSource || p.source);
             var routeLabel = friendlySource(p.enrichmentSource);
-            if (_RS.showRawSources && (posLabel || routeLabel || p.sourceFacility)) {
-                html += '<div class="dp-section dp-section-dim">';
-                if (posLabel) html += dpRow('Position', htmlEscape(posLabel));
-                if (routeLabel && routeLabel !== posLabel) html += dpRow('Route data', htmlEscape(routeLabel));
-                if (p.sourceFacility) html += dpRow('Facility', htmlEscape(p.sourceFacility));
-                html += '</div>';
-            }
+            var _ageStr    = formatAge(p);
+            var _fnLabel   = freshnessLabel(p);
+            var _fnCls     = freshnessClass(_fnLabel);
 
-            var _fnLabel = freshnessLabel(p);
-            var _fnCls   = freshnessClass(_fnLabel);
-            var _posName = friendlySource(p.positionSource || p.source);
-            var _ageStr  = formatAge(p);
-            html += '<div class="dp-data-line">';
-            html += '<span class="freshness-badge ' + _fnCls + '">' + htmlEscape(_fnLabel) + '</span>';
-            html += '<span>' + htmlEscape((_posName ? _posName + ' · ' : '') + _ageStr) + '</span>';
+            html += '<div class="dp-section dp-section-dim">';
+            if (posLabel) {
+                var posValue = htmlEscape(posLabel) + ' · ' + htmlEscape(_ageStr) +
+                               ' · <span class="freshness-badge ' + _fnCls + '">' + htmlEscape(_fnLabel) + '</span>';
+                html += dpRow('Position source', posValue);
+            }
+            if (routeLabel && routeLabel !== posLabel) {
+                html += dpRow('Route / identity', htmlEscape(routeLabel));
+            }
+            if (_RS.showRawSources && p.sourceFacility) {
+                html += dpRow('Facility', htmlEscape(p.sourceFacility));
+            }
+            html += '<div class="dp-disclaimer">Public near-live data. May be delayed or incomplete.</div>';
             html += '</div>';
 
+            // ── Actions ────────────────────────────────────────────────────
             var fid = String(flightId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             html += '<div class="dp-actions">';
             if (isFollowing) {
