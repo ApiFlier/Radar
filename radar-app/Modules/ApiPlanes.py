@@ -786,8 +786,10 @@ class ApiPlanes(ApiBase):
                     else:
                         nearby.append(p)
             elif apt_short in cluster:
-                # Matched by cluster but not by exact pos or distance
-                if not dep and not arr:
+                # Matched by cluster but not by exact pos or distance.
+                # Skip if position is known and clearly outside 80 NM — large regional
+                # clusters can span multiple airports 150–200 NM apart.
+                if not dep and not arr and (dist is None or dist <= 80):
                     if is_live:
                         nearby.append(p)
                     else:

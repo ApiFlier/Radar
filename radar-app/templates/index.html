@@ -3826,7 +3826,7 @@
         var selectedAptCode = null;
         var selectedAptObj  = null;
         var panelMode       = null;   // 'aircraft' | 'airport' | null
-        var aptFlightsCache = {};     // code → {ts, inbound, outbound}
+        var aptFlightsCache = {};     // code → {ts, inbound, outbound, nearby, parked}
         var APT_FLIGHTS_TTL = 45000;  // ms throttle between re-fetches
 
         // Airport Focus / Ops Mode state
@@ -4036,7 +4036,7 @@
             
             var fCache = aptFlightsCache[code];
             if (fCache && fCache.inbound !== undefined) {
-                renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound, fCache.nearby);
+                renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound, fCache.nearby, fCache.parked);
             }
             
             var wCache = aptWeatherCache[code];
@@ -4154,7 +4154,7 @@
             var cache = aptFlightsCache[code];
             if (cache && (now - cache.ts) < APT_FLIGHTS_TTL) {
                 if (selectedAptCode === code && panelMode === 'airport') {
-                    renderAptFlightsInPanel(code, cache.inbound, cache.outbound, cache.nearby);
+                    renderAptFlightsInPanel(code, cache.inbound, cache.outbound, cache.nearby, cache.parked);
                 }
                 return;
             }
@@ -4165,9 +4165,10 @@
                     var inbound  = data.inbound  || [];
                     var outbound = data.outbound || [];
                     var nearby   = data.nearby   || [];
-                    aptFlightsCache[code] = { ts: Date.now(), inbound: inbound, outbound: outbound, nearby: nearby };
+                    var parked   = data.parked   || [];
+                    aptFlightsCache[code] = { ts: Date.now(), inbound: inbound, outbound: outbound, nearby: nearby, parked: parked };
                     if (selectedAptCode === code && panelMode === 'airport') {
-                        renderAptFlightsInPanel(code, inbound, outbound, nearby);
+                        renderAptFlightsInPanel(code, inbound, outbound, nearby, parked);
                     }
                 })
                 .catch(function() {
@@ -4176,19 +4177,17 @@
                 });
         }
 
-        function renderAptFlightsInPanel(code, inbound, outbound, nearby) {
+        function renderAptFlightsInPanel(code, inbound, outbound, nearby, parked) {
             var box = document.getElementById('dp-flights-' + code);
             if (!box) return;
 
-            if (!inbound.length && !outbound.length && (!nearby || !nearby.length)) {
-                box.innerHTML = '<div class="dp-flights-loading" style="color:#555">No active aircraft for ' +
-                                htmlEscape(code) + '</div>';
-                return;
-            }
+            var NOW_S        = Date.now() / 1000;
+            var ACTIVE_AGE_S = 15 * 60;  // 15 min: threshold between current activity and last-observed
+            var NEARBY_NM    = 80;        // beyond this → Regional Tracks, not Nearby
 
-            var aptObj   = selectedAptObj || lookupAirport(code) || null;
-            var aptLat   = aptObj ? parseFloat(aptObj.lat || aptObj.latitude || aptObj.latitude_deg) : NaN;
-            var aptLon   = aptObj ? parseFloat(aptObj.lon || aptObj.longitude || aptObj.longitude_deg) : NaN;
+            var aptObj    = selectedAptObj || lookupAirport(code) || null;
+            var aptLat    = aptObj ? parseFloat(aptObj.lat || aptObj.latitude || aptObj.latitude_deg) : NaN;
+            var aptLon    = aptObj ? parseFloat(aptObj.lon || aptObj.longitude || aptObj.longitude_deg) : NaN;
             var hasAptPos = !isNaN(aptLat) && !isNaN(aptLon);
 
             function calcDist(p) {
@@ -4198,9 +4197,47 @@
                 return distanceNm(pLat, pLon, aptLat, aptLon);
             }
 
+            // Classify inbound by freshness
+            var activeInbound = [], lastObsInbound = [];
+            (inbound || []).forEach(function(p) {
+                if (NOW_S - parseFloat(p.lastUpdate || 0) <= ACTIVE_AGE_S) activeInbound.push(p);
+                else lastObsInbound.push(p);
+            });
+
+            // Classify outbound: fresh airborne, fresh ground movement, stale
+            var activeOutbound = [], groundMovement = [], lastObsOutbound = [];
+            (outbound || []).forEach(function(p) {
+                var age   = NOW_S - parseFloat(p.lastUpdate || 0);
+                var isAir = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
+                if (age > ACTIVE_AGE_S)   { lastObsOutbound.push(p); }
+                else if (isAir)           { activeOutbound.push(p);  }
+                else                      { groundMovement.push(p);  }
+            });
+
+            // Classify nearby: within radius vs regional cluster match
+            var trulyNearby = [], regionalTracks = [];
+            (nearby || []).forEach(function(p) {
+                var d = calcDist(p);
+                if (isFinite(d) && d <= NEARBY_NM) trulyNearby.push(p);
+                else regionalTracks.push(p);
+            });
+
+            // Last Observed: backend parked + stale route-linked records, sorted newest first
+            var lastObserved = (parked || []).concat(lastObsInbound).concat(lastObsOutbound);
+            lastObserved.sort(function(a, b) {
+                return parseFloat(b.lastUpdate || 0) - parseFloat(a.lastUpdate || 0);
+            });
+
+            var hasActivity = activeInbound.length || activeOutbound.length || groundMovement.length;
+            if (!hasActivity && !lastObserved.length && !trulyNearby.length && !regionalTracks.length) {
+                box.innerHTML = '<div class="dp-flights-loading" style="color:#555">No aircraft data for ' +
+                                htmlEscape(code) + '</div>';
+                return;
+            }
+
             function fmtNm(d) {
                 if (!isFinite(d) || d < 0) return '—';
-                return d < 10 ? d.toFixed(1) + ' nm' : Math.round(d) + ' nm';
+                return d < 10 ? d.toFixed(1) + ' nm' : Math.round(d) + ' nm';
             }
 
             function fmtEta(minutes) {
@@ -4209,7 +4246,7 @@
                 var h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
                 var clock = new Date(Date.now() + minutes * 60000);
                 var clockStr = clock.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-                return (h ? h + 'h ' : '') + m + 'm (~' + clockStr + ')';
+                return (h ? h + 'h ' : '') + m + 'm (~' + clockStr + ')' ;
             }
 
             function vTrend(vr) {
@@ -4228,7 +4265,7 @@
                 var arr     = (p.arr || '').trim().toUpperCase();
                 var rt      = (dep && arr) ? dep + '→' + arr : dep ? dep + '→?' : arr ? '?→' + arr : '—';
                 var altN    = parseFloat(p.alt);
-                var altStr  = (!isNaN(altN) && altN > 0) ? Math.round(altN).toLocaleString() + ' ft' : '—';
+                var altStr  = (!isNaN(altN) && altN > 0) ? Math.round(altN).toLocaleString() + ' ft' : '—';
                 var dist    = calcDist(p);
                 var distStr = fmtNm(dist);
                 var link    = icaoHex ? '/?icao=' + encodeURIComponent(icaoHex) : '';
@@ -4238,12 +4275,18 @@
                     var spd = parseFloat(p.speed);
                     var eta = (isFinite(dist) && isFinite(spd) && spd >= 80) ? fmtEta(dist / spd * 60) : null;
                     meta = distStr + ' · ' + altStr + ' · ' + vTrend(p.verticalRate) +
-                           (eta ? ' · ETA est. ' + eta : '') + (ageStr ? ' · ' + ageStr : '');
+                           (eta ? ' · ETA est. ' + eta : '') + (ageStr ? ' · ' + ageStr : '');
                 } else {
                     var isAir  = String(p.airborne) === '1' || parseFloat(p.speed) > 40;
+                    var gs     = (p.groundStatus || '').toLowerCase();
+                    var gsLabel = gs === 'taxiing' ? 'Taxiing'
+                                : gs === 'holding' ? 'Holding / Recently Stopped'
+                                : gs === 'stopped' ? 'Stopped on Ground'
+                                : gs === 'parked'  ? 'Parked / Last Observed'
+                                : isAir ? 'Airborne · ' + vTrend(p.verticalRate) : 'Ground';
                     var spdN   = parseFloat(p.speed);
-                    var spdStr = (!isNaN(spdN) && spdN > 0) ? Math.round(spdN) + ' kt' : '';
-                    meta = distStr + ' · ' + (isAir ? 'Airborne · ' + vTrend(p.verticalRate) : 'Ground') +
+                    var spdStr = (!isNaN(spdN) && spdN > 0) ? Math.round(spdN) + ' kt' : '';
+                    meta = distStr + ' · ' + gsLabel +
                            ' · ' + altStr + (spdStr ? ' · ' + spdStr : '') + (ageStr ? ' · ' + ageStr : '');
                 }
                 return '<div class="dp-flight-entry">' +
@@ -4256,37 +4299,64 @@
                        '</div>';
             }
 
-            function groupHtml(list, label, isInbound) {
+            function groupHtml(list, label, isInbound, cap) {
                 if (!list.length) return '';
+                var limit = cap || 15;
                 var h = '<div class="dp-flights-group">';
                 h += '<div class="dp-flights-group-title">' + htmlEscape(label) +
                      ' <span style="color:#444;font-weight:400">(' + list.length + ')</span></div>';
-                list.slice(0, 15).forEach(function(p) { h += buildRow(p, isInbound); });
-                if (list.length > 15) {
+                list.slice(0, limit).forEach(function(p) { h += buildRow(p, isInbound); });
+                if (list.length > limit) {
                     h += '<div style="font-size:10px;color:#444;padding:4px 0">+' +
-                         (list.length - 15) + ' more</div>';
+                         (list.length - limit) + ' more</div>';
                 }
                 h += '</div>';
                 return h;
             }
 
+            function dimGroupHtml(list, label, note, isInbound, cap) {
+                if (!list.length) return '';
+                var limit = cap || 10;
+                var h = '<div class="dp-flights-group">';
+                h += '<div class="dp-flights-group-title" style="color:#555">' + htmlEscape(label) +
+                     ' <span style="font-weight:400">(' + list.length + ')</span></div>';
+                if (note) h += '<div style="font-size:9px;color:#444;padding-bottom:4px">' + htmlEscape(note) + '</div>';
+                list.slice(0, limit).forEach(function(p) { h += buildRow(p, isInbound); });
+                if (list.length > limit) {
+                    h += '<div style="font-size:10px;color:#444;padding:4px 0">+' +
+                         (list.length - limit) + ' more</div>';
+                }
+                h += '</div>';
+                return h;
+            }
+
+            // Counts header
             var html = '<div class="dp-flights-counts">';
-            html += '<span style="color:#aaa">' + inbound.length  + ' inbound</span>';
-            html += '<span style="color:#444">·</span>';
-            html += '<span style="color:#aaa">' + outbound.length + ' outbound</span>';
-            if (nearby && nearby.length) {
-                html += '<span style="color:#444">·</span>';
-                html += '<span style="color:#aaa">' + nearby.length + ' nearby</span>';
-            }
+            var parts = [];
+            if (activeInbound.length)  parts.push(activeInbound.length  + ' active inbound');
+            if (activeOutbound.length) parts.push(activeOutbound.length + ' active outbound');
+            if (groundMovement.length) parts.push(groundMovement.length + ' ground');
+            if (lastObserved.length)   parts.push('<span style="color:#444">' + lastObserved.length + ' retained</span>');
+            html += parts.join('<span style="color:#333"> · </span>');
             html += '</div>';
-            html += groupHtml(inbound,  'Inbound to '    + code, true);
-            html += groupHtml(outbound, 'Outbound from ' + code, false);
-            if (nearby && nearby.length) {
-                html += groupHtml(nearby, 'Nearby/Regional tracks', false);
-            }
-            if (inbound.length) {
-                html += '<div class="dp-flights-disclaimer">ETA est. from live position and groundspeed. Not official airline schedule data.</div>';
-            }
+
+            // Current Activity
+            html += groupHtml(activeInbound,  'Active Inbound',  true,  15);
+            html += groupHtml(activeOutbound, 'Active Outbound', false, 15);
+            html += groupHtml(groundMovement, 'Ground Movement', false, 15);
+
+            // Last Observed / Parked
+            html += dimGroupHtml(lastObserved, 'Parked / Last Observed',
+                                 'Retained records · not current activity', false, 10);
+
+            // Nearby and Regional
+            html += groupHtml(trulyNearby, 'Nearby Tracks', false, 10);
+            html += dimGroupHtml(regionalTracks, 'Regional Tracks',
+                                 'Matched by regional cluster · may be 100+ NM from ' + code, false, 8);
+
+            html += '<div class="dp-flights-disclaimer">' +
+                    (activeInbound.length ? 'ETA est. from live position and groundspeed. Not official airline schedule data. · ' : '') +
+                    'advisory display · public near-live data · may be delayed or incomplete</div>';
 
             box.innerHTML = html;
         }
