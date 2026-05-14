@@ -704,7 +704,7 @@ class ApiPlanes(ApiBase):
 
     # Freshness thresholds — must match index.html VISIBLE_AIR_MAX_AGE / VISIBLE_GROUND_MAX_AGE
     _AIR_MAX_AGE    = int(os.getenv("VISIBLE_AIR_MAX_AGE_SECONDS", "120"))
-    _GROUND_MAX_AGE = int(os.getenv("VISIBLE_GROUND_MAX_AGE_SECONDS", "86400")) # 24 hours
+    _GROUND_MAX_AGE = int(os.getenv("VISIBLE_GROUND_MAX_AGE_SECONDS", "43200")) # 12 hours
     _DQ_STALE_SECS  = 180   # seconds — DQ stale flag (broader than radar cutoff; matches alerts.html STALE_SECS)
     _RADAR_PAD      = 0.5   # degrees lat/lon padding around requested bounds
 

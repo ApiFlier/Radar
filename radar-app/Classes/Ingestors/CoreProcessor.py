@@ -18,7 +18,7 @@ class CoreProcessor(BaseIngestor):
     TRAIL_MAX = 500
     TRAIL_TTL = int(os.getenv("TRAIL_TTL_SECONDS", "14400"))
     STATE_AIR_TTL = int(os.getenv("STATE_AIR_TTL_SECONDS", "600"))
-    STATE_GROUND_TTL = int(os.getenv("STATE_GROUND_TTL_SECONDS", "86400")) # 24 hours for parked
+    STATE_GROUND_TTL = int(os.getenv("STATE_GROUND_TTL_SECONDS", "43200")) # 12 hours for parked
     PROFILE_TTL = int(os.getenv("PROFILE_TTL_SECONDS", "86400"))
     CORR_TTL = int(os.getenv("CORR_TTL_SECONDS", "172800"))
     TRAIL_INTERVAL = 20
