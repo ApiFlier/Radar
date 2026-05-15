@@ -197,7 +197,15 @@ QUEUE_STDDS=your.email@example.com.STDDS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OU
 QUEUE_TFMS=your.email@example.com.TFMS.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.OUT
 ```
 
-**Auto-detection:** `setup.sh` and `update.sh` automatically detect these credentials and start the `aviation-radar-swim-ingestor` container using the Docker `--profile swim` flag. To explicitly disable the ingestor even if credentials are present, set `ENABLE_SWIM_INGESTOR=false`.
+**Auto-detection:** `setup.sh` and `update.sh` automatically detect these credentials and start the `aviation-radar-swim-ingestor` container using the Docker `--profile swim` flag. No enable flag is required — adding the credentials is sufficient.
+
+**To temporarily disable SWIM** while keeping credentials in `deploy.env` (e.g. during testing or maintenance), add this override:
+
+```
+ENABLE_SWIM_INGESTOR=false
+```
+
+Remove the line to re-enable auto-detection on the next `./setup.sh` or `./update.sh` run.
 
 Apply for SWIM access: [https://www.faa.gov/air_traffic/technology/swim](https://www.faa.gov/air_traffic/technology/swim)
 
