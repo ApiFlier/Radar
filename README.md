@@ -44,13 +44,19 @@ Both commands must succeed before proceeding.
 ```bash
 git clone https://github.com/ApiFlier/aviation-radar.git radar
 cd radar
-cp deploy.env.example deploy.env
-nano deploy.env
 chmod +x setup.sh
 ./setup.sh
 ```
 
-`deploy.env` is **only for user-supplied values** such as API keys and credentials. `setup.sh` reads it and generates a complete `.env` with production-ready defaults, then builds and starts Docker.
+The app runs out of the box with public ADS-B data. `deploy.env` is **optional** — only needed to add credentials for enhanced data sources (FAA SWIM flight plan data, authenticated OpenSky coverage). To add credentials:
+
+```bash
+cp deploy.env.example deploy.env
+nano deploy.env   # add FAA_USER / FAA_PASS / QUEUE_* or OpenSky credentials
+./setup.sh        # re-run to apply
+```
+
+`setup.sh` generates a complete `.env` with production-ready defaults and starts Docker.
 
 ### 4. Updating
 
@@ -122,7 +128,7 @@ aviation-radar-redis        Redis — canonical aircraft state, pub/sub message 
 
 aviation-radar-swim-ingestor  (optional) FAA SWIM consumer — connects to FAA
                               Solace queues via stunnel TLS tunnel
-                              Only started when ENABLE_SWIM_INGESTOR=true
+                              Started automatically when FAA credentials are configured
 ```
 
 ### Aircraft Data Path

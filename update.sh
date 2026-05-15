@@ -148,23 +148,24 @@ update_repo() {
 update_containers() {
     info "Detecting SWIM configuration..."
 
-    local swim_enabled
-    swim_enabled="$(get_env_value ENABLE_SWIM_INGESTOR)"
-    swim_enabled="${swim_enabled:-false}"
+    local swim_enabled swim_flag faa_user faa_pass q1 q2 q3
+    # Check deploy.env for override first; fall back to .env for previously set value.
+    swim_flag="$(get_deploy_value ENABLE_SWIM_INGESTOR)"
+    [ -z "$swim_flag" ] && swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    faa_user="$(get_deploy_value FAA_USER)"
+    faa_pass="$(get_deploy_value FAA_PASS)"
+    q1="$(get_deploy_value QUEUE_SFDPS)"
+    q2="$(get_deploy_value QUEUE_STDDS)"
+    q3="$(get_deploy_value QUEUE_TFMS)"
 
-    # Auto-detect if SWIM should be enabled if not already
-    if [ "$swim_enabled" != "true" ]; then
-        local faa_user faa_pass q1 q2 q3
-        faa_user="$(get_deploy_value FAA_USER)"
-        faa_pass="$(get_deploy_value FAA_PASS)"
-        q1="$(get_deploy_value QUEUE_SFDPS)"
-        q2="$(get_deploy_value QUEUE_STDDS)"
-        q3="$(get_deploy_value QUEUE_TFMS)"
-
-        if [ -n "$faa_user" ] && [ -n "$faa_pass" ] && ([ -n "$q1" ] || [ -n "$q2" ] || [ -n "$q3" ]); then
-            info "FAA credentials detected in deploy.env. Enabling SWIM profile..."
-            swim_enabled="true"
-        fi
+    if [ "$swim_flag" = "false" ]; then
+        swim_enabled="false"
+        info "FAA SWIM ingestor disabled (ENABLE_SWIM_INGESTOR=false)."
+    elif [ -n "$faa_user" ] && [ -n "$faa_pass" ] && ([ -n "$q1" ] || [ -n "$q2" ] || [ -n "$q3" ]); then
+        swim_enabled="true"
+        info "FAA credentials detected — enabling SWIM profile..."
+    else
+        swim_enabled="false"
     fi
 
     info "Rebuilding and updating containers..."
@@ -229,19 +230,21 @@ show_status() {
     echo ""
     info "URL: http://localhost:${port}"
     
-    local swim_enabled
-    swim_enabled="$(get_env_value ENABLE_SWIM_INGESTOR)"
-    swim_enabled="${swim_enabled:-false}"
-    if [ "$swim_enabled" != "true" ]; then
-        local _faa_user _faa_pass _q1 _q2 _q3
-        _faa_user="$(get_deploy_value FAA_USER)"
-        _faa_pass="$(get_deploy_value FAA_PASS)"
-        _q1="$(get_deploy_value QUEUE_SFDPS)"
-        _q2="$(get_deploy_value QUEUE_STDDS)"
-        _q3="$(get_deploy_value QUEUE_TFMS)"
-        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
-            swim_enabled="true"
-        fi
+    local swim_enabled swim_flag _faa_user _faa_pass _q1 _q2 _q3
+    swim_flag="$(get_deploy_value ENABLE_SWIM_INGESTOR)"
+    [ -z "$swim_flag" ] && swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    _faa_user="$(get_deploy_value FAA_USER)"
+    _faa_pass="$(get_deploy_value FAA_PASS)"
+    _q1="$(get_deploy_value QUEUE_SFDPS)"
+    _q2="$(get_deploy_value QUEUE_STDDS)"
+    _q3="$(get_deploy_value QUEUE_TFMS)"
+
+    if [ "$swim_flag" = "false" ]; then
+        swim_enabled="false"
+    elif [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+        swim_enabled="true"
+    else
+        swim_enabled="false"
     fi
     if [ "$swim_enabled" = "true" ]; then
         info "SWIM: Enabled"

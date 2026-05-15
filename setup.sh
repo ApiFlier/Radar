@@ -43,7 +43,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 if [ ! -f "$DEPLOY_FILE" ]; then
-    error "deploy.env not found. Run: cp deploy.env.example deploy.env && nano deploy.env"
+    warn "deploy.env not found — running with defaults only. To add credentials, copy deploy.env.example to deploy.env."
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -155,10 +155,15 @@ normalize_value() {
 }
 
 import_deploy_env() {
-    info "Creating runtime .env from deploy.env..."
-
     : > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
+
+    if [ ! -f "$DEPLOY_FILE" ]; then
+        info "No deploy.env — using generated defaults only."
+        return
+    fi
+
+    info "Creating runtime .env from deploy.env..."
 
     while IFS= read -r line || [ -n "$line" ]; do
         trimmed="${line#"${line%%[![:space:]]*}"}"
@@ -311,33 +316,29 @@ prepare_env() {
 
     MISSING_REQUIRED=0
 
-    # FAA SWIM: auto-detect credentials; ENABLE_SWIM_INGESTOR=true overrides if already set.
-    SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
-    SWIM_ENABLED="${SWIM_ENABLED:-false}"
+    # FAA SWIM: auto-detect from credentials; ENABLE_SWIM_INGESTOR=false force-disables.
+    local _swim_flag _faa_user _faa_pass _q1 _q2 _q3
+    _swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    _faa_user="$(get_env_value FAA_USER)"
+    _faa_pass="$(get_env_value FAA_PASS)"
+    _q1="$(get_env_value QUEUE_SFDPS)"
+    _q2="$(get_env_value QUEUE_STDDS)"
+    _q3="$(get_env_value QUEUE_TFMS)"
 
-    if [ "$SWIM_ENABLED" != "true" ]; then
-        local _faa_user _faa_pass _q1 _q2 _q3
-        _faa_user="$(get_env_value FAA_USER)"
-        _faa_pass="$(get_env_value FAA_PASS)"
-        _q1="$(get_env_value QUEUE_SFDPS)"
-        _q2="$(get_env_value QUEUE_STDDS)"
-        _q3="$(get_env_value QUEUE_TFMS)"
-        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
-            info "FAA credentials detected — enabling SWIM ingestor automatically."
-            SWIM_ENABLED="true"
-        fi
-    fi
-
-    if [ "$SWIM_ENABLED" = "true" ]; then
-        info "FAA SWIM ingestor enabled — validating FAA credentials..."
-        require_env "FAA_USER"
-        require_env "FAA_PASS"
-        if [ -z "$(get_env_value QUEUE_SFDPS)" ] && [ -z "$(get_env_value QUEUE_STDDS)" ] && [ -z "$(get_env_value QUEUE_TFMS)" ]; then
-            echo -e "${RED}[ERROR]${NC} Missing required value in deploy.env: at least one of QUEUE_SFDPS, QUEUE_STDDS, QUEUE_TFMS"
-            MISSING_REQUIRED=1
-        fi
+    if [ "$_swim_flag" = "false" ]; then
+        SWIM_ENABLED="false"
+        info "FAA SWIM ingestor disabled (ENABLE_SWIM_INGESTOR=false)."
+    elif [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+        SWIM_ENABLED="true"
+        info "FAA credentials detected — enabling SWIM ingestor automatically."
+    elif [ "$_swim_flag" = "true" ]; then
+        echo -e "${RED}[ERROR]${NC} ENABLE_SWIM_INGESTOR=true but FAA credentials are incomplete."
+        echo -e "${RED}[ERROR]${NC} Set FAA_USER, FAA_PASS, and at least one QUEUE_* in deploy.env."
+        MISSING_REQUIRED=1
+        SWIM_ENABLED="false"
     else
-        info "FAA SWIM ingestor not configured. To enable, add FAA_USER, FAA_PASS, and QUEUE_* to deploy.env."
+        SWIM_ENABLED="false"
+        info "FAA SWIM ingestor not configured. To enable, add FAA_USER, FAA_PASS, and at least one QUEUE_* to deploy.env."
     fi
 
     if [ "$MISSING_REQUIRED" = "1" ]; then
@@ -358,21 +359,21 @@ start_containers() {
     cd "$RADAR_DIR"
     docker compose config --quiet
 
-    SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
-    SWIM_ENABLED="${SWIM_ENABLED:-false}"
+    # Credentials already validated in prepare_env; re-derive for container launch.
+    local _swim_flag _faa_user _faa_pass _q1 _q2 _q3
+    _swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    _faa_user="$(get_env_value FAA_USER)"
+    _faa_pass="$(get_env_value FAA_PASS)"
+    _q1="$(get_env_value QUEUE_SFDPS)"
+    _q2="$(get_env_value QUEUE_STDDS)"
+    _q3="$(get_env_value QUEUE_TFMS)"
 
-    # Auto-detect FAA credentials if ENABLE_SWIM_INGESTOR is not already true
-    if [ "$SWIM_ENABLED" != "true" ]; then
-        local _faa_user _faa_pass _q1 _q2 _q3
-        _faa_user="$(get_env_value FAA_USER)"
-        _faa_pass="$(get_env_value FAA_PASS)"
-        _q1="$(get_env_value QUEUE_SFDPS)"
-        _q2="$(get_env_value QUEUE_STDDS)"
-        _q3="$(get_env_value QUEUE_TFMS)"
-        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
-            info "FAA credentials detected — enabling SWIM profile..."
-            SWIM_ENABLED="true"
-        fi
+    if [ "$_swim_flag" = "false" ]; then
+        SWIM_ENABLED="false"
+    elif [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+        SWIM_ENABLED="true"
+    else
+        SWIM_ENABLED="false"
     fi
 
     echo ""
@@ -430,20 +431,20 @@ show_summary() {
     local port
     port="$(get_env_value WEB_PORT)"
 
-    SWIM_ENABLED="$(get_env_value ENABLE_SWIM_INGESTOR)"
-    SWIM_ENABLED="${SWIM_ENABLED:-false}"
+    local _swim_flag _faa_user _faa_pass _q1 _q2 _q3
+    _swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
+    _faa_user="$(get_env_value FAA_USER)"
+    _faa_pass="$(get_env_value FAA_PASS)"
+    _q1="$(get_env_value QUEUE_SFDPS)"
+    _q2="$(get_env_value QUEUE_STDDS)"
+    _q3="$(get_env_value QUEUE_TFMS)"
 
-    # Auto-detect for summary display
-    if [ "$SWIM_ENABLED" != "true" ]; then
-        local _faa_user _faa_pass _q1 _q2 _q3
-        _faa_user="$(get_env_value FAA_USER)"
-        _faa_pass="$(get_env_value FAA_PASS)"
-        _q1="$(get_env_value QUEUE_SFDPS)"
-        _q2="$(get_env_value QUEUE_STDDS)"
-        _q3="$(get_env_value QUEUE_TFMS)"
-        if [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
-            SWIM_ENABLED="true"
-        fi
+    if [ "$_swim_flag" = "false" ]; then
+        SWIM_ENABLED="false"
+    elif [ -n "$_faa_user" ] && [ -n "$_faa_pass" ] && ([ -n "$_q1" ] || [ -n "$_q2" ] || [ -n "$_q3" ]); then
+        SWIM_ENABLED="true"
+    else
+        SWIM_ENABLED="false"
     fi
 
     echo ""
