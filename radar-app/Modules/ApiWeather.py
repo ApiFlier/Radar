@@ -2,6 +2,7 @@ import os
 import time
 import json
 import httpx
+import concurrent.futures
 from Classes.ApiBase import ApiBase
 from Classes.Redis import getRedis
 
@@ -58,70 +59,100 @@ class ApiWeather(ApiBase):
             "metar": None,
             "taf": None,
             "alerts": [],
-            "advisory": "Weather is advisory only. Verify official aviation weather before operational use."
+            "advisory": "Weather is advisory. Verify official aviation weather."
         }
 
-        with httpx.Client(timeout=10.0) as client:
-            # 1. Fetch METAR
+        def _fmt_wind(m):
+            wdir = m.get("wdir")
+            wspd = m.get("wspd") or 0
+            wgst = m.get("wgst")
+            if wspd == 0 and (wdir is None or wdir == 0):
+                wind = "Calm"
+            else:
+                wind = f"{int(wdir or 0):03d}@{int(wspd)}KT"
+            if wgst:
+                wind += f" G{int(wgst)}KT"
+            return wind
+
+        def _fetch_metar(client):
             try:
-                metar_url = f"https://aviationweather.gov/api/data/metar?ids={airport}&format=json"
-                r = client.get(metar_url)
+                url = f"https://aviationweather.gov/api/data/metar?ids={airport}&format=json"
+                r = client.get(url)
                 if r.status_code == 200:
                     metars = r.json()
                     if metars and isinstance(metars, list):
                         m = metars[0]
-                        data["metar"] = {
-                            "raw": m.get("rawOb"),
+                        visib  = m.get("visib")
+                        ceil_v = m.get("ceil")
+                        altim  = m.get("altim")
+                        altim_f = float(altim) if altim is not None else None
+                        if altim_f is not None:
+                            # API returns hPa; convert to inHg to match raw METAR Axxxx field
+                            if altim_f > 100:
+                                altim_f = altim_f / 33.8639
+                            altim_str = f"{altim_f:.2f} inHg"
+                        else:
+                            altim_str = "—"
+                        return {
+                            "raw":             m.get("rawOb"),
                             "observationTime": m.get("obsTime"),
-                            "flightCategory": m.get("fltcat"),
-                            "wind": f"{m.get('wdir', 'VRB')}@{m.get('wspd', 0)}KT",
-                            "visibility": f"{m.get('visib', '—')}SM",
-                            "ceiling": f"{m.get('ceil', '—')} FT",
-                            "temperature": m.get("temp"),
-                            "dewpoint": m.get("dewp"),
-                            "altimeter": m.get("altim")
+                            "flightCategory":  m.get("fltcat"),
+                            "wind":            _fmt_wind(m),
+                            "visibility":      f"{visib}SM"  if visib  is not None else "—",
+                            "ceiling":         f"{ceil_v} ft" if ceil_v is not None else "—",
+                            "temperature":     m.get("temp"),
+                            "dewpoint":        m.get("dewp"),
+                            "altimeter":       altim_str,
                         }
-                        if m.get("wgst"):
-                            data["metar"]["wind"] += f" G {m.get('wgst')}KT"
             except Exception as e:
                 self.debugMessage("METAR Fetch Error", str(e))
+            return None
 
-            # 2. Fetch TAF
+        def _fetch_taf(client):
             try:
-                taf_url = f"https://aviationweather.gov/api/data/taf?ids={airport}&format=json"
-                r = client.get(taf_url)
+                url = f"https://aviationweather.gov/api/data/taf?ids={airport}&format=json"
+                r = client.get(url)
                 if r.status_code == 200:
                     tafs = r.json()
                     if tafs and isinstance(tafs, list):
                         t = tafs[0]
-                        data["taf"] = {
-                            "raw": t.get("rawTAF"),
+                        return {
+                            "raw":       t.get("rawTAF"),
                             "issueTime": t.get("issueTime"),
                             "validFrom": t.get("validFrom"),
-                            "validTo": t.get("validTo")
+                            "validTo":   t.get("validTo"),
                         }
             except Exception as e:
                 self.debugMessage("TAF Fetch Error", str(e))
+            return None
 
-            # 3. Fetch NWS Alerts if lat/lon available
-            if lat is not None and lon is not None:
-                try:
-                    # User-Agent is required by api.weather.gov
-                    headers = {"User-Agent": "AviationRadar/1.0 (github.com/ApiFlier/aviation-radar)"}
-                    alerts_url = f"https://api.weather.gov/alerts/active?point={lat},{lon}"
-                    r = client.get(alerts_url, headers=headers)
-                    if r.status_code == 200:
-                        alerts_json = r.json()
-                        features = alerts_json.get("features", [])
-                        for feature in features:
-                            props = feature.get("properties", {})
-                            data["alerts"].append({
-                                "event": props.get("event"),
-                                "severity": props.get("severity"),
-                                "headline": props.get("headline")
-                            })
-                except Exception as e:
-                    self.debugMessage("NWS Alerts Fetch Error", str(e))
+        def _fetch_alerts(client):
+            if lat is None or lon is None:
+                return []
+            try:
+                headers = {"User-Agent": "AviationRadar/1.0 (github.com/ApiFlier/aviation-radar)"}
+                url = f"https://api.weather.gov/alerts/active?point={lat},{lon}"
+                r = client.get(url, headers=headers)
+                if r.status_code == 200:
+                    features = r.json().get("features", [])
+                    return [
+                        {"event": f.get("properties", {}).get("event"),
+                         "severity": f.get("properties", {}).get("severity"),
+                         "headline": f.get("properties", {}).get("headline")}
+                        for f in features
+                    ]
+            except Exception as e:
+                self.debugMessage("NWS Alerts Fetch Error", str(e))
+            return []
+
+        with httpx.Client(timeout=10.0) as client:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                f_metar  = pool.submit(_fetch_metar,  client)
+                f_taf    = pool.submit(_fetch_taf,    client)
+                f_alerts = pool.submit(_fetch_alerts, client)
+                data["metar"]  = f_metar.result()
+                data["taf"]    = f_taf.result()
+                data["alerts"] = f_alerts.result()
 
         # Finalize and cache
         self.responseData = data

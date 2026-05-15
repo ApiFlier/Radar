@@ -4106,16 +4106,12 @@
             if (panelMode !== 'airport' || !selectedAptCode) return;
             var code = selectedAptCode;
             document.getElementById('dp-body').innerHTML = buildAirportPanelHTML(selectedAptObj, code);
-            
+
             var fCache = aptFlightsCache[code];
             if (fCache && fCache.inbound !== undefined) {
                 renderAptFlightsInPanel(code, fCache.inbound, fCache.outbound, fCache.nearby, fCache.parked);
             }
-            
-            var wCache = aptWeatherCache[code];
-            if (wCache && wCache.data !== undefined) {
-                renderAptWeatherInPanel(code, wCache.data);
-            }
+            // Weather is rendered inline by buildAirportPanelHTML when cached
         }
 
         function buildAirportPanelHTML(a, code) {
@@ -4166,7 +4162,11 @@
                     '<div class="dp-cell-value">' + esc(elev ? elev + ' ft' : '—') + '</div></div>';
             html += '</div>';
 
-            html += '<div id="dp-weather-box" class="dp-wx-box"><div class="dp-flights-loading">Loading weather…</div></div>';
+            var _wc  = aptWeatherCache[code];
+            var _wxOk = _wc && (Date.now() - _wc.ts) < APT_WEATHER_TTL;
+            html += '<div id="dp-weather-box" class="dp-wx-box">' +
+                    (_wxOk ? buildWeatherHTML(_wc.data) : '<div class="dp-flights-loading">Loading weather…</div>') +
+                    '</div>';
 
             function dpRow(label, val) {
                 if (!val) return '';
@@ -4435,63 +4435,22 @@
         }
 
         /* ── Airport Weather ── */
-        var aptWeatherCache = {};
-        var APT_WEATHER_TTL = 10 * 60 * 1000; // 10 minutes
+        var aptWeatherCache   = {};
+        var aptWeatherPending = {};
+        var APT_WEATHER_TTL   = 5 * 60 * 1000; // 5 minutes
 
-        function fetchAptWeather(code, lat, lon) {
-            var now = Date.now();
-            var cache = aptWeatherCache[code];
-            if (cache && (now - cache.ts) < APT_WEATHER_TTL) {
-                if (selectedAptCode === code && panelMode === 'airport') {
-                    renderAptWeatherInPanel(code, cache.data);
-                }
-                return;
-            }
-
-            var url = '/api/?action=Weather&airport=' + encodeURIComponent(code);
-            if (lat != null && lon != null) {
-                url += '&lat=' + lat + '&lon=' + lon;
-            }
-            url += '&_=' + now;
-
-            fetch(url)
-                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-                .then(function(json) {
-                    var data = (json.response || {}).data || null;
-                    aptWeatherCache[code] = { ts: Date.now(), data: data };
-                    if (selectedAptCode === code && panelMode === 'airport') {
-                        renderAptWeatherInPanel(code, data);
-                    }
-                })
-                .catch(function() {
-                    if (selectedAptCode === code && panelMode === 'airport') {
-                        var el = document.getElementById('dp-weather-box');
-                        if (el) el.innerHTML = '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
-                    }
-                });
-        }
-
-        function renderAptWeatherInPanel(code, data) {
-            var el = document.getElementById('dp-weather-box');
-            if (!el) return;
-            if (!data) {
-                el.innerHTML = '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
-                return;
-            }
-
-            var esc = htmlEscape;
+        function buildWeatherHTML(data) {
+            if (!data) return '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
+            var esc  = htmlEscape;
             var html = '';
-
             html += '<div class="dp-wx-head">';
             html += '<div class="dp-wx-title">Airport Weather</div>';
             if (data.metar && data.metar.flightCategory) {
                 html += '<div class="dp-wx-cat ' + esc(data.metar.flightCategory) + '">' + esc(data.metar.flightCategory) + '</div>';
             }
             html += '</div>';
-
             if (data.metar && data.metar.raw) {
                 html += '<div class="dp-wx-metar">' + esc(data.metar.raw) + '</div>';
-
                 html += '<div class="dp-wx-grid">';
                 html += '<div class="dp-wx-field"><span class="dp-wx-label">Wind</span><span class="dp-wx-value">' + esc(data.metar.wind || '—') + '</span></div>';
                 html += '<div class="dp-wx-field"><span class="dp-wx-label">Visibility</span><span class="dp-wx-value">' + esc(data.metar.visibility || '—') + '</span></div>';
@@ -4501,7 +4460,6 @@
             } else {
                 html += '<div class="dp-flights-loading" style="color:#555;padding:5px 0">METAR unavailable</div>';
             }
-
             if (data.alerts && data.alerts.length) {
                 html += '<div class="dp-wx-alerts">';
                 data.alerts.forEach(function(a) {
@@ -4509,17 +4467,45 @@
                 });
                 html += '</div>';
             }
-
             if (data.taf && data.taf.raw) {
                 html += '<div class="dp-wx-taf-wrap">';
                 html += '<div class="dp-wx-taf-toggle" onclick="this.nextElementSibling.classList.toggle(\'open\')">Show TAF</div>';
                 html += '<div class="dp-wx-taf-raw">' + esc(data.taf.raw) + '</div>';
                 html += '</div>';
             }
+            if (data.advisory) html += '<div class="dp-wx-advisory">' + esc(data.advisory) + '</div>';
+            return html;
+        }
 
-            html += '<div class="dp-wx-advisory">' + esc(data.advisory) + '</div>';
+        function fetchAptWeather(code, lat, lon) {
+            var now   = Date.now();
+            var cache = aptWeatherCache[code];
+            if (cache && (now - cache.ts) < APT_WEATHER_TTL) return; // already rendered inline
+            if (aptWeatherPending[code]) return; // request already in flight
+            aptWeatherPending[code] = true;
 
-            el.innerHTML = html;
+            var url = '/api/?action=Weather&airport=' + encodeURIComponent(code);
+            if (lat != null && lon != null) url += '&lat=' + lat + '&lon=' + lon;
+            url += '&_=' + now;
+
+            fetch(url)
+                .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function(json) {
+                    delete aptWeatherPending[code];
+                    var data = (json.response || {}).data || null;
+                    aptWeatherCache[code] = { ts: Date.now(), data: data };
+                    if (selectedAptCode === code && panelMode === 'airport') {
+                        var el = document.getElementById('dp-weather-box');
+                        if (el) el.innerHTML = buildWeatherHTML(data);
+                    }
+                })
+                .catch(function() {
+                    delete aptWeatherPending[code];
+                    if (selectedAptCode === code && panelMode === 'airport') {
+                        var el = document.getElementById('dp-weather-box');
+                        if (el) el.innerHTML = '<div class="dp-flights-loading" style="color:#555">Weather unavailable</div>';
+                    }
+                });
         }
 
         /* ── Airport Focus / Ops Mode ─────────────────────────────────────────── */
