@@ -2751,6 +2751,10 @@
             target.aircraftRole = source.aircraftRole || source.aircraft_role || target.aircraftRole || 'unknown';
             target.iconType = source.iconType || source.icon_type || target.iconType || target.aircraftClass || 'private';
 
+            if (source.registration) target.registration = source.registration;
+            if (source.aircraftType) target.aircraftType = source.aircraftType;
+            if (source.category)     target.category     = source.category;
+
             target.positionSource = source.positionSource || source.position_source || target.positionSource || '';
             target.sourceFacility = source.sourceFacility || source.source_facility || target.sourceFacility || '';
             target.groundCluster = source.groundCluster || source.ground_cluster || target.groundCluster || '';
