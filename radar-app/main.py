@@ -34,6 +34,11 @@ logger = logging.getLogger("API")
 DEBUG = os.getenv("API_DEBUG", "false").lower() == "true"
 ENABLE_INGESTORS = os.getenv("ENABLE_INGESTORS", "true").lower() == "true"
 
+# Periodic cache keep-warm: refresh the planes snapshot before stale-max expires
+# so user requests never hit a blocking cold scan during normal operation.
+_KEEPWARM_ENABLED  = os.getenv("PLANES_CACHE_KEEPWARM_ENABLED", "true").lower() == "true"
+_KEEPWARM_INTERVAL = max(15.0, min(300.0, float(os.getenv("PLANES_CACHE_KEEPWARM_INTERVAL_SECONDS", "45"))))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,6 +70,21 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[API] Startup cache warm-up failed (non-fatal): {e}")
 
     threading.Thread(target=_warm_planes_cache, daemon=True, name="planes-warmup").start()
+
+    if _KEEPWARM_ENABLED:
+        def _keepwarm_loop():
+            # Let the startup warm-up finish before the first keep-warm fires.
+            time.sleep(_KEEPWARM_INTERVAL)
+            while True:
+                try:
+                    from Modules.ApiPlanes import _do_keepwarm_refresh
+                    _do_keepwarm_refresh(logger)
+                except Exception as e:
+                    logger.warning(f"[keepwarm] Loop error (non-fatal): {e}")
+                time.sleep(_KEEPWARM_INTERVAL)
+
+        threading.Thread(target=_keepwarm_loop, daemon=True, name="planes-keepwarm").start()
+        logger.info(f"[API] Cache keep-warm enabled — interval {_KEEPWARM_INTERVAL:.0f}s")
 
     yield
     

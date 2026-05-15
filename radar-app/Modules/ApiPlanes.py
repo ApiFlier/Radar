@@ -1333,6 +1333,39 @@ def _do_background_refresh():
             _planes_bg_refresh_running = False
 
 
+def _do_keepwarm_refresh(logger=None):
+    """Periodic keep-warm: rebuild the cache if it has grown stale.
+
+    Distinct from _do_background_refresh so it does not touch _planes_bg_refresh_running,
+    avoiding any interference with the user-request stale-while-revalidate path.
+    Callers are responsible for scheduling and sleep intervals.
+    """
+    global _planes_cache, _planes_cache_ts, _summary_cache_ts
+    try:
+        with _planes_cache_build_lock:
+            with _planes_cache_lock:
+                if _planes_cache is not None and (time.time() - _planes_cache_ts) < _PLANES_CACHE_TTL:
+                    return  # already fresh from a user request or concurrent warm
+            redis = getRedis()
+            if not redis.ping():
+                if logger:
+                    logger.warning("[keepwarm] Redis not reachable — skipping refresh")
+                return
+            t0   = time.time()
+            snap = ApiPlanes("_kw")._scanRedis(redis)
+            with _planes_cache_lock:
+                _planes_cache    = snap
+                _planes_cache_ts = snap["ts"]
+            with _summary_cache_lock:
+                _summary_cache_ts = 0.0
+            if logger:
+                count = len(snap.get("planes", []))
+                logger.info(f"[keepwarm] Cache refreshed in {(time.time()-t0)*1000:.0f}ms — {count} aircraft")
+    except Exception as e:
+        if logger:
+            logger.warning(f"[keepwarm] Refresh failed (non-fatal): {e}")
+
+
 def get_planes_snapshot():
     """Return the shared plane snapshot if available (fresh or stale-within-max).
 
