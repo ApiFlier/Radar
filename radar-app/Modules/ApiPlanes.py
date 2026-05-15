@@ -20,6 +20,11 @@ _planes_cache_build_lock = threading.Lock()   # serialises rebuilds (single-flig
 _planes_cache      = None   # dict: {planes, sourceCounts, adsbHealthy, adsbHeartbeat, ts}
 _planes_cache_ts   = 0.0
 _PLANES_CACHE_TTL  = max(3.0, min(60.0, float(os.getenv("PLANES_CACHE_TTL_SECONDS", "10"))))
+# Stale-while-revalidate: serve a snapshot this many seconds past TTL while
+# a background refresh runs. Beyond this age we block and rebuild synchronously.
+_PLANES_STALE_MAX       = max(30.0, min(300.0, float(os.getenv("PLANES_STALE_MAX_SECONDS", "60"))))
+_planes_bg_refresh_running = False
+_planes_bg_refresh_lock    = threading.Lock()
 
 # ── Summary cache ─────────────────────────────────────────────────────────────
 # Pre-computed aggregation for view=summary/airports; refreshed from snapshot.
@@ -265,23 +270,36 @@ class ApiPlanes(ApiBase):
     # ── Snapshot cache helpers ────────────────────────────────────────────────
 
     def _getSnapshot(self) -> dict | None:
-        """Return cached normalized plane list, scanning Redis only when stale.
+        """Return cached normalized plane list with stale-while-revalidate semantics.
 
-        Uses a two-lock pattern (single-flight) so that when the cache is cold,
-        only one thread runs the expensive scan; all other threads wait for that
-        scan to finish and then share its result.
+        - Fresh (within TTL): return immediately.
+        - Stale (TTL < age < STALE_MAX): return immediately and fire one background
+          refresh thread so the next request gets fresh data.
+        - Very stale (age >= STALE_MAX) or no cache yet: block until scan completes.
         """
-        global _planes_cache, _planes_cache_ts
+        global _planes_cache, _planes_cache_ts, _planes_bg_refresh_running
         now = time.time()
 
-        # Fast path: cache is warm — no rebuild needed.
+        # Fast path: cache is fresh.
         with _planes_cache_lock:
             if _planes_cache is not None and (now - _planes_cache_ts) < _PLANES_CACHE_TTL:
                 return _planes_cache
+            # Stale-while-revalidate: cache exists and is within the stale window.
+            stale_age  = now - _planes_cache_ts
+            stale_snap = _planes_cache if (_planes_cache is not None and stale_age < _PLANES_STALE_MAX) else None
 
-        # Slow path: acquire the build lock so only one thread scans Redis at a time.
-        # Concurrent cold requests wait here, then find the warm cache after the
-        # first scan completes (double-check inside the lock).
+        if stale_snap is not None:
+            with _planes_bg_refresh_lock:
+                if not _planes_bg_refresh_running:
+                    _planes_bg_refresh_running = True
+                    threading.Thread(
+                        target=_do_background_refresh,
+                        daemon=True,
+                        name="planes-bg-refresh",
+                    ).start()
+            return stale_snap
+
+        # No usable snapshot: block until one is built (single-flight pattern).
         with _planes_cache_build_lock:
             with _planes_cache_lock:
                 now2 = time.time()
@@ -1099,34 +1117,24 @@ class ApiPlanes(ApiBase):
             if lu > 1e9 and (now_ts - lu) > self._DQ_STALE_SECS:
                 dq["stale"] += 1
 
-            # Skip ground aircraft — they belong to the ground page, not advisories
+            # Skip ground aircraft — they belong to the ground page, not advisories.
             if is_ground:
                 continue
 
-            # Operational filter — include only flagged aircraft
-            squawk   = str(p.get("squawk") or "").strip()
-            emrg     = str(p.get("emergency") or "").lower().strip()
-            is_emrg  = squawk in self._EMRG_SQUAWKS or (emrg and emrg not in ("0", "none", ""))
-            if is_emrg or p.get("isMilitary") or p.get("isHelicopter"):
+            # Operational filter: emergency squawks and declarations only.
+            # Military and helicopter are observations available on the Aircraft page.
+            squawk  = str(p.get("squawk") or "").strip()
+            emrg    = str(p.get("emergency") or "").lower().strip()
+            is_emrg = squawk in self._EMRG_SQUAWKS or (emrg and emrg not in ("0", "none", ""))
+            if is_emrg:
                 op.append(p)
 
-        # Separate true advisories from observations; cap observations to bound payload
-        _OBS_CAP = 100
-        emergency   = [p for p in op if self._isEmergency(p)]
-        military    = [p for p in op if p.get("isMilitary") and not self._isEmergency(p)]
-        helicopter  = [p for p in op if p.get("isHelicopter") and not p.get("isMilitary") and not self._isEmergency(p)]
-
-        mil_total  = len(military)
-        heli_total = len(helicopter)
-        capped     = emergency + military[:_OBS_CAP] + helicopter[:_OBS_CAP]
-
         return {
-            "count":      len(capped),
-            "total":      total_count,
-            "dqSummary":  dq,
-            "obsCounts":  {"militaryTotal": mil_total, "helicopterTotal": heli_total, "obsCap": _OBS_CAP},
-            "planes":     self._pickFields(capped, "alerts"),
-            "meta":       {"cacheAgeSeconds": cache_age},
+            "count":     len(op),
+            "total":     total_count,
+            "dqSummary": dq,
+            "planes":    self._pickFields(op, "alerts"),
+            "meta":      {"cacheAgeSeconds": cache_age},
         }
 
     def _buildSummary(self, planes: list, sourceCounts: dict, adsbHealthy: bool, adsbHeartbeat: dict) -> dict:
@@ -1301,14 +1309,38 @@ class ApiPlanes(ApiBase):
         return R * c
 
 
-def get_planes_snapshot():
-    """Return the shared plane snapshot if it is within its cache TTL, else None.
+def _do_background_refresh():
+    """Background thread: rebuild the planes cache, then invalidate the summary cache."""
+    global _planes_cache, _planes_cache_ts, _planes_bg_refresh_running, _summary_cache_ts
+    try:
+        with _planes_cache_build_lock:
+            with _planes_cache_lock:
+                if _planes_cache is not None and (time.time() - _planes_cache_ts) < _PLANES_CACHE_TTL:
+                    return  # already fresh — another path won the race
+            redis = getRedis()
+            if not redis.ping():
+                return
+            snap = ApiPlanes("_bg")._scanRedis(redis)
+            with _planes_cache_lock:
+                _planes_cache    = snap
+                _planes_cache_ts = snap["ts"]
+            with _summary_cache_lock:
+                _summary_cache_ts = 0.0  # invalidate so next summary call rebuilds
+    except Exception:
+        pass
+    finally:
+        with _planes_bg_refresh_lock:
+            _planes_bg_refresh_running = False
 
-    Intended for sibling modules (e.g. ApiHealth) that want to avoid their own
-    Redis scan when the snapshot is already warm.  Callers must not mutate the
-    returned dict or its nested lists — they are shared references.
+
+def get_planes_snapshot():
+    """Return the shared plane snapshot if available (fresh or stale-within-max).
+
+    Returns None only when no snapshot exists or it is older than STALE_MAX.
+    Callers must not mutate the returned dict or its nested lists.
     """
     with _planes_cache_lock:
-        if _planes_cache is not None and (time.time() - _planes_cache_ts) < _PLANES_CACHE_TTL:
-            return _planes_cache
+        if _planes_cache is not None:
+            if (time.time() - _planes_cache_ts) < _PLANES_STALE_MAX:
+                return _planes_cache
     return None
