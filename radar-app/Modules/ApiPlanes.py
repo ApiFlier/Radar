@@ -777,6 +777,7 @@ class ApiPlanes(ApiBase):
         "isMilitary", "isHelicopter", "isLadd", "isPia",
         "airborne", "lastUpdate", "assignedAlt", "squawk", "emergency",
         "groundCluster", "groundStatus", "isLiveGround", "lastGroundMovement",
+        "category",
     })
 
     def _isGroundPlane(self, plane: dict) -> bool:

@@ -3892,6 +3892,31 @@
                 buildAircraftPanelHTML(planeData[selectedAcId], selectedAcId);
         }
 
+        function adsbCategoryLabel(cat) {
+            var m = {
+                A1:'Light GA', A2:'Small aircraft', A3:'Large aircraft',
+                A4:'Large — high vortex', A5:'Heavy', A6:'High performance',
+                A7:'Rotorcraft', B1:'Glider', B2:'Lighter-than-air',
+                B3:'Parachutist', B6:'UAV / Drone',
+                C1:'Emergency vehicle', C2:'Service vehicle'
+            };
+            return m[cat] || '';
+        }
+
+        function displayRoleLabel(p) {
+            var role = String(p.aircraftRole  || '').toLowerCase();
+            var cls  = String(p.aircraftClass || '').toLowerCase();
+            var cat  = String(p.category      || '').trim().toUpperCase();
+            var map  = {
+                airline:'Commercial', military:'Military', helicopter:'Helicopter',
+                private:'Private / GA', general:'General Aviation', ground:'Ground Vehicle'
+            };
+            var lbl    = map[role] || map[cls] || '';
+            var catLbl = adsbCategoryLabel(cat);
+            if (catLbl && catLbl !== lbl) return lbl ? lbl + ' · ' + catLbl : catLbl;
+            return lbl;
+        }
+
         function buildAircraftPanelHTML(p, flightId) {
             if (!p) {
                 if (_RS.showInferredWarnings) {
@@ -4010,15 +4035,6 @@
                 }
             }
 
-            // Identity rows
-            if (p.registration) {
-                html += dpRow('Registration',
-                    '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(p.registration) + '</span>');
-            }
-            if (icao) {
-                html += dpRow('ICAO',
-                    '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(icao) + '</span>');
-            }
             var sq = String(p.squawk || '').trim();
             if (sq && sq !== '0') {
                 var sqHtml = htmlEscape(sq);
@@ -4028,6 +4044,24 @@
                 html += dpRow('Squawk', sqHtml);
             }
             html += '</div>';
+
+            // ── Aircraft Identity ──────────────────────────────────────────
+            var roleStr = displayRoleLabel(p);
+            if (p.registration || acType || icao) {
+                html += '<div class="dp-section">';
+                html += '<div class="dp-section-title">Aircraft Identity</div>';
+                if (p.registration) {
+                    html += dpRow('Registration',
+                        '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(p.registration) + '</span>');
+                }
+                if (acType) html += dpRow('Aircraft type', htmlEscape(acType));
+                if (icao) {
+                    html += dpRow('Mode S',
+                        '<span style="font-family:Consolas,Menlo,monospace">' + htmlEscape(icao) + '</span>');
+                }
+                if (roleStr) html += dpRow('Role', htmlEscape(roleStr));
+                html += '</div>';
+            }
 
             // ── Source / Freshness ─────────────────────────────────────────
             var posLabel   = friendlySource(p.positionSource || p.source);
