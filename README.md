@@ -27,8 +27,9 @@ This is a production-style Docker deployment — not a demo app. All tracked air
 **Linux** — [Docker Engine](https://docs.docker.com/engine/install/) + Docker Compose plugin:
 ```bash
 # Example for Ubuntu/Debian
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
 ### 2. Verify Docker
