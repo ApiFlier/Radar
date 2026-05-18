@@ -35,6 +35,9 @@ echo "================================================"
 echo "   Aviation Radar — Update Script"
 echo "================================================"
 echo ""
+echo "  Normal path: ./menu.sh → option [2] Update the app"
+echo "  This script can also be run directly for advanced use."
+echo ""
 
 # ── Verification ──────────────────────────────────────────────────────────────
 
@@ -222,14 +225,6 @@ show_status() {
     port="$(get_env_value WEB_PORT)"
     port="${port:-8080}"
 
-    echo ""
-    info "Final Status:"
-    # Use standard docker ps to avoid Compose version filter incompatibilities.
-    # We wrap in || true so a display error doesn't mark the whole update as failed.
-    docker ps --filter "name=aviation-radar" || true
-    echo ""
-    info "URL: http://localhost:${port}"
-    
     local swim_enabled swim_flag _faa_user _faa_pass _q1 _q2 _q3
     swim_flag="$(get_deploy_value ENABLE_SWIM_INGESTOR)"
     [ -z "$swim_flag" ] && swim_flag="$(get_env_value ENABLE_SWIM_INGESTOR)"
@@ -246,11 +241,39 @@ show_status() {
     else
         swim_enabled="false"
     fi
+
+    echo ""
+    echo "================================================"
+    echo -e "${GREEN}   Aviation Radar — Update complete!${NC}"
+    echo "================================================"
+    echo ""
+    echo "  Web UI:   http://localhost:${port}"
+    echo "  LAN:      http://SERVER_IP:${port}"
+    echo ""
     if [ "$swim_enabled" = "true" ]; then
-        info "SWIM: Enabled"
+        echo "  SWIM ingestor: running (FAA credentials detected)"
     else
-        info "SWIM: Disabled"
+        echo "  SWIM ingestor: not started (no FAA credentials configured)"
     fi
+    echo ""
+    echo "  What is preserved:"
+    echo "    redis_data volume — Redis aircraft state (TTL-based, expires naturally)"
+    echo "    deploy.env        — your credentials (unchanged)"
+    echo "    .env              — runtime config (regenerate any time with setup.sh)"
+    echo ""
+    echo "  ── Next steps ───────────────────────────────────────────"
+    echo ""
+    echo "  ./menu.sh → [3]   — update API keys / credentials"
+    echo "  ./menu.sh → [4]   — check status and live links"
+    echo "  ./menu.sh → [5]   — troubleshoot if something looks wrong"
+    echo ""
+    echo "  ─────────────────────────────────────────────────────────"
+    echo ""
+
+    # Container list for reference
+    info "Running containers:"
+    docker ps --filter "name=aviation-radar" \
+        --format "  {{.Names}}  {{.Status}}" || true
 
     check_disk_space
 

@@ -35,6 +35,10 @@ echo "================================================"
 echo "   Aviation Radar — Setup Script"
 echo "================================================"
 echo ""
+echo "  Tip: Most users should run ./menu.sh instead."
+echo "  This script is called by menu option [1], or can"
+echo "  be run directly for advanced or automated use."
+echo ""
 echo "Repo: $RADAR_DIR"
 echo ""
 
@@ -392,36 +396,53 @@ start_containers() {
 
 # ── Health Check ──────────────────────────────────────────────────────────────
 
-verify_api() {
-    echo ""
-    info "Waiting 20 seconds for services to warm up..."
-    sleep 20
-
+verify_health() {
     local port
     port="$(get_env_value WEB_PORT)"
 
     echo ""
-    info "Checking API aircraft response..."
+    info "Waiting for app to become healthy at http://localhost:${port}/health ..."
 
-    if curl -sS "http://127.0.0.1:${port}/api?action=Planes&_=$(date +%s)" -o /tmp/aviation_radar_setup_planes.json; then
-        python3 - <<'PY' || true
-import json
-from pathlib import Path
-from collections import Counter
+    local attempts=20
+    local count=0
+    local success=false
 
+    while [ "$count" -lt "$attempts" ]; do
+        if curl -fsS -o /dev/null \
+               --connect-timeout 2 --max-time 4 \
+               "http://127.0.0.1:${port}/health" 2>/dev/null; then
+            success=true
+            break
+        fi
+        count=$((count + 1))
+        echo -n "."
+        sleep 3
+    done
+    echo ""
+
+    if [ "$success" = true ]; then
+        info "App is healthy."
+        # Non-blocking aircraft count for confirmation
+        local plane_count
+        plane_count=$(curl -s --connect-timeout 3 --max-time 10 \
+            "http://127.0.0.1:${port}/api?action=Planes&_=$(date +%s)" 2>/dev/null \
+            | python3 -c "
+import json, sys
 try:
-    data = json.loads(Path("/tmp/aviation_radar_setup_planes.json").read_text())
-except Exception as exc:
-    print("Could not parse API response:", exc)
-    raise SystemExit
-
-planes = data.get("response", {}).get("data", {}).get("planes", [])
-
-print("total:", len(planes))
-print("sources:", Counter(p.get("source") or "unknown" for p in planes).most_common(10))
-PY
+    d = json.load(sys.stdin)
+    planes = d.get('response', {}).get('data', {}).get('planes', [])
+    print(len(planes))
+except Exception:
+    pass
+" 2>/dev/null || true)
+        if [ -n "$plane_count" ]; then
+            info "Aircraft visible: $plane_count"
+        fi
     else
-        warn "API did not respond yet. Check: docker compose logs app"
+        warn "App did not respond within $(( attempts * 3 )) seconds."
+        warn "It may still be starting. Check:"
+        warn "  docker compose logs --tail=80 app"
+        warn "  ./menu.sh → option [5] Troubleshoot"
     fi
 }
 
@@ -449,36 +470,31 @@ show_summary() {
 
     echo ""
     echo "================================================"
-    echo -e "${GREEN}   Aviation Radar setup complete!${NC}"
+    echo -e "${GREEN}   Aviation Radar — Setup complete!${NC}"
     echo "================================================"
     echo ""
-    echo "  Web UI:     http://localhost:${port}"
-    echo "  Local/LAN:  http://SERVER_IP:${port}"
+    echo "  Web UI:   http://localhost:${port}"
+    echo "  LAN:      http://SERVER_IP:${port}"
     echo ""
-    echo "  Running containers:"
-    echo "    aviation-radar-app"
-    echo "    aviation-radar-redis"
     if [ "$SWIM_ENABLED" = "true" ]; then
-        echo "    aviation-radar-swim-ingestor"
+        echo "  SWIM ingestor: running (FAA credentials detected)"
     else
-        echo "    (aviation-radar-swim-ingestor not started — no FAA credentials detected)"
+        echo "  SWIM ingestor: not started (no FAA credentials configured)"
+        echo "                 Add credentials via: ./menu.sh → option [3]"
     fi
     echo ""
-    echo "  ADSB.lol note:"
-    echo "    re-api access requires this server's public IP to have feeder access."
+    echo "  ADSB.lol: re-api requires this server's public IP to be"
+    echo "            a registered feeder on adsb.lol."
     echo ""
-    echo "  Useful commands while this repo exists:"
-    echo "    docker compose ps"
-    echo "    docker compose logs -f"
-    echo "    docker compose restart"
-    echo "    docker compose down"
+    echo "  ── Next steps ───────────────────────────────────────────"
     echo ""
-    echo "  If you delete this repo, containers keep running."
-    echo "  Manage them by container name:"
-    echo "    docker ps"
-    echo "    docker logs aviation-radar-app"
-    echo "    docker stop aviation-radar-app aviation-radar-redis"
-    echo "    docker start aviation-radar-redis aviation-radar-app"
+    echo "  ./menu.sh             — manage the app (recommended)"
+    echo "  ./menu.sh → [2]       — update the app"
+    echo "  ./menu.sh → [3]       — update API keys / credentials"
+    echo "  ./menu.sh → [4]       — check status and live links"
+    echo "  ./menu.sh → [5]       — troubleshoot problems"
+    echo ""
+    echo "  ─────────────────────────────────────────────────────────"
     echo ""
 }
 
@@ -486,24 +502,39 @@ show_summary() {
 
 cleanup_prompt() {
     REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    # Offer to remove local source files (the running app and volumes are unaffected)
-    printf "Delete local source files now? [y/N] "
+
+    echo ""
+    echo "  ── Optional: delete source files ────────────────────────"
+    echo ""
+    echo "  The containers are running and will restart automatically"
+    echo "  after reboots. The source folder is no longer required."
+    echo ""
+    warn "  Deleting source files removes menu.sh, setup.sh, update.sh,"
+    warn "  and all scripts from this machine. You will not be able to"
+    warn "  run ./menu.sh or ./update.sh until you re-clone the repo."
+    warn "  Docker volumes and running containers are NOT affected."
+    echo ""
+    printf "  Delete source files? [y/N] "
     DEL_CHOICE=""
     read -r DEL_CHOICE < /dev/tty || true
     if [ "${DEL_CHOICE}" = "y" ] || [ "${DEL_CHOICE}" = "Y" ]; then
-         echo "==> Removing local source files..."
-         cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
-         rm -rf "$REPO_DIR"
-         echo "    Done. The running app and Docker volumes are preserved."
-     else
-        echo "    Source files preserved."
-     fi
+        echo ""
+        echo "  Removing source files..."
+        cd "$HOME" 2>/dev/null || cd / 2>/dev/null || true
+        rm -rf "$REPO_DIR"
+        echo "  Done. Containers and Docker volumes are preserved."
+        echo "  Manage without source:  docker ps"
+        echo "                          docker logs aviation-radar-app"
+        echo "                          docker stop/start aviation-radar-app"
+    else
+        echo "  Source files preserved. Run ./menu.sh to manage the app."
+    fi
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 prepare_env
 start_containers
-verify_api
+verify_health
 show_summary
 cleanup_prompt

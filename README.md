@@ -41,43 +41,62 @@ docker compose version
 
 Both commands must succeed before proceeding.
 
-### 3. Clone, configure, and run
+### 3. Clone and launch
 
 ```bash
 git clone https://github.com/ApiFlier/aviation-radar.git radar
 cd radar
-chmod +x setup.sh
-./setup.sh
+chmod +x menu.sh
+./menu.sh
 ```
 
-The app runs out of the box with public ADS-B data. `deploy.env` is **optional** — only needed to add credentials for enhanced data sources (FAA SWIM flight plan data, authenticated OpenSky coverage). To add credentials:
+Select **1) Set up the app for the first time** to install and start the containers.
+
+The app runs out of the box with public ADS-B data. `deploy.env` is **optional** — only needed to add credentials for enhanced data sources (FAA SWIM flight plan data, authenticated OpenSky coverage).
+
+To add or update credentials after setup, run:
 
 ```bash
-cp deploy.env.example deploy.env
-nano deploy.env   # add FAA_USER / FAA_PASS / QUEUE_* or OpenSky credentials
-./setup.sh        # re-run to apply
+./menu.sh
 ```
 
-`setup.sh` generates a complete `.env` with production-ready defaults and starts Docker.
+and select **3) Update API keys / credentials**.
+
+**Direct usage (advanced):** `./setup.sh` and `./update.sh` can be run without the menu. See [Deployment Workflow](#deployment-workflow) below.
 
 ### 4. Updating
 
-For servers where the repository folder is intentionally kept, use the update script to pull the latest code and rebuild containers:
-
 ```bash
-./update.sh
+./menu.sh
 ```
+
+Select **2) Update the app** to pull the latest code and rebuild containers.
 
 The update script preserves all Docker volumes and your `.env` configuration.
 
 ---
 
+## Updating API Keys / Credentials
+
+To add or change optional credentials (FAA SWIM, OpenSky) at any time:
+
+```bash
+./menu.sh
+```
+
+Select **3) Update API keys / credentials**. The helper shows whether each field is currently set without displaying the values, lets you update fields one at a time, and offers to run the update script automatically when done.
+
+Credential changes are written to `deploy.env`. They take effect after `./setup.sh` (first install) or `./update.sh` (subsequent updates).
+
+---
+
 ## Deployment Workflow
 
-### setup.sh vs update.sh
+### menu.sh, setup.sh, and update.sh
 
-- **setup.sh** is for the **initial installation**. It generates the environment configuration, validates credentials, and performs the first build. It also offers to delete source files after completion if you only need the runtime containers.
-- **update.sh** is for **ongoing updates** on development or test servers where the source repository is preserved. It pulls the latest code from git, rebuilds the images, and recreates the containers without losing data.
+- **menu.sh** is the normal entry point. It provides the setup, update, credential, status, and troubleshoot options in one place.
+- **setup.sh** handles the **initial installation** directly. Generates `.env`, validates credentials, performs the first build, and optionally cleans up source files after the containers are running.
+- **update.sh** handles **ongoing updates** when the source repository is kept. Pulls latest code, rebuilds images, and recreates containers without losing data.
 
 ### Resource Guardrails
 
@@ -244,13 +263,16 @@ Aircraft state is ephemeral within Redis (TTL-based). There is no database for h
 ## Testing
 
 ```bash
+# Interactive status, health check, and log access
+./menu.sh   # → option 4 (Status) or 5 (Troubleshoot)
+
 # Confirm containers are running
 docker compose ps
 
 # Tail all service logs
 docker compose logs -f
 
-# Check live aircraft API response
+# Check live aircraft API response (replace 8080 with your WEB_PORT if different)
 curl "http://localhost:8080/api?action=Planes" | python3 -m json.tool | head -40
 
 # Check worker health
